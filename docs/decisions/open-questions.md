@@ -77,44 +77,51 @@ is already established in both source reports either way.
 > versus building the standalone powerofthree's-Extender + SKSE_HTTP
 > fallback from day one and treating SkyrimNet as optional.
 
-## Open: save/reload timeline consistency — a gap none of the 4 prompts covered
+## Closed: save/reload timeline consistency (2026-08-20)
 
-Every filed research report implicitly assumes the sim runs alongside a
-continuously-progressing game. It doesn't: Skyrim players save, die,
-reload, and roll back hours or days constantly. If the player reloads a
-save from before the Jarl died, Chronicle's event log now contains events
-(the assassination, the succession contest, every rumor derived from it)
-that never happened in the timeline the player is now in.
+Reports [05](../research/05-save-reload-sync-protocol.md) and
+[06](../research/06-save-reload-timeline-sync.md) answered the prompt that
+was drafted here. Both independently converged on the same core design —
+event-sourced service, save-embedded `SaveUUID`/generation identity via
+SKSE co-save, fork-on-reload rather than rollback, tombstone-then-reap
+branch GC — which is now captured in
+[ADR-0004](0004-timeline-branching.md) and
+[ADR-0005](0005-sync-handshake.md), with a corresponding branch-key change
+to `chronicle/events.py`.
 
-The event-sourced core (`docs/decisions/0002-event-sourcing.md`) is
-plausibly the right substrate for this — snapshot per save, fork the
-timeline on reload — but this needs its own research pass: nobody has yet
-looked at how Mantella, CHIM, or SkyrimNet actually reconcile their
-external memory stores against save-scumming, or whether SKSE's co-save
-serialization (`SerializationInterface`) is the right anchor for letting an
-external process identify which timeline a loaded save belongs to.
+**Sub-disagreement, not fully resolved**: the two reports characterize
+SkyrimNet's own reload handling differently — report 05 calls it
+"effectively ignore/implicit" (in-process, no cross-process fork
+mechanism); report 06 describes an "explicit timeline cleanup protocol"
+(entity/virtual-speaker UUIDs, purge-on-load, protected knowledge packs),
+sourced to a GitHub Discussion rather than a design doc. This doesn't block
+Chronicle's own protocol (which doesn't depend on how SkyrimNet handles
+*its* reloads), but it's relevant input to the still-open SkyrimNet
+due-diligence question below, so it's tracked rather than dropped.
 
-**Assessment: this is arguably the single hardest unsolved integration
-problem in the project.** Not yet scheduled — flagging here so it doesn't
-get lost, and drafting the prompt now so it's ready to fire.
+**Implementation-risk notes carried forward** (uncertainties the source
+reports flagged as unconfirmed, not settled facts):
 
-> I'm building an external Python service that maintains persistent world
-> state (NPC beliefs, rumors, relationships) alongside Skyrim SE/AE.
-> Research how external-state mods handle save/load/reload consistency:
-> (1) how Mantella, CHIM/HerikaServer, and SkyrimNet reconcile their
-> external memory stores when the player reloads an earlier save, dies, or
-> maintains multiple characters/save slots — do they roll back, fork,
-> ignore, or corrupt? Find bug reports and design discussions, not just
-> docs; (2) SKSE co-save serialization (SKSE's `SerializationInterface`) —
-> what it can store, how mods use it to keep plugin state atomic with the
-> `.ess` save file, and whether a save-embedded UUID/timestamp is the
-> standard pattern for letting an external process identify which timeline
-> a loaded save belongs to; (3) how the event-sourcing community handles
-> timeline forking and branch garbage-collection in analogous domains;
-> (4) any Skyrim mods that detect save-load events at runtime
-> (`OnPlayerLoadGame`) and what race conditions exist between game load and
-> external-service notification. End with a recommended sync protocol for
-> an external service.
+- **CHIM's exact fork/prune trigger is reconstructed, not confirmed.** The
+  specific numeric threshold (how many in-game days back counts as
+  "old enough to fork") is inferred from CHIM's FAQ, Nexus changelog, and
+  HerikaServer's timestamp field names — no primary Dwemer Dynamics source
+  states the actual number. Don't copy a specific threshold value from
+  either report as if it were verified; treat Chronicle's own threshold as
+  a tunable to be set empirically.
+- **The save-embedded-UUID pattern has no confirmed Skyrim precedent.**
+  The strongest published prior art for "GUID-on-start + heartbeat, detect
+  reload by comparing stored state against the save's clock" is from a
+  different engine (the Neverwinter Nights "realms" module). Skyrim mods
+  more commonly reconcile via timestamp comparison (CHIM's `gamets`) than
+  via a stored GUID. Chronicle will be implementing and testing this
+  co-save read/write path essentially from scratch — budget for that.
+- **SKSE's `.skse`/`.ess` pairing is atomic by convention, not guaranteed.**
+  Neither SKSE's headers nor either report claim transactional atomicity —
+  `kPostLoadGame`'s success boolean exists precisely because a load can
+  fail after `kPreLoadGame` fires. ADR-0005's idempotency/versioning rules
+  exist to cover this gap, but a crash between co-save and `.ess` writes
+  remains a residual risk worth a scenario test once the shim exists.
 
 ## Deferred: economic simulation
 

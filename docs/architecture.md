@@ -38,6 +38,34 @@ See `docs/vision.md` for the *why*. Architecturally:
 Tier interface is event-in, event-out at every boundary: no tier holds
 authoritative state itself. The event log is the only source of truth.
 
+## Timeline branching (save/reload)
+
+Skyrim's save topology is a DAG, not a line: players save, die, reload,
+and roll back constantly. Every event carries a branch key
+`(save_uuid, generation)`; reloading an earlier save forks a new
+generation rather than rewriting or deleting anything, and state
+derivation is a path traversal from the root along one branch's lineage to
+its head — not a fold over the entire log. See
+`docs/decisions/0004-timeline-branching.md` (the branch/DAG model) and
+`docs/decisions/0005-sync-handshake.md` (the SKSE-shim/service handshake
+that keeps writes fenced to the right branch). `chronicle/events.py`
+implements the branch-aware log; the co-save shim that produces
+`save_uuid`/`generation` values lives in `adapters/skyrim/`.
+
+## The FormID rule
+
+Skyrim FormIDs are load-order-relative: a FormID's upper bits encode the
+owning plugin's position in the active load order, so adding, removing, or
+reordering mods invalidates any raw FormID stored externally. **Never
+persist a raw FormID in Chronicle's event log or derived state.** Store a
+composite key instead — plugin name plus the static local FormID offset —
+and resolve it against the current load order (the same way SKSE's
+`ResolveFormId` does) only at the point of use in `adapters/skyrim/`. A
+raw-FormID leak would silently corrupt events after any load-order change,
+in a way indistinguishable from a genuine timeline-fork bug — treat this
+rule as load-bearing for `0004-timeline-branching.md`, not just a style
+preference.
+
 ## Injection seam (Mantella/CHIM)
 
 Chronicle doesn't render its own dialogue. Belief/rumor/relationship state
