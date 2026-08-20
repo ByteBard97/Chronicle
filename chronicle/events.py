@@ -1,10 +1,32 @@
-"""The append-only event log.
+"""The append-only event log -- layer 1 of Chronicle's data-ownership model.
 
 Chronicle's core is event-sourced: every fact about the simulated world
 enters as an immutable Event, and all derived state (beliefs, rumors,
 grudges, reputation) is computed by folding over the log, never mutated
 directly. This makes the sim replayable, debuggable, and testable without
 a running game.
+
+This module owns only the canonical event log -- what objectively
+happened (docs/decisions/0006-data-ownership-layers.md, layer 1). It is
+the only objective layer; everything built on top of it is observer-
+relative and lives elsewhere:
+
+  - layer 2, claim/variant store: typed claims derived from events, plus
+    mutated variants (a rumor's retelling), each linked to its predecessor.
+  - layer 3, subjective belief store: per-NPC BeliefInstance records --
+    what a given NPC believes, with confidence, evidence, and provenance,
+    which may diverge from what this log says actually happened.
+  - layer 4, social state store: sparse relationships, grudges,
+    obligations, and observer-local reputation.
+  - layer 5, narrative/query layer: story sifters, quest hooks, the
+    dashboard's causality-timeline drill-down
+    (docs/decisions/0007-inspectability.md).
+
+Canonical events in this log never mutate once appended -- a claim built
+from an event can be superseded by a new variant, but the originating
+event itself is permanent. This is what lets every derived belief, rumor,
+or grudge answer "since when, from what evidence" (ADR-0007) by walking
+back through claims/variants to the event(s) that grounded them.
 
 Skyrim's save topology is a DAG, not a line (see
 docs/decisions/0004-timeline-branching.md): every event carries a branch

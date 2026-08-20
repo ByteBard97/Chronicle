@@ -51,10 +51,14 @@ it as one:
 
 ## Rationale
 
-- Both independent research reports converged on this design without
-  prompting each other, and it's the same model the broader event-sourcing
-  community uses for branching (commit≈event, branch≈stream, reload≈
-  checkout-then-new-commits — see report 05 §3).
+- Three independent research reports converged on this design without
+  prompting each other (`docs/research/05-...`, `06-...`, and
+  `07-skyrimnet-substrate.md`, the last of which re-derived the same DAG
+  model — down to a concrete `ChronicleSync::OnGameSave`/`OnGameLoad` C++
+  sketch — while researching an unrelated question, SkyrimNet's platform
+  risk). This is the same model the broader event-sourcing community uses
+  for branching (commit≈event, branch≈stream, reload≈checkout-then-new-
+  commits — see report 05 §3).
 - It's strictly more capable than every existing mod's approach: it
   disambiguates multiple characters/save slots (unlike Mantella's
   name-keyed files), doesn't require a global clock comparison that can

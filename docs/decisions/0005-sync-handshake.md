@@ -77,12 +77,17 @@ ping — never on `kPostLoadGame` alone.**
 
 ## Rationale
 
-Both source reports converged on gating writes on an explicit handshake
-rather than trusting the native load message alone, and both independently
-proposed a fencing-token-style mechanism (report 06 names it explicitly as
-"epoch fencing"; report 05 describes the same effect as "gate writes on
-receipt of the watermark"). Treating these as the same mechanism avoids
-building two overlapping race-prevention systems.
+All three save/reload research reports converged on gating writes on an
+explicit handshake rather than trusting the native load message alone, and
+all three independently proposed a fencing-token-style mechanism (report
+06 names it explicitly as "epoch fencing"; report 05 describes the same
+effect as "gate writes on receipt of the watermark"; report 07, arrived at
+while researching SkyrimNet's platform risk rather than save/reload
+directly, proposes its own `SYNC_READY`/mute-the-pipeline handshake with
+the same shape). Treating these as one mechanism avoids building two or
+three overlapping race-prevention systems, and the triple-independent
+convergence is stronger evidence for the design than any single report
+would be alone.
 
 ## Consequences
 

@@ -66,14 +66,66 @@ in a way indistinguishable from a genuine timeline-fork bug — treat this
 rule as load-bearing for `0004-timeline-branching.md`, not just a style
 preference.
 
+## Substrate Abstraction Layer (SAL)
+
+Chronicle's domain events are defined against a generic Python provider
+interface, not against any single mod's API. Two providers implement it,
+both under `adapters/skyrim/`: SkyrimNet (primary — low-latency, direct
+Papyrus/C++ event access when installed and version-compatible) and a
+standalone bridge built on powerofthree's Papyrus Extender + an
+open-source SKSE HTTP/WebSocket bridge (secondary — no closed-binary
+dependency). See `docs/decisions/0003-substrate-choice.md` for the risk
+rationale. `chronicle/` never imports either provider directly.
+
 ## Injection seam (Mantella/CHIM)
 
 Chronicle doesn't render its own dialogue. Belief/rumor/relationship state
 gets serialized into prompt context that Mantella- or CHIM-style dialogue
 mods consume, and player statements captured by those mods get turned back
 into Chronicle events. This seam is intentionally thin and lives in
-`adapters/skyrim/` — see `docs/decisions/0003-substrate-choice.md` for the
-open question of exactly which mod's extension points we integrate against.
+`adapters/skyrim/`, downstream of the SAL above.
+
+## Data ownership layers and inspectability
+
+Chronicle's belief/rumor/grudge/obligation/reputation state (not yet
+built — the event log is the only piece that exists today) is organized
+into five ownership layers, only the first of which is objective:
+canonical event log → claim/variant store → subjective belief store →
+social state store → narrative/query layer. See
+`docs/decisions/0006-data-ownership-layers.md` for the full rationale, the
+record shapes, and the load-bearing **sparse-graph rule** (never a
+complete N×N relationship matrix over ~1,000 NPCs) and
+**observer-local-reputation rule** (never one global score).
+
+Every derived social outcome must be explainable via evidence-chain
+drill-down — who believes it, from what evidence, through whom, since
+when, why it changed. See `docs/decisions/0007-inspectability.md`; this is
+both a schema constraint and the dashboard's core query.
+
+## Build order
+
+From `docs/research/08-social-sim-literature-v2.md` §9, promoted into the
+project plan:
+
+**Build first**: canonical events, claims, variants, belief instances, and
+evidence chains; Gossamer's witness/reflection/propagation/decay gossip
+loop; sparse relationship histories (City of Gangsters-style); bounded
+memory and mutation (fuzzy-trace theory's verbatim/gist split, source
+monitoring, simplified ACT-R activation); obligations and grudges as typed
+records; observer-local reputation (Beta distribution, subjective logic).
+
+**Add next**: Daley–Kendall/Maki–Thompson/SIHR-style rumor-state
+transitions; Deffuant–Weisbuch and Friedkin–Johnsen updates for continuous
+attitudes (faction sentiment, not event facts); face-threat scoring for
+accusations/requests/refusals; batch story sifters; Dwarf-Fortress-style
+long-term memory summarization.
+
+**Defer**: full norm emergence; general-purpose logic programming; anomaly
+detection; prospective drama management; **LLM reflection or dialogue
+integration** — the local- and conversation-LLM tiers above come only
+after the math tier and belief-facet store are proven headless in
+`scenarios/`, per the staged plan every hybrid-architecture report
+(`docs/research/03-...`) and this literature report both converge on.
 
 ## Hydration-override seam
 

@@ -4,6 +4,10 @@ Tensions surfaced by research that contradict an existing decision record or
 another report. Resolving one means proposing an ADR update and getting
 explicit sign-off before marking it resolved here.
 
+**Status (2026-08-20): research phase complete.** Every item below is
+resolved or closed except the deferred economy tier, which is deliberately
+out of scope, not unresolved. See `docs/research/00-index.md`.
+
 ## Resolved by direct repo verification (2026-08-20)
 
 Three factual disagreements between the two `01-skyrim-modding-substrate.md`
@@ -25,57 +29,23 @@ were resolved directly against GitHub instead of re-researched:
 `docs/research/01-skyrim-modding-substrate.md` has been corrected in place
 to reflect these facts.
 
-## Open: SkyrimNet — build-on or study-only?
+## Closed: SkyrimNet — build-on or study-only? (2026-08-20)
 
 The two `01-skyrim-modding-substrate.md` source reports gave opposite
-recommendations. One treats SkyrimNet as study-only prior art alongside
-Mantella/CHIM. The other names it the primary integration target: it's the
-only actively maintained framework exposing the exact primitives Chronicle
-needs (`RegisterEvent`, `RegisterPackage` for runtime AI-package injection,
-`RegisterDecorator`, `DirectNarration`, lifecycle ModEvents), and MinAI's own
-README (now verified above) redirects users to it — a strong maintenance
-signal.
+recommendations, and this was flagged as bearing directly on ADR-0003. The
+due-diligence prompt drafted here was fired and answered by
+[report 07](../research/07-skyrimnet-substrate.md): direct SkyrimNet
+coupling is rated **HIGH RISK** (closed C++ core, no LICENSE file, single
+Ko-fi-funded maintainer, documented API-version drift across betas,
+in-process crash-to-desktop failure mode), and a **Substrate Abstraction
+Layer** (SkyrimNet as primary provider, powerofthree's Extender +
+open-source SKSE_HTTP as secondary, both behind a generic provider
+interface) is rated **MEDIUM RISK** and adopted. See
+[ADR-0003](0003-substrate-choice.md), now `accepted`.
 
-But the thing that makes SkyrimNet the best integration target is also the
-biggest platform risk: its C++ core is closed-source, distributed only as a
-compiled DLL via GitHub releases, has no `LICENSE` file (so no legal fork
-path if it goes dark), is maintained by one person, and its API can change
-between betas.
-
-**This bears directly on ADR-0003** (substrate choice) — SkyrimNet's
-maturity was part of the case for targeting Skyrim directly rather than
-prototyping elsewhere first, but its closed-binary/single-maintainer risk
-argues for hedging rather than committing outright.
-
-**Next step, not yet run:** a short due-diligence research prompt on
-SkyrimNet's ecosystem health (Patreon sustainability, community size, the
-author's roadmap and stated stance on third-party integrations, whether
-other integrators have hit documented API-breakage pain) before ADR-0003 is
-finalized. This is risk-sizing, not re-architecture — the fallback
-(powerofthree's Papyrus Extender + a standalone SKSE_HTTP/WebSocket bridge)
-is already established in both source reports either way.
-
-> I'm evaluating SkyrimNet (`github.com/MinLL/SkyrimNet-GamePlugin`) as the
-> primary integration target for an external Python social-simulation
-> service, but its C++ core is closed-source (compiled-DLL-only releases,
-> no LICENSE file), maintained by one person (MinLL), and its Papyrus/C++
-> API can change between betas. Research the health and risk of building
-> against it: (1) Patreon/funding sustainability and update cadence —
-> is there a pattern of long gaps or abandonment risk; (2) community size
-> and the author's stated roadmap and stance on third-party
-> integrations/forks, including any public statement on what happens to
-> the project if development stops; (3) documented API-breakage pain from
-> other integrators or mod authors who built against SkyrimNet's
-> `RegisterEvent`/`RegisterPackage`/`RegisterDecorator` API across beta
-> versions — check issue trackers, Discord-adjacent forum posts, and
-> changelogs, not just the docs; (4) whether MinAI's deprecation and
-> redirect to SkyrimNet (confirmed: MinAI's README now explicitly points
-> users to SkyrimNet) reflects a healthy consolidation or a
-> single-point-of-failure concentration risk for the AI-NPC modding
-> ecosystem as a whole. End with a risk rating (low/medium/high) for
-> building Chronicle's primary integration against SkyrimNet's API as-is,
-> versus building the standalone powerofthree's-Extender + SKSE_HTTP
-> fallback from day one and treating SkyrimNet as optional.
+Report 07 also independently re-derived the save/reload sync design from
+reports 05/06 while researching this unrelated question — a third
+convergence, noted in ADR-0004/0005.
 
 ## Closed: save/reload timeline consistency (2026-08-20)
 
@@ -96,8 +66,9 @@ mechanism); report 06 describes an "explicit timeline cleanup protocol"
 (entity/virtual-speaker UUIDs, purge-on-load, protected knowledge packs),
 sourced to a GitHub Discussion rather than a design doc. This doesn't block
 Chronicle's own protocol (which doesn't depend on how SkyrimNet handles
-*its* reloads), but it's relevant input to the still-open SkyrimNet
-due-diligence question below, so it's tracked rather than dropped.
+*its* reloads), and neither reading changed the now-closed SkyrimNet
+due-diligence verdict above — left here as an unreconciled factual detail,
+not an open decision.
 
 **Implementation-risk notes carried forward** (uncertainties the source
 reports flagged as unconfirmed, not settled facts):

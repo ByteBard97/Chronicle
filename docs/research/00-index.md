@@ -11,6 +11,8 @@ all reports — see each file for full detail and citations.
 | 04 | [04-voice-pipeline.md](04-voice-pipeline.md) | Voice/dialogue pipeline for procedural NPCs | 1 report | filed |
 | 05 | [05-save-reload-sync-protocol.md](05-save-reload-sync-protocol.md) | Save/reload timeline consistency — protocol design | 1 report (batch 2) | filed |
 | 06 | [06-save-reload-timeline-sync.md](06-save-reload-timeline-sync.md) | Save/reload timeline consistency — DAG model and wire protocol | 1 report (batch 2) | filed |
+| 07 | [07-skyrimnet-substrate.md](07-skyrimnet-substrate.md) | SkyrimNet ecosystem due-diligence — resolves ADR-0003 | 1 report (batch 3) | filed |
+| 08 | [08-social-sim-literature-v2.md](08-social-sim-literature-v2.md) | Social simulation literature v2 — implementable specification | 1 report (batch 3) | filed |
 
 ## Merged [BUILD-ON] list
 
@@ -25,7 +27,12 @@ all reports — see each file for full detail and citations.
 - **NPC data ingestion**: Mutagen or the xEdit Info NPC Extractor script, plus UESP CC-BY-SA bios. (01)
 - **Save/reload identity**: embed a `SaveUUID` + `ParentSaveUUID` + monotonic `generation`/`SaveSequence` in the SKSE co-save (`TMNL` record) — strictly stronger than any existing mod's approach (CHIM's clock-only `gamets`, Mantella's none, SkyrimNet's in-process-only). See ADR-0004. (05, 06)
 - **Timeline model**: model Skyrim's save topology as a DAG of branches keyed by `(save_uuid, generation)`; fork on reload, never roll back; derive state by path traversal from root to head. See ADR-0004 and the `chronicle/events.py` branch-key change. (05, 06)
-- **Sync handshake**: gate writes on an explicit watermark/epoch handoff between the SKSE shim and the service, not on `kPostLoadGame` alone; buffer/suppress events during the load window. See ADR-0005. (05, 06)
+- **Sync handshake**: gate writes on an explicit watermark/epoch handoff between the SKSE shim and the service, not on `kPostLoadGame` alone; buffer/suppress events during the load window. See ADR-0005. (05, 06, and independently re-derived by 07)
+- **Substrate Abstraction Layer**: a generic Python provider interface in `chronicle/`, with SkyrimNet as primary provider and PO3-Extender+SKSE_HTTP as secondary, both implemented under `adapters/`. Resolves ADR-0003. (07)
+- **Five-layer data ownership**: canonical events → claims/variants → subjective beliefs → social state → narrative/query. Only the first layer is objective. See ADR-0006. (08)
+- **Sparse-graph rule**: never maintain a complete N×N social matrix — sparse acquaintance/witness/family/faction edges only, evidenced by Socialog's 15-25ms→600ms per-tick cost growth from 50→450 characters. See ADR-0006. (08)
+- **Observer-local reputation**: Beta-distribution `(alpha, beta)` per `(observer, subject, context)`, never one global score. See ADR-0006. (08)
+- **Inspectability**: every derived social outcome must answer "who believes this, from what evidence, through whom, since when." See ADR-0007. (08)
 
 ## Merged [RISK] list
 
@@ -41,6 +48,8 @@ all reports — see each file for full detail and citations.
 - **No prior Skyrim reputation/rumor mod actually implements propagation** — confirms this is a genuine gap, not reinvention, but also means there's no prior art to lean on for the game-side UX of surfacing rumors to the player. (01)
 - **No existing mod solves save/reload consistency cleanly** — Mantella ignores it (drift), CHIM prunes globally by clock comparison (not per-slot), SkyrimNet's reload story is disputed between the two batch-2 reports (in-process/no fork vs. an explicit but unverified cleanup protocol). This is now addressed by ADR-0004/0005, but remains one of the least-precedented parts of the design — expect to implement and test from scratch. (05, 06)
 - **FormID instability**: a stored 32-bit FormID becomes invalid if the player's load order changes (mod add/remove/reorder shifts the ModIndex bits). Chronicle must never persist raw FormIDs. (06)
+- **SkyrimNet direct coupling rated HIGH RISK** as a sole dependency: closed C++ core, no LICENSE file, single Ko-fi-funded maintainer, in-process design means a core exception is a crash-to-desktop. Mitigated, not eliminated, by the SAL (07).
+- **API version drift**: SkyrimNet's Public API has already bumped (v9 at Beta 20) breaking binary compatibility for downstream native plugins across beta shifts — a live, not hypothetical, risk for any provider built directly against it. (07)
 
 ## Open questions raised
 
@@ -48,11 +57,16 @@ See [`docs/decisions/open-questions.md`](../decisions/open-questions.md):
 
 - **Resolved by direct repo verification**: MinAI is deprecated (confirmed), Mantella's latest release is v0.14 published 2026-04-21 (confirmed), CHIM/HerikaServer is MIT-licensed (confirmed). Report 01 has been corrected in place.
 - **Closed by research**: save/reload timeline consistency — reports 05 and 06 answered the drafted prompt. ADR-0004 (timeline branching) and ADR-0005 (sync handshake) are now drafted from their recommendations, and `chronicle/events.py` carries a branch key. Two implementation-risk uncertainties carried forward (not fully resolved): CHIM's exact fork trigger is reconstructed, not confirmed; the save-embedded-UUID pattern has no confirmed Skyrim precedent. A third disagreement surfaced between reports 05 and 06 on how SkyrimNet itself handles reloads (implicit/none vs. an explicit but unverified cleanup protocol) — logged, not resolved, since Chronicle doesn't depend on SkyrimNet's own reload behavior for its own protocol either way.
-- **Open — bears on ADR-0003**: the SkyrimNet build-vs-study disagreement between the two report-01 sources. A short due-diligence research prompt (SkyrimNet ecosystem health/sustainability) is drafted and ready to fire before this ADR is finalized. This is now the only queued research task.
-- **Deferred, not forgotten**: economic simulation (prices, supply, trade ripple) — out of scope until the belief tier is proven, slated v0.4.
+- **Closed by research**: SkyrimNet build-vs-study — report 07 resolves ADR-0003 with a Substrate Abstraction Layer, rating direct SkyrimNet coupling HIGH RISK and the SAL hedge MEDIUM RISK. ADR-0003 is now `accepted`.
+- **Deferred, not forgotten**: economic simulation (prices, supply, trade ripple) — out of scope until the belief tier is proven, slated v0.4. **This is the only remaining open item.**
 
-## Batch 2 — complete
+## Research phase: complete
 
-Save/reload consistency (reports 05, 06) is filed and closed out into
-ADR-0004/0005 plus an `events.py` change. One research task remains queued:
-SkyrimNet ecosystem due-diligence, gating ADR-0003.
+Batches 1-3 (8 reports across 4 original prompts + 2 follow-ups) are filed.
+Every ADR the research surfaced a need for has been drafted:
+0001/0002 (accepted at scaffold time), 0003 (substrate — accepted this
+batch), 0004/0005 (timeline branching / sync handshake — accepted, and
+independently triple-confirmed across reports 05, 06, 07), 0006 (data
+ownership layers), 0007 (inspectability). The project moves from research
+into build: the first code milestone is the canonical event log + belief-
+facet store with a regression scenario suite, no LLM involved.
