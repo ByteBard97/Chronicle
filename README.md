@@ -1,47 +1,54 @@
 # Chronicle
 
-An external Python social-simulation service for Skyrim SE/AE: NPC
-beliefs (with provenance and strength), rumor propagation with mutation,
-grudges, obligations, and reputation across a game world, injected back
-into the game as behavior the player can perceive and shape.
+![status](https://img.shields.io/badge/status-research%20complete%2C%20entering%20build-blue)
+![python](https://img.shields.io/badge/python-3.12%2B-blue)
 
-Start here:
+**A world that remembers.** Chronicle is an external social-simulation
+service for Skyrim SE/AE: it gives every named NPC beliefs with
+provenance and strength, lets rumors spread and mutate as they pass from
+person to person, tracks grudges and obligations from what actually
+happened, and feeds all of it back into the game as behavior the player
+can perceive and shape.
 
-- **`docs/vision.md`** — what this is and why, anchored on the north-star
-  scenario (the Jarl of Whiterun assassination cascade).
-- **`docs/architecture.md`** — the event-sourced core, the three-tier
-  belief architecture, the Substrate Abstraction Layer, deployment target.
-- **`docs/decisions/`** — numbered ADRs (0001-0007 and amendments) and
-  `open-questions.md`, the project's working memory for research-surfaced
-  tensions.
-- **`docs/research/00-index.md`** — every research report that's shaped
-  this design, with tagged findings and merged build-on/risk lists.
+The north star: if the player assassinates the Jarl of Whiterun, that
+should cascade — a succession contest driven by the court's real
+relationships, an economic ripple through dependent merchants, a rumor
+that mutates as it travels to Riften, guard patrols that shift as a
+*consequence* of the simulation, not a scripted quest branch.
+
+## Read next
+
+| | |
+|---|---|
+| [`docs/vision.md`](docs/vision.md) | What this is and why, anchored on the north-star scenario. |
+| [`docs/architecture.md`](docs/architecture.md) | The event-sourced core, the three-tier belief architecture, the Substrate Abstraction Layer, deployment target. |
+| [`docs/decisions/`](docs/decisions/) | Numbered ADRs and `open-questions.md` — the project's working memory for every design tension research surfaced. |
+| [`docs/research/00-index.md`](docs/research/00-index.md) | Every research report behind this design, with tagged findings and merged build-on/risk lists. |
 
 ## Status
 
-Research phase complete (10 reports, 5 batches). Currently scoping the
-v0.1 spec — see `docs/decisions/open-questions.md` and the most recent
-entries in `claude-sessions/` for where that stands.
+Research phase complete — 10 reports across 5 batches, 7 accepted ADRs.
+Currently scoping the v0.1 spec (see `docs/decisions/open-questions.md`).
 
-v0.1 is headless: no Skyrim installation is required to build or test it.
-The `adapters/skyrim/` SKSE seam (and the Proton/Linux deployment target
-in `docs/architecture.md`) only becomes relevant at v0.2.
+v0.1 is **headless**: no Skyrim installation required to build, run, or
+test it. The `adapters/skyrim/` SKSE seam only becomes relevant at v0.2.
 
 ## Development
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.12+ (uv will
-install the right Python automatically).
+Requires [uv](https://docs.astral.sh/uv/) — it installs the right Python
+(3.12+) automatically.
 
 ```sh
-uv sync          # install dependencies
-make test        # run the test suite (uv run pytest)
-make lint         # uv run ruff check .
-make sim          # uv run python -m chronicle (currently a stub)
+uv sync      # install dependencies
+make test    # uv run pytest
+make lint    # uv run ruff check .
+make sim     # uv run python -m chronicle (currently a stub)
 ```
 
-Layout: `chronicle/` is the pure-Python simulation engine (never imports
-anything Skyrim-specific); `adapters/skyrim/` is the only place allowed to
-know Skyrim exists; `dashboard/` is the debug/observability web UI;
-`scenarios/` holds headless regression scenarios with asserted outcomes;
-`notes/` is working memory (`inbox/` for unprocessed material, `daily/`
-for session notes, `ideas.md` for unsorted ideas and action items).
+**Layout**: `chronicle/` is the pure-Python simulation engine — it never
+imports anything Skyrim-specific. `adapters/skyrim/` is the only place
+allowed to know Skyrim exists. `dashboard/` is the debug/observability web
+UI (first-class, not an afterthought — see `docs/vision.md`).
+`scenarios/` holds headless regression scenarios with asserted outcomes.
+`notes/` is working memory: `inbox/` for unprocessed material, `daily/`
+for session notes, `ideas.md` for unsorted ideas and action items.
