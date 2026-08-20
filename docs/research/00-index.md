@@ -15,6 +15,9 @@ all reports — see each file for full detail and citations.
 | 08 | [08-social-sim-literature-v2.md](08-social-sim-literature-v2.md) | Social simulation literature v2 — implementable specification | 1 report (batch 3) | filed |
 | 09 | [09-save-sync-forensics.md](09-save-sync-forensics.md) | Save/reload sync — third independent pass, repository forensics | 1 report (batch 4) | filed — supersedes 05/06 on specifics |
 
+Source PDFs worth keeping locally (not re-reads, schema/rule-authoring
+references): see [`papers/README.md`](papers/README.md).
+
 ## Merged [BUILD-ON] list
 
 - **Belief data model**: James Ryan et al.'s Talk of the Town facet model (Value/Predecessor/Evidence/Strength/Accuracy) — near-direct template for `chronicle`'s belief dataclass, already Python. (02)
