@@ -8,6 +8,12 @@ explicit sign-off before marking it resolved here.
 resolved or closed except the deferred economy tier, which is deliberately
 out of scope, not unresolved. See `docs/research/00-index.md`.
 
+The project has since moved past research into six *design* (not
+research) decisions gating the v0.1 build — see `docs/v0.1-spec.md`,
+accepted 2026-08-20. `chronicle/claims.py` (the layer 2/3 claim/variant/
+belief store) is the first code built against it; revisit a decision
+only if a scenario disproves it, not preemptively.
+
 ## Resolved by direct repo verification (2026-08-20)
 
 Three factual disagreements between the two `01-skyrim-modding-substrate.md`

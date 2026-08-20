@@ -28,7 +28,8 @@ that mutates as it travels to Riften, guard patrols that shift as a
 ## Status
 
 Research phase complete — 10 reports across 5 batches, 7 accepted ADRs.
-Currently scoping the v0.1 spec (see `docs/decisions/open-questions.md`).
+`docs/v0.1-spec.md` is accepted; the build has started with the claim/
+variant/belief store (`chronicle/claims.py`).
 
 v0.1 is **headless**: no Skyrim installation required to build, run, or
 test it. The `adapters/skyrim/` SKSE seam only becomes relevant at v0.2.
