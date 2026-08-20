@@ -3,6 +3,7 @@ name = "chronicle"
 version = "0.1.0"
 description = "External social simulation service for Skyrim SE/AE: beliefs, rumors, grudges, and reputation across the whole game world."
 requires-python = ">=3.12"
+license = "AGPL-3.0-or-later"
 dependencies = []
 
 [dependency-groups]
