@@ -29,7 +29,7 @@ were resolved directly against GitHub instead of re-researched:
 `docs/research/01-skyrim-modding-substrate.md` has been corrected in place
 to reflect these facts.
 
-## Closed: SkyrimNet — build-on or study-only? (2026-08-20)
+## Closed: SkyrimNet — build-on or study-only? (2026-08-20, amended 2026-08-20)
 
 The two `01-skyrim-modding-substrate.md` source reports gave opposite
 recommendations, and this was flagged as bearing directly on ADR-0003. The
@@ -38,14 +38,26 @@ due-diligence prompt drafted here was fired and answered by
 coupling is rated **HIGH RISK** (closed C++ core, no LICENSE file, single
 Ko-fi-funded maintainer, documented API-version drift across betas,
 in-process crash-to-desktop failure mode), and a **Substrate Abstraction
-Layer** (SkyrimNet as primary provider, powerofthree's Extender +
-open-source SKSE_HTTP as secondary, both behind a generic provider
-interface) is rated **MEDIUM RISK** and adopted. See
-[ADR-0003](0003-substrate-choice.md), now `accepted`.
+Layer** (behind a generic provider interface) is rated **MEDIUM RISK** and
+adopted, initially with SkyrimNet as primary provider.
 
-Report 07 also independently re-derived the save/reload sync design from
-reports 05/06 while researching this unrelated question — a third
-convergence, noted in ADR-0004/0005.
+**Amended by [report 10](../research/10-skyrimnet-health.md)**, a deeper
+pass working from actual release history and integrator bug trails: the
+API churn is concrete and damaging enough (v6→v9 in ~1 month, documented
+IntelEngine/SeverActions breakage, no continuity statement even after an
+exhaustive-as-possible targeted search) that the SAL's provider priority
+inverts — **the standalone powerofthree's-Extender + SKSE_HTTP path is
+now the reference implementation, SkyrimNet is an optional adapter pinned
+to one beta/API version**, rated **LOW-MEDIUM RISK**, stronger than the
+MEDIUM RISK rating with SkyrimNet as primary. See
+[ADR-0003](0003-substrate-choice.md)'s amendment for the full evidence and
+concrete promotion/drop thresholds. Action item tracked in
+[`notes/ideas.md`](../../notes/ideas.md): ask SkyrimNet's maintainer
+directly for a license and continuity statement.
+
+Reports 07 and 09 also independently re-derived the save/reload sync
+design from reports 05/06 while researching unrelated questions — a
+fourth convergence, noted in ADR-0004/0005.
 
 ## Closed: save/reload timeline consistency (2026-08-20)
 

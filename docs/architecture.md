@@ -70,12 +70,45 @@ preference.
 
 Chronicle's domain events are defined against a generic Python provider
 interface, not against any single mod's API. Two providers implement it,
-both under `adapters/skyrim/`: SkyrimNet (primary — low-latency, direct
-Papyrus/C++ event access when installed and version-compatible) and a
-standalone bridge built on powerofthree's Papyrus Extender + an
-open-source SKSE HTTP/WebSocket bridge (secondary — no closed-binary
-dependency). See `docs/decisions/0003-substrate-choice.md` for the risk
-rationale. `chronicle/` never imports either provider directly.
+both under `adapters/skyrim/`:
+
+- **Reference implementation — the standalone bridge**: powerofthree's
+  Papyrus Extender (MIT, open-source, already a required dependency of
+  SkyrimNet itself) plus an open-source SKSE HTTP/WebSocket bridge. Built
+  first; Chronicle's tests and scenarios target this provider by default.
+- **Optional adapter — SkyrimNet**: low-latency, direct Papyrus/C++ event
+  access when SkyrimNet is installed. Pinned hard to one specific
+  SkyrimNet beta and its declared Public API version.
+
+`chronicle/` never imports either provider directly. See
+`docs/decisions/0003-substrate-choice.md` for the risk rationale and the
+amendment that inverted which provider is primary.
+
+### SkyrimNet adapter isolation rules
+
+If/when the SkyrimNet adapter is built, three rules apply, all sourced to
+documented integrator pain (`docs/research/10-skyrimnet-health.md`):
+
+- **Startup version handshake.** The adapter declares the exact SkyrimNet
+  Public API version it was built against and checks it at startup; on
+  any mismatch it refuses to run with a clear error, rather than degrading
+  silently or crashing later on a missing symbol (the failure mode
+  IntelEngine hit when a required export wasn't present in an older
+  build).
+- **All `Register*` calls isolated in one adapter module, with contract
+  tests.** `RegisterEvent`, `RegisterPackage`, `RegisterDecorator`,
+  `RegisterAction`, and their `*ByUUID` variants go through a single
+  module Chronicle owns, tested against the pinned API version's
+  contract. An upstream SkyrimNet API break is then a one-file fix, not a
+  Chronicle-wide refactor.
+- **Init-ordering guard.** The adapter registers only after SkyrimNet has
+  finished its own initialization — never speculatively early. SeverActions
+  v3.0.1 hit a startup deadlock from registering decorators before
+  SkyrimNet's own systems were ready; this guard exists specifically to
+  avoid reproducing that.
+- **Never redistribute the DLL.** Chronicle integrates against SkyrimNet's
+  documented public API at arm's length only; the closed binary is never
+  bundled or shipped with Chronicle.
 
 ## Injection seam (Mantella/CHIM)
 
