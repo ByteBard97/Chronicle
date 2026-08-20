@@ -42,23 +42,63 @@ it as one:
 - **State derivation is a path traversal**: to compute current world state,
   fold over events from the root along the lineage to the active
   `(save_uuid, generation)` head — not "all events ever recorded."
-- **Garbage collection**: abandoned branches are tombstoned
-  (`abandoned_at`), never hard-deleted inline. A branch is only reaped once
-  no live `.ess`/co-save on disk references its `(save_uuid, generation)`
-  — mirroring the "orphaned co-save" test community tools (SSE Engine
-  Fixes) already use — and only after a retention window, so an accidental
-  reload stays recoverable.
+- **Every event carries both time coordinates — bitemporal, mandatory,
+  never `NULL`**: `gamets` (Skyrim's in-game clock at the moment of the
+  event — **valid time**, when the fact is true in the modeled reality)
+  and `wall_ts` (real-world time the event was durably stored — **transaction
+  time**). Queries need both: "Lydia's beliefs as of branch B, game-time T"
+  is a valid-time query; "what did the service know when the player saved
+  S17" is a transaction-time query. This is not optional metadata —
+  CHIM's HerikaServer had both columns and still broke (PR #572,
+  `docs/research/09-save-sync-forensics.md`) because validity was a bare
+  nullable field rather than a mandatory, always-populated one: manually-
+  edited rows left `gamets` unstamped were indistinguishable from "never
+  anchored" and got wiped by the next rollback sweep. **Every write path —
+  including future admin/dashboard/debug tools — must stamp both fields or
+  be rejected**, not silently defaulted.
+- **Garbage collection is reachability-based, never timestamp-based, with
+  a grace period and soft-delete first.** A branch is live if and only if
+  some surviving `.ess`/co-save on disk references its
+  `(save_uuid, generation)` — mirroring both the "orphaned co-save" test
+  community tools (SSE Engine Fixes) already use, and git's own model
+  (objects collectable only when unreachable from any ref; the reflog
+  keeps abandoned tips reachable for a grace period before `git gc` prunes
+  them). Abandoned branches are **tombstoned** (`abandoned_at`) first, kept
+  through a retention window so an accidental reload stays recoverable,
+  and only hard-purged after that window, never inline at reload time.
+  **This rule exists because of a documented failure, not by analogy**:
+  SkyrimNet issue #487 (`docs/research/09-...`) is a 100%-reproducible bug
+  where a GC routine hard-deleted 237 externally-created memories — no
+  recovery path — because its liveness criterion was an internal,
+  non-inspectable timestamp that a second write path (the dashboard/MCP
+  API) stamped differently. Reachability-from-a-live-reference cannot fail
+  this way; a timestamp comparison can and did.
+- **User-curated content is a protected stream class, exempt by
+  construction, not by heuristic.** Hand-authored bios, pinned rumors, or
+  any record a person (not the simulation) created directly must live in
+  a stream class the fork/rollback/GC machinery never touches — mirroring
+  SkyrimNet's own Beta20 fix ("user-curated world knowledge entries are no
+  longer deleted when loading older saves") and CHIM's Playthrough Manager
+  archive, both retrofits of a rule Chronicle should have from the start.
+  "Exempt by class" means the exemption is a property of *which stream the
+  record lives in*, not a special-cased conditional buried in the GC pass
+  — the retrofit history in report 09 is evidence that heuristic exemptions
+  get missed.
 
 ## Rationale
 
-- Three independent research reports converged on this design without
-  prompting each other (`docs/research/05-...`, `06-...`, and
+- Four independent research reports converged on this design without
+  prompting each other (`docs/research/05-...`, `06-...`,
   `07-skyrimnet-substrate.md`, the last of which re-derived the same DAG
   model — down to a concrete `ChronicleSync::OnGameSave`/`OnGameLoad` C++
   sketch — while researching an unrelated question, SkyrimNet's platform
-  risk). This is the same model the broader event-sourcing community uses
-  for branching (commit≈event, branch≈stream, reload≈checkout-then-new-
-  commits — see report 05 §3).
+  risk; and `09-save-sync-forensics.md`, which grounds the same model in
+  actual repository history — CHIM/SkyrimNet PRs and issues — rather than
+  architecture alone). This is the same model the broader event-sourcing
+  community uses for branching (commit≈event, branch≈stream, reload≈
+  checkout-then-new-commits — see report 05 §3), and report 09 adds git's
+  own reachability/reflog/grace-period GC model as a second, independent
+  precedent for the same discipline.
 - It's strictly more capable than every existing mod's approach: it
   disambiguates multiple characters/save slots (unlike Mantella's
   name-keyed files), doesn't require a global clock comparison that can
@@ -96,4 +136,8 @@ it as one:
 See `docs/decisions/open-questions.md` — CHIM's fork-trigger threshold is
 reconstructed, not confirmed; the save-embedded-UUID pattern has no
 confirmed Skyrim precedent (nearest prior art is a different engine); the
-`.skse`/`.ess` pairing is atomic by convention only.
+`.skse`/`.ess` pairing is atomic by convention only. Report 09's specific
+GC grace-period recommendation (≥7 days, informed by git's 2-week/30-day/
+90-day precedents) is a reasonable starting default, not a verified
+Skyrim-specific constant — same caveat as every other numeric threshold
+in this ADR's source reports.

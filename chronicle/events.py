@@ -34,6 +34,19 @@ key (save_uuid, generation), and state is derived by traversing root->head
 along one branch's lineage, not by folding over every event ever recorded.
 Reloading an earlier save forks a new generation; it never rewrites or
 deletes the abandoned suffix.
+
+Every event also carries an idempotency key -- (save_uuid, generation,
+seq), seq monotonic per branch -- and both bitemporal time coordinates:
+gamets (Skyrim's in-game clock -- valid time, when the fact is true in
+the modeled reality) and wall_ts (real time the event was durably
+appended -- transaction time). Both are mandatory, never None: a write
+missing either is rejected outright, because a nullable/optional time
+field is exactly what broke two other Skyrim external-state mods in
+production (see docs/decisions/0004-timeline-branching.md's bitemporal
+rule, and docs/research/09-save-sync-forensics.md for the incidents that
+motivate it). (save_uuid, generation, seq) lets EventLog.append() be
+idempotent -- replays, retried network posts, and double-fired Papyrus
+events become no-ops on a duplicate key rather than double-counted state.
 """
 
 from __future__ import annotations
@@ -48,6 +61,9 @@ class Event:
     tick: int
     save_uuid: str
     generation: int
+    seq: int
+    gamets: float
+    wall_ts: float
 
 
 @dataclass(frozen=True)
@@ -97,15 +113,27 @@ class EventLog:
     directly under this branch. Forking never mutates or deletes the
     branch it forked from -- the abandoned suffix stays recorded, just
     unreachable from the new branch's lineage.
+
+    append() is idempotent on (save_uuid, generation, seq): appending an
+    event whose key was already seen is a no-op. This is what makes
+    reconnect replays, retried network posts, and double-fired Papyrus
+    events safe by construction (docs/decisions/0005-sync-handshake.md).
     """
 
     def __init__(self) -> None:
         self._events: dict[BranchKey, list[Event]] = {}
         self._parent: dict[BranchKey, tuple[BranchKey, int]] = {}
+        self._seen_seqs: dict[BranchKey, set[int]] = {}
 
-    def append(self, event: Event) -> None:
+    def append(self, event: Event) -> bool:
+        """Append event; returns False (no-op) if its (branch, seq) was already appended."""
         key = BranchKey(event.save_uuid, event.generation)
+        seen = self._seen_seqs.setdefault(key, set())
+        if event.seq in seen:
+            return False
+        seen.add(event.seq)
         self._events.setdefault(key, []).append(event)
+        return True
 
     def fork(self, save_uuid: str, from_generation: int, at_event_count: int) -> int:
         """Fork a new branch from (save_uuid, from_generation) at at_event_count events.

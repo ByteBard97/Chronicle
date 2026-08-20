@@ -13,6 +13,7 @@ all reports — see each file for full detail and citations.
 | 06 | [06-save-reload-timeline-sync.md](06-save-reload-timeline-sync.md) | Save/reload timeline consistency — DAG model and wire protocol | 1 report (batch 2) | filed |
 | 07 | [07-skyrimnet-substrate.md](07-skyrimnet-substrate.md) | SkyrimNet ecosystem due-diligence — resolves ADR-0003 | 1 report (batch 3) | filed |
 | 08 | [08-social-sim-literature-v2.md](08-social-sim-literature-v2.md) | Social simulation literature v2 — implementable specification | 1 report (batch 3) | filed |
+| 09 | [09-save-sync-forensics.md](09-save-sync-forensics.md) | Save/reload sync — third independent pass, repository forensics | 1 report (batch 4) | filed — supersedes 05/06 on specifics |
 
 ## Merged [BUILD-ON] list
 
@@ -27,7 +28,8 @@ all reports — see each file for full detail and citations.
 - **NPC data ingestion**: Mutagen or the xEdit Info NPC Extractor script, plus UESP CC-BY-SA bios. (01)
 - **Save/reload identity**: embed a `SaveUUID` + `ParentSaveUUID` + monotonic `generation`/`SaveSequence` in the SKSE co-save (`TMNL` record) — strictly stronger than any existing mod's approach (CHIM's clock-only `gamets`, Mantella's none, SkyrimNet's in-process-only). See ADR-0004. (05, 06)
 - **Timeline model**: model Skyrim's save topology as a DAG of branches keyed by `(save_uuid, generation)`; fork on reload, never roll back; derive state by path traversal from root to head. See ADR-0004 and the `chronicle/events.py` branch-key change. (05, 06)
-- **Sync handshake**: gate writes on an explicit watermark/epoch handoff between the SKSE shim and the service, not on `kPostLoadGame` alone; buffer/suppress events during the load window. See ADR-0005. (05, 06, and independently re-derived by 07)
+- **Sync handshake**: gate writes on an explicit watermark/epoch handoff between the SKSE shim and the service, not on `kPostLoadGame` alone; buffer/suppress events during the load window. See ADR-0005. (05, 06, independently re-derived by 07, and superseded on specifics by 09's HELLO/RESOLVE/ACK protocol with a six-way decision table and a DEGRADED mode for service-down-at-load)
+- **Save-sync forensics**: report 09 goes past architecture into repository forensics (specific CHIM PRs #560/#572/#558/#681, SkyrimNet issues #251/#487/#119/#391) and resolves the SkyrimNet-reload-behavior conflict left open after 05/06: SkyrimNet *asks* the player before clearing (`ClearTimelineMessage`/`msgClearHistory`), confirmed via issue #251 — it neither silently ignores (05's read) nor runs a fully automatic cleanup (06's read). Agrees with 05/06/07 on architecture (event-sourced, fork-not-rollback, save-embedded UUID); upgrades ADR-0004/0005 on specifics (bitemporal columns, reachability-based GC, the manifest schema, the handshake decision table). (09)
 - **Substrate Abstraction Layer**: a generic Python provider interface in `chronicle/`, with SkyrimNet as primary provider and PO3-Extender+SKSE_HTTP as secondary, both implemented under `adapters/`. Resolves ADR-0003. (07)
 - **Five-layer data ownership**: canonical events → claims/variants → subjective beliefs → social state → narrative/query. Only the first layer is objective. See ADR-0006. (08)
 - **Sparse-graph rule**: never maintain a complete N×N social matrix — sparse acquaintance/witness/family/faction edges only, evidenced by Socialog's 15-25ms→600ms per-tick cost growth from 50→450 characters. See ADR-0006. (08)

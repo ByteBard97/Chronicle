@@ -75,17 +75,99 @@ ping — never on `kPostLoadGame` alone.**
    saving discards it — those events never happened in any surviving
    timeline, so they must not be folded into any branch's derived state.
 
+## The co-save manifest schema
+
+`docs/research/09-save-sync-forensics.md` specifies a concrete, minimal
+record for the co-save chunk this ADR's watermark handshake reads and
+writes. Adopted as-is, with field names aligned to ADR-0004's
+`(save_uuid, generation)` branch key:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `format_version` | uint16 | schema evolution — SKSE co-save records carry a version natively; bump this, never reinterpret an old layout |
+| `save_uuid` | 16 bytes | which playthrough/timeline (ADR-0004) |
+| `generation` | 16 bytes or uint64 | which branch of that timeline (ADR-0004's fork counter) |
+| `parent_generation` | 16 bytes or uint64 | fork ancestry; null/zero for the root |
+| `head_seq` | uint64 | the **last service-ACKed** event sequence on this branch — not "last attempted," so a save can never reference uncommitted state |
+| `gamets` | float64 | in-game clock at save time — bitemporal valid time (ADR-0004) |
+| `wall_ts` | int64 | real time at save — bitemporal transaction time (ADR-0004) |
+| `char_name_hash` | uint64 | **display/debug only, never a key** — Mantella's name-keyed identity is the documented counterexample (its community resources page maintains a manual list of vanilla NPCs who change name/refID mid-game, precisely because name-keyed identity ages badly) |
+
+Keep this record small — a manifest, not a database. SKSE's unbuffered
+per-call co-save writes are slow for large payloads (the S.L.A.C.K.
+plugin exists solely to fix this for other mods); everything bulky stays
+server-side, and this record should cost well under a hundred bytes.
+
+## The HELLO/RESOLVE/ACK handshake
+
+This is the concrete protocol underlying the watermark handshake in the
+Decision section above — `SYNC_TIMELINE` below is the HELLO, the
+service's branch-head comparison is RESOLVE, and `TIMELINE_READY` is the
+ACK. Three messages, initiated only after the load has already succeeded:
+
+1. **Manifest capture** — during the co-save Load callback (after Revert
+   has cleared the prior session's copy), read the manifest into memory.
+   No manifest present means a legacy/first-run save.
+2. **HELLO** (`SYNC_TIMELINE`) — on `kPostLoadGame(success=true)`, the
+   shim asynchronously posts `{save_uuid, generation, head_seq, gamets,
+   wall_ts}` to the service. Non-blocking — gameplay continues regardless
+   of the answer (see "never block," below).
+3. **RESOLVE → ACK** (`TIMELINE_READY`) — the service classifies the
+   manifest against its branch head and responds with a decision, per the
+   six-way table below; the shim applies it and only then clears
+   `g_isLoading` and starts tagging outbound events with the resolved
+   `(save_uuid, generation)` (and epoch, per this ADR's fencing rule).
+
+| Condition at RESOLVE | Decision | Service action |
+|---|---|---|
+| Same branch, `head_seq` ≥ manifest's, `gamets` equal/newer | **CONTINUE** | Resume branch; replay any un-ACKed gap events |
+| Same `save_uuid`, `gamets` older than branch head | **FORK** | Create child generation at the nearest checkpoint ≤ loaded `gamets` (ADR-0004); mark old branch orphaned + start its grace timer; new events route to the child |
+| `save_uuid` known, `generation` unknown (e.g. a copied/cloud-restored save) | **ADOPT** | Treat as a fork from the manifest's `head_seq`; link ancestry via `parent_generation` |
+| `save_uuid` unknown, character/profile seen before | **NEW TIMELINE** | Open a fresh branch; optionally offer import of that character's public knowledge |
+| No manifest present | **LEGACY IMPORT** | Bootstrap from heuristics (save filename's embedded save ID, character name), then write a manifest on the next save |
+| Service unreachable at HELLO | **DEGRADED** | See "never block," below |
+
+**Fork resolution is automatic for small jumps, confirmed only for large
+ones.** Dying and reloading a save from seconds-to-minutes ago on the same
+branch resolves as a **silent CONTINUE or small FORK** — no player-facing
+prompt. A confirmation prompt (mirroring SkyrimNet's own
+`ClearTimelineMessage`/`msgClearHistory`, which is exactly this UX for its
+own rollback — see `open-questions.md`'s now-closed SkyrimNet-reload-
+behavior item) is reserved for jumps large enough to plausibly represent
+the player deliberately returning to an old save, not every death-retry. A
+prompt on every death is, per report 09, "the fast path to users disabling
+the system."
+
+## The never-block rule (DEGRADED mode)
+
+**The game side is optimistic and never blocks; the service side is
+pessimistic and validates every event against the currently-ACKed branch
+head.** Concretely: if the service is unreachable at HELLO time, or slow,
+the shim does not stall the loading screen or gameplay — it buffers
+outbound events in a bounded local queue (spilling to disk if the queue
+fills) and reconciles on reconnect. This is a stronger, explicit version
+of this ADR's existing back-pressure tolerance requirement (item 7,
+below): DEGRADED is what happens *before* a connection exists at all, not
+just under load. On the service side, every incoming event is still
+validated against the ACKed branch head/epoch regardless of how it
+arrived (live, or replayed from a DEGRADED buffer) — the asymmetry is
+deliberate: the game must never choose correctness over responsiveness,
+and the service must never choose responsiveness over correctness.
+
 ## Rationale
 
-All three save/reload research reports converged on gating writes on an
+All four save/reload research reports converged on gating writes on an
 explicit handshake rather than trusting the native load message alone, and
-all three independently proposed a fencing-token-style mechanism (report
+all four independently proposed a fencing-token-style mechanism (report
 06 names it explicitly as "epoch fencing"; report 05 describes the same
 effect as "gate writes on receipt of the watermark"; report 07, arrived at
 while researching SkyrimNet's platform risk rather than save/reload
 directly, proposes its own `SYNC_READY`/mute-the-pipeline handshake with
-the same shape). Treating these as one mechanism avoids building two or
-three overlapping race-prevention systems, and the triple-independent
+the same shape; report 09 names it HELLO/RESOLVE/ACK and is the one this
+ADR's manifest schema and decision table are adopted from directly, since
+it grounds the same mechanism in actual CHIM/SkyrimNet bug history rather
+than architecture alone). Treating these as one mechanism avoids building
+several overlapping race-prevention systems, and the four-way independent
 convergence is stronger evidence for the design than any single report
 would be alone.
 
@@ -93,12 +175,12 @@ would be alone.
 
 - The wire protocol between `adapters/skyrim/` and the Python service needs
   at minimum four message types: `CLIENT_INIT` (handshake), `SYNC_TIMELINE`
-  (shim → service, post-load), `TIMELINE_READY` (service → shim, carries
-  the epoch token), `MUTATION_EVENT` (shim → service, carries the epoch).
-  Exact transport (HTTP vs. WebSocket) is not decided by this ADR — see
-  `0001-external-service-architecture.md` and `open-questions.md`'s
-  SkyrimNet due-diligence item, since the choice may depend on which
-  integration path ADR-0003 ultimately picks.
+  (shim → service, post-load — the HELLO), `TIMELINE_READY` (service →
+  shim, carries the epoch token — the ACK), `MUTATION_EVENT` (shim →
+  service, carries the epoch). Exact transport (HTTP vs. WebSocket) is not
+  decided by this ADR — see `0001-external-service-architecture.md`; per
+  ADR-0003 the choice is a property of which SAL provider (SkyrimNet vs.
+  the standalone bridge) is active, not a separate open question.
 - `chronicle/`'s event-derivation logic must reject (or the adapter layer
   must never forward) events carrying a stale epoch — this is an adapter
   concern, not a `chronicle/` concern, since `chronicle/` stays engine-
@@ -113,4 +195,11 @@ would be alone.
 See `docs/decisions/open-questions.md` — the `.skse`/`.ess` pairing is
 atomic by convention only, so a crash between the co-save write and the
 `.ess` write remains a residual risk this handshake doesn't fully close;
-a scenario test for that case is worth adding once the shim exists.
+a scenario test for that case is worth adding once the shim exists
+(`scenarios/sync/crash-mid-save`, see below).
+
+Report 09's failure matrix and six-pattern race catalog are converted
+directly into named regression scenarios under `scenarios/sync/` — see
+that directory for the full list. Each scenario stub names a specific
+race or failure this ADR's handshake must survive, so "does the handshake
+actually work" stays a testable claim rather than a design-doc assertion.

@@ -59,16 +59,22 @@ branch GC — which is now captured in
 [ADR-0005](0005-sync-handshake.md), with a corresponding branch-key change
 to `chronicle/events.py`.
 
-**Sub-disagreement, not fully resolved**: the two reports characterize
-SkyrimNet's own reload handling differently — report 05 calls it
-"effectively ignore/implicit" (in-process, no cross-process fork
-mechanism); report 06 describes an "explicit timeline cleanup protocol"
-(entity/virtual-speaker UUIDs, purge-on-load, protected knowledge packs),
-sourced to a GitHub Discussion rather than a design doc. This doesn't block
-Chronicle's own protocol (which doesn't depend on how SkyrimNet handles
-*its* reloads), and neither reading changed the now-closed SkyrimNet
-due-diligence verdict above — left here as an unreconciled factual detail,
-not an open decision.
+**Sub-disagreement resolved (2026-08-20) by report 09's repository
+forensics.** Reports 05 and 06 characterized SkyrimNet's own reload
+handling differently — 05: "effectively ignore/implicit"; 06: an
+"explicit timeline cleanup protocol," sourced to a GitHub Discussion.
+[Report 09](../research/09-save-sync-forensics.md) has the receipts:
+SkyrimNet detects the divergence and **prompts the player**
+(`ClearTimelineMessage`/`msgClearHistory`), confirmed via
+SkyrimNet-GamePlugin issue #251, which also requests a public "erase and
+forget from time X forward" API — still unshipped as of that issue. This
+is neither pure silence (05) nor a fully automatic purge (06): it's
+*ask-then-delete-on-confirm*. Combined with Mantella (ignore) and CHIM
+(automatic destructive rollback), the ecosystem occupies three corners of
+the design space — ignore / rollback / ask — and none of them ship the
+fourth: **fork**, which is what ADR-0004 adopts. This doesn't change the
+now-closed SkyrimNet due-diligence verdict (ADR-0003), but it does mean
+report 09 supersedes 05/06 on this specific factual question.
 
 **Implementation-risk notes carried forward** (uncertainties the source
 reports flagged as unconfirmed, not settled facts):
