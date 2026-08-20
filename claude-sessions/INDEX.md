@@ -5,3 +5,6 @@
 [2026-08-20 16:45] [afed3834] Filed report 09, upgraded ADR-0004/0005 with forensics, 12 scenario stubs, events.py idempotency
 [2026-08-20 17:00] [afed3834] Committed save-sync upgrade batch; fetched 4 source papers, linked 2 blocked ones
 [2026-08-20 17:20] [afed3834] Amended ADR-0003: inverted SAL provider priority per SkyrimNet health deep-dive (report 10)
+[2026-08-20 20:51] [a07f368a] Drafted+accepted v0.1 spec (6 design decisions), built claim/variant/belief store as first slice
+[2026-08-20 21:11] [a07f368a] Built v0.1 payoff scenario + ClaimStore (queryable belief/evidence chain); pinned repo remote+identity to ByteBard97
+[2026-08-20 21:29] [a07f368a] Implemented decay + corroboration (rules 6/7) with cascade-scenario proof; added claim-per-event dedup guard (rule 21)
