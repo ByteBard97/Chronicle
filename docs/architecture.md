@@ -1,5 +1,23 @@
 # Architecture
 
+## Deployment target
+
+Native Linux host for Chronicle (the Python service, dashboard, and later
+the local-LLM/TTS tiers), with Skyrim SE/AE running under Proton on the
+same machine, talking to Chronicle over localhost HTTP. SKSE64 and native
+C++ DLL plugins run fine under Proton (Steam Deck-proven) — the bridge
+plugin's HTTP calls originate inside the Proton prefix but pass through to
+the native Linux service transparently over localhost; neither side needs
+to know the other is in a different environment. Game files/saves live
+under the Proton prefix (`steamapps/compatdata/<appid>/pfx/...`), directly
+visible to Chronicle's Linux-side Python — convenient for staging things
+like the voice bank later, though `adapters/skyrim/`'s sync layer still
+prefers HTTP over file-polling IPC regardless (`docs/decisions/0005-sync-handshake.md`).
+
+v0.1 needs none of this — it's headless (`chronicle/` + `dashboard/`, pure
+Python + browser) and runs anywhere, including a MacBook. The Proton/SKSE
+seam only becomes relevant at v0.2.
+
 ## Event-sourced core
 
 `chronicle/events.py` defines an append-only `EventLog`. Every fact that
