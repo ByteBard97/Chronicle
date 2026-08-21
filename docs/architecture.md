@@ -18,6 +18,12 @@ v0.1 needs none of this — it's headless (`chronicle/` + `dashboard/`, pure
 Python + browser) and runs anywhere, including a MacBook. The Proton/SKSE
 seam only becomes relevant at v0.2.
 
+**Game version pin** (`docs/decisions/0008-game-version-pin.md`): Skyrim
+SE/AE **1.6.1170 + SKSE64 2.2.6**, not the 1.7.99 patch (shipped
+2026-08-20) — every AI-NPC framework and every dependency in the pin
+still targets 1.6.1170 as of this writing. Revisit per the ADR's trigger,
+not preemptively.
+
 ## Event-sourced core
 
 `chronicle/events.py` defines an append-only `EventLog`. Every fact that

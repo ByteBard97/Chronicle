@@ -19,19 +19,15 @@ Unsorted. Promote to `docs/vision.md` or a new ADR once an idea earns it.
   implementation doesn't depend on the answer — but worth doing early
   since the answer changes a real architectural decision.
 
-- **Decide the target Skyrim game version (SE 1.5.97 vs AE/1.6.x) before
-  `adapters/skyrim/` work starts.** None of the research addresses this
-  at all — it's a real gap, not an oversight the research resolved. The
-  Anniversary Edition's forced 1.6.x runtime update has a documented
-  history of breaking existing SKSE plugins overnight (the same
-  engine-update-fragility risk `docs/research/01-skyrim-modding-substrate.md`
-  already flags), which is why a lot of the modding community
-  deliberately stays on the older 1.5.97 branch via Steam's Betas tab.
-  User flagged (2026-08-20) that Skyrim versioning is "a thorny problem"
-  and plans to research it themselves before this becomes a blocker.
-  Also decide exact pinned versions of SKSE64, Address Library,
-  powerofthree's Extender, and (if used) the SkyrimNet beta at the same
-  time — the research names the tools but not specific version numbers.
+- ~~Decide the target Skyrim game version before `adapters/skyrim/` work
+  starts.~~ **Resolved 2026-08-21 — see
+  [ADR-0008](../docs/decisions/0008-game-version-pin.md).** Pin to
+  **1.6.1170 + SKSE64 2.2.6** (not 1.7.99, the patch that shipped
+  2026-08-20 and broke the plugin ecosystem exactly as
+  `docs/research/01-skyrim-modding-substrate.md` had flagged as a live
+  risk). Full dependency pin table and revisit trigger (late Sept-Oct
+  2026) in the ADR; evidence in
+  `docs/research/11-version-pin-and-transport.md`.
 
 - **When `adapters/skyrim/` work actually starts (v0.2), install and
   smoke-test the SKSE bridge dependencies**: SKSE64, Address Library for

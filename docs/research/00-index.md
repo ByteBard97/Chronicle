@@ -15,6 +15,7 @@ all reports — see each file for full detail and citations.
 | 08 | [08-social-sim-literature-v2.md](08-social-sim-literature-v2.md) | Social simulation literature v2 — implementable specification | 1 report (batch 3) | filed |
 | 09 | [09-save-sync-forensics.md](09-save-sync-forensics.md) | Save/reload sync — third independent pass, repository forensics | 1 report (batch 4) | filed — supersedes 05/06 on specifics |
 | 10 | [10-skyrimnet-health.md](10-skyrimnet-health.md) | SkyrimNet health deep-dive — inverts ADR-0003's provider priority | 1 report (batch 5) | filed — amends ADR-0003 |
+| 11 | [11-version-pin-and-transport.md](11-version-pin-and-transport.md) | Game version pin + HTTP/WebSocket bridge survey — resolves ADR-0008 | 3 reports (batch 6, merged) | filed — new ADR-0008 |
 
 Source PDFs worth keeping locally (not re-reads, schema/rule-authoring
 references): see [`papers/README.md`](papers/README.md).
@@ -65,15 +66,17 @@ See [`docs/decisions/open-questions.md`](../decisions/open-questions.md):
 - **Resolved by direct repo verification**: MinAI is deprecated (confirmed), Mantella's latest release is v0.14 published 2026-04-21 (confirmed), CHIM/HerikaServer is MIT-licensed (confirmed). Report 01 has been corrected in place.
 - **Closed by research**: save/reload timeline consistency — reports 05 and 06 answered the drafted prompt. ADR-0004 (timeline branching) and ADR-0005 (sync handshake) are now drafted from their recommendations, and `chronicle/events.py` carries a branch key. Two implementation-risk uncertainties carried forward (not fully resolved): CHIM's exact fork trigger is reconstructed, not confirmed; the save-embedded-UUID pattern has no confirmed Skyrim precedent. A third disagreement surfaced between reports 05 and 06 on how SkyrimNet itself handles reloads (implicit/none vs. an explicit but unverified cleanup protocol) — logged, not resolved, since Chronicle doesn't depend on SkyrimNet's own reload behavior for its own protocol either way.
 - **Closed by research**: SkyrimNet build-vs-study — report 07 resolves ADR-0003 with a Substrate Abstraction Layer, rating direct SkyrimNet coupling HIGH RISK and the SAL hedge MEDIUM RISK. ADR-0003 is now `accepted`.
-- **Deferred, not forgotten**: economic simulation (prices, supply, trade ripple) — out of scope until the belief tier is proven, slated v0.4. **This is the only remaining open item.**
+- **Deferred, not forgotten**: economic simulation (prices, supply, trade ripple) — out of scope until the belief tier is proven, slated v0.4.
+- **Closed by research (batch 6, out of cycle)**: game version pin — three independent reports, fired in response to the 1.7.99 patch breaking the plugin ecosystem on 2026-08-20, unanimously recommend pinning to 1.6.1170 + SKSE 2.2.6. Resolved as [ADR-0008](../decisions/0008-game-version-pin.md). This was flagged as a real gap in `notes/ideas.md` before any report addressed it. **This closes the last tracked open item — nothing remains open.**
 
 ## Research phase: complete
 
-Batches 1-3 (8 reports across 4 original prompts + 2 follow-ups) are filed.
-Every ADR the research surfaced a need for has been drafted:
-0001/0002 (accepted at scaffold time), 0003 (substrate — accepted this
-batch), 0004/0005 (timeline branching / sync handshake — accepted, and
-independently triple-confirmed across reports 05, 06, 07), 0006 (data
-ownership layers), 0007 (inspectability). The project moves from research
-into build: the first code milestone is the canonical event log + belief-
-facet store with a regression scenario suite, no LLM involved.
+11 reports across 6 batches are filed (batch 6 arrived after v0.1 was
+already accepted and build had started — the 1.7.99 patch forced an
+out-of-cycle research pass). Every ADR the research surfaced a need for
+has been drafted: 0001/0002 (accepted at scaffold time), 0003 (substrate,
+amended once), 0004/0005 (timeline branching / sync handshake —
+independently confirmed four times over), 0006 (data ownership layers),
+0007 (inspectability), 0008 (game version pin). The project is in build:
+`chronicle/claims.py` (layer 2/3 claim/variant/belief store) is the first
+code milestone, per `docs/v0.1-spec.md`.

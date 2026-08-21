@@ -27,7 +27,7 @@ that mutates as it travels to Riften, guard patrols that shift as a
 
 ## Status
 
-Research phase complete — 10 reports across 5 batches, 7 accepted ADRs.
+Research phase complete — 11 reports across 6 batches, 8 accepted ADRs.
 `docs/v0.1-spec.md` is accepted; the build has started with the claim/
 variant/belief store (`chronicle/claims.py`).
 
