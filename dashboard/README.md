@@ -7,3 +7,23 @@ Planned views: map with rumor overlay, social graph inspector, causality
 timeline (trace any belief back through its evidence chain to originating
 events), and an injection console for manually firing events into a running
 or scenario sim during debugging.
+
+## map/
+
+WhiterunWorld backdrop + spatial fixture for the map view:
+
+- `whiterun_map.json` — committed. World→pixel calibration for the backdrop
+  (`px = s·x + offsX + W/2`, `py = −s·y + offsY + H/2`) plus exterior
+  world-unit and pixel coordinates for 26 named locations (load-door REFRs
+  resolved via XTEL teleport links, plus named markers: market, Gildergreen,
+  Skyforge, main gate, Heimskr's shrine). The sim's location IDs
+  (`chronicle/fixtures/whiterun_schedule.py`) map onto these keys.
+- `bake_whiterun_map.sh` — regenerates the backdrop with fo76utils from the
+  user's own game files. Renders are deterministic run-to-run.
+- `whiterun_topdown_4k.png` — gitignored (Bethesda-derived, internal use
+  only; never commit). Regenerate with the bake script.
+
+Extraction pipeline (esmdump REFR/XTEL dump → door resolution → JSON) is
+ad-hoc in /tmp for now; productionize it if the location set needs to grow.
+See docs/research/14-isometric-render-foundations.md for the render
+foundations and verification.

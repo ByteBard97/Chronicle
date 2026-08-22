@@ -1,0 +1,409 @@
+{
+  "image": "whiterun_topdown_4k.png",
+  "image_size": [
+    4096,
+    4096
+  ],
+  "worldspace": "WhiterunWorld (0x0001A26F)",
+  "render_command": "./render <Data>/Skyrim.esm out.dds 4096 4096 <Data> -w 0x0001A26F -deftxt 0x00000C16 -env textures/cubemaps/chrome_e.dds -light 2.6 70.5288 135 -ltxtres 256 -rq 10 -mip 1 -lmip 1 -view 0.2 180 0 0 -4915 -1229 8192",
+  "transform": {
+    "scale": 0.2,
+    "offsX": -4915.0,
+    "offsY": -1229.0,
+    "formula": "px = scale*x + offsX + W/2 ; py = -scale*y + offsY + H/2 (RX=180 top-down)"
+  },
+  "locations": {
+    "amrens_house": {
+      "world": [
+        21934.3,
+        -3923.3,
+        -2825.4
+      ],
+      "pixel": [
+        1519.9,
+        1603.7
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "arcadias_cauldron": {
+      "world": [
+        24940.0,
+        -8409.7,
+        -3316.6
+      ],
+      "pixel": [
+        2121.0,
+        2500.9
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          25220.0,
+          -8964.0,
+          -3316.0
+        ]
+      ]
+    },
+    "bannered_mare": {
+      "world": [
+        25726.1,
+        -7631.2,
+        -3189.5
+      ],
+      "pixel": [
+        2278.2,
+        2345.2
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          25918.1,
+          -6863.2,
+          -3189.5
+        ]
+      ]
+    },
+    "belethors_general_goods": {
+      "world": [
+        24208.9,
+        -8212.1,
+        -3317.4
+      ],
+      "pixel": [
+        1974.8,
+        2461.4
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          23788.0,
+          -8729.7,
+          -3316.6
+        ]
+      ]
+    },
+    "breezehome": {
+      "world": [
+        21918.9,
+        -7936.3,
+        -3433.7
+      ],
+      "pixel": [
+        1516.8,
+        2406.3
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "carlotta_valentias_house": {
+      "world": [
+        20792.0,
+        -4472.0,
+        -2920.0
+      ],
+      "pixel": [
+        1291.4,
+        1713.4
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "dragonsreach": {
+      "world": [
+        29184.0,
+        2672.0,
+        -16.0
+      ],
+      "pixel": [
+        2969.8,
+        284.6
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          27242.5,
+          630.9,
+          -1557.4
+        ]
+      ]
+    },
+    "drunken_huntsman": {
+      "world": [
+        21716.4,
+        -6742.2,
+        -3269.4
+      ],
+      "pixel": [
+        1476.3,
+        2167.4
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          22195.6,
+          -6724.2,
+          -3269.5
+        ]
+      ]
+    },
+    "guardhouse": {
+      "world": [
+        20330.0,
+        -6886.2,
+        -3533.9
+      ],
+      "pixel": [
+        1199.0,
+        2196.2
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "hall_of_the_dead": {
+      "world": [
+        22741.3,
+        -1956.3,
+        -2952.2
+      ],
+      "pixel": [
+        1681.3,
+        1210.3
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "heimskrs_house": {
+      "world": [
+        25633.9,
+        -4867.2,
+        -2928.0
+      ],
+      "pixel": [
+        2259.8,
+        1792.4
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "house_battle_born": {
+      "world": [
+        21554.5,
+        -3043.4,
+        -2656.2
+      ],
+      "pixel": [
+        1443.9,
+        1427.7
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          21234.5,
+          -2264.2,
+          -2661.7
+        ]
+      ]
+    },
+    "house_gray_mane": {
+      "world": [
+        23744.0,
+        -4530.9,
+        -2915.9
+      ],
+      "pixel": [
+        1881.8,
+        1725.2
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          22926.9,
+          -4821.2,
+          -2923.5
+        ]
+      ]
+    },
+    "jorrvaskr": {
+      "world": [
+        27490.3,
+        -4186.3,
+        -2498.1
+      ],
+      "pixel": [
+        2631.1,
+        1656.3
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          28155.1,
+          -4224.8,
+          -2497.6
+        ],
+        [
+          28157.0,
+          -3999.9,
+          -2496.0
+        ],
+        [
+          27488.3,
+          -4042.1,
+          -2497.2
+        ]
+      ]
+    },
+    "olava_the_feebles_house": {
+      "world": [
+        22176.0,
+        -9360.0,
+        -3537.0
+      ],
+      "pixel": [
+        1568.2,
+        2691.0
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "severio_pelagias_house": {
+      "world": [
+        23552.0,
+        -6992.0,
+        -3104.0
+      ],
+      "pixel": [
+        1843.4,
+        2217.4
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "stables": {
+      "world": [
+        17752.1,
+        -10388.9,
+        -4552.0
+      ],
+      "pixel": [
+        683.4,
+        2896.8
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "temple_of_kynareth": {
+      "world": [
+        24159.7,
+        -3366.3,
+        -2909.4
+      ],
+      "pixel": [
+        1964.9,
+        1492.3
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          23280.0,
+          -3368.0,
+          -2909.5
+        ]
+      ]
+    },
+    "uthgerds_house": {
+      "world": [
+        21485.9,
+        -4556.5,
+        -2825.8
+      ],
+      "pixel": [
+        1430.2,
+        1730.3
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "warmaidens": {
+      "world": [
+        20808.9,
+        -8112.1,
+        -3524.5
+      ],
+      "pixel": [
+        1294.8,
+        2441.4
+      ],
+      "source": "XTEL load-door REFR (exterior end)",
+      "alt_doors_world": [
+        [
+          20838.0,
+          -8727.0,
+          -3520.0
+        ]
+      ]
+    },
+    "ysoldas_house": {
+      "world": [
+        24784.0,
+        -9776.0,
+        -3296.0
+      ],
+      "pixel": [
+        2089.8,
+        2774.2
+      ],
+      "source": "XTEL load-door REFR (exterior end)"
+    },
+    "market": {
+      "world": [
+        24762.3,
+        -7500.7,
+        -3315.2
+      ],
+      "pixel": [
+        2085.5,
+        2319.1
+      ],
+      "source": "named WRLD marker REFR"
+    },
+    "gildergreen": {
+      "world": [
+        24775.6,
+        -4061.4,
+        -2968.0
+      ],
+      "pixel": [
+        2088.1,
+        1631.3
+      ],
+      "source": "named WRLD marker REFR"
+    },
+    "skyforge": {
+      "world": [
+        29237.3,
+        -2351.0,
+        -2128.4
+      ],
+      "pixel": [
+        2980.5,
+        1289.2
+      ],
+      "source": "named WRLD marker REFR"
+    },
+    "main_gate": {
+      "world": [
+        19312.0,
+        -7424.0,
+        -3520.0
+      ],
+      "pixel": [
+        995.4,
+        2303.8
+      ],
+      "source": "named WRLD marker REFR"
+    },
+    "heimskr_shrine": {
+      "world": [
+        25640.3,
+        -3071.5,
+        -3005.3
+      ],
+      "pixel": [
+        2261.1,
+        1433.3
+      ],
+      "source": "named WRLD marker REFR"
+    }
+  }
+}

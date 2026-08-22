@@ -1,0 +1,6 @@
+# Rendered map images are derived from the user's own Skyrim game files
+# (Bethesda assets) — never commit or redistribute. Regenerate with
+# bake_whiterun_map.sh. The calibration JSON (whiterun_map.json) contains
+# only coordinates and IS committed.
+*.png
+*.dds
