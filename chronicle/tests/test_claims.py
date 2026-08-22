@@ -1,6 +1,18 @@
 import pytest
 
-from chronicle.claims import ClaimStore, decay, retell, witness
+from chronicle.claims import (
+    RUMOR_DORMANT_AFTER,
+    RUMOR_FORGOTTEN_GIST_THRESHOLD,
+    BeliefInstance,
+    ClaimStore,
+    decay,
+    hear,
+    hear_again,
+    retell,
+    stage_at,
+    tell,
+    witness,
+)
 
 
 def test_witness_creates_high_confidence_belief_with_witnessed_evidence():
@@ -492,3 +504,107 @@ def test_corroborate_rejects_self_corroboration_and_stale_source_belief():
     # hulda_belief is now stale -- store.corroborate replaced "b2" with updated_hulda.
     with pytest.raises(ValueError):
         store.corroborate(belief_id="b1", source_belief=hulda_belief, evidence_id="corrob-z", gamets=20.0)
+
+
+def _belief(**overrides: object) -> BeliefInstance:
+    defaults: dict[str, object] = {
+        "id": "b1", "holder_id": "hulda", "claim_id": "c1", "variant_id": None,
+        "confidence": 0.9, "verbatim_strength": 0.9, "gist_strength": 0.9,
+        "first_learned": 1000.0, "last_rehearsed": 1000.0,
+    }
+    defaults.update(overrides)
+    return BeliefInstance(**defaults)  # type: ignore[arg-type]
+
+
+def test_hear_starts_at_heard_stage_with_one_exposure():
+    rumor = hear(npc_id="hulda", claim_id="c1", variant_id=None, gamets=1000.0)
+    assert rumor.stage == "heard"
+    assert rumor.exposure_count == 1
+    assert rumor.distinct_source_count == 1
+    assert rumor.last_told is None
+
+
+def test_hear_again_from_new_source_grows_distinct_count_but_same_source_does_not():
+    rumor = hear(npc_id="hulda", claim_id="c1", variant_id=None, gamets=1000.0)
+
+    from_new_source = hear_again(rumor, is_new_source=True, gamets=1010.0)
+    assert from_new_source.exposure_count == 2
+    assert from_new_source.distinct_source_count == 2
+
+    from_same_source_again = hear_again(from_new_source, is_new_source=False, gamets=1020.0)
+    assert from_same_source_again.exposure_count == 3
+    assert from_same_source_again.distinct_source_count == 2  # unchanged -- rule 7's spirit
+
+
+def test_tell_advances_stage_to_repeated_and_records_last_told():
+    rumor = hear(npc_id="proventus", claim_id="c1", variant_id=None, gamets=1000.0)
+    told = tell(rumor, gamets=1050.0)
+    assert told.stage == "repeated"
+    assert told.last_told == 1050.0
+    # Immutability: the original record is untouched.
+    assert rumor.stage == "heard"
+
+
+def test_stage_at_stays_heard_or_repeated_while_active():
+    rumor = tell(hear(npc_id="proventus", claim_id="c1", variant_id=None, gamets=1000.0), gamets=1050.0)
+    belief = _belief(first_learned=1000.0, last_rehearsed=1050.0, gist_strength=0.9)
+    assert stage_at(rumor, belief, at_gamets=1060.0) == "repeated"
+
+
+def test_stage_at_derives_dormant_after_long_inactivity():
+    rumor = hear(npc_id="hulda", claim_id="c1", variant_id=None, gamets=1000.0)
+    # A gist_strength high enough that decay alone won't cross the
+    # forgotten threshold within this window -- isolates the dormancy
+    # check from the forgotten check.
+    belief = _belief(first_learned=1000.0, last_rehearsed=1000.0, gist_strength=0.9)
+    much_later = 1000.0 + RUMOR_DORMANT_AFTER + 1.0
+    assert stage_at(rumor, belief, at_gamets=much_later) == "dormant"
+
+
+def test_stage_at_derives_forgotten_once_gist_strength_decays_below_threshold():
+    rumor = hear(npc_id="hulda", claim_id="c1", variant_id=None, gamets=1000.0)
+    belief = _belief(first_learned=1000.0, last_rehearsed=1000.0, gist_strength=RUMOR_FORGOTTEN_GIST_THRESHOLD * 2)
+    # Forgotten is a property of the belief's decay, checked before dormancy --
+    # a story can be "forgotten" well before RUMOR_DORMANT_AFTER elapses if
+    # nobody ever rehearsed it and gist_strength started low.
+    from chronicle.claims import GIST_DECAY_HALF_LIFE
+
+    far_future = 1000.0 + GIST_DECAY_HALF_LIFE * 20
+    assert far_future - 1000.0 < RUMOR_DORMANT_AFTER * 100  # sanity: not relying on absurd magnitudes
+    assert stage_at(rumor, belief, at_gamets=far_future) == "forgotten"
+
+
+def test_claimstore_witness_records_rumor_state_at_heard():
+    store = ClaimStore()
+    store.witness(
+        claim_id="c1", belief_id="b1", evidence_id="e1", kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1), witness_id="proventus", gamets=1000.0,
+    )
+    rumor = store.rumor_state("proventus", "c1", None)
+    assert rumor is not None
+    assert rumor.stage == "heard"
+    assert rumor.exposure_count == 1
+
+
+def test_claimstore_retell_records_hearer_heard_and_teller_repeated():
+    store = ClaimStore()
+    claim, proventus_belief, _ = store.witness(
+        claim_id="c1", belief_id="b1", evidence_id="e1", kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1), witness_id="proventus", gamets=1000.0,
+    )
+    store.retell(
+        claim=claim, parent_variant=None, variant_id="v1", belief_id="b2", evidence_id="e2",
+        teller_id="proventus", teller_belief=proventus_belief, hearer_id="hulda",
+        gamets=1050.0, mutate_slot="perpetrator", mutated_value="the Thalmor",
+    )
+
+    hulda_rumor = store.rumor_state("hulda", "c1", "v1")
+    assert hulda_rumor is not None
+    assert hulda_rumor.stage == "heard"
+
+    proventus_rumor = store.rumor_state("proventus", "c1", None)
+    assert proventus_rumor is not None
+    assert proventus_rumor.stage == "repeated"
+    assert proventus_rumor.last_told == 1050.0

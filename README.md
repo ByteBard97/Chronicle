@@ -28,8 +28,17 @@ that mutates as it travels to Riften, guard patrols that shift as a
 ## Status
 
 Research phase complete — 11 reports across 6 batches, 8 accepted ADRs.
-`docs/v0.1-spec.md` is accepted; the build has started with the claim/
-variant/belief store (`chronicle/claims.py`).
+`docs/v0.1-spec.md` is accepted, and its full ~20-rule budget is now
+implemented and scenario-proven headless: the claim/variant/belief store
+with the rumor stage machine (`chronicle/claims.py`), the social-state
+store — relationships, grudges, obligations, observer-local reputation
+(`chronicle/social.py`) — and schedule-driven encounter sampling
+(`chronicle/schedule.py`, `chronicle/propagate.py`), which replaces
+hand-picked teller/hearer pairs with real NPC-schedule-based propagation.
+Schedules and relationships are still hand-seeded for the v0.1 Whiterun
+cast (`chronicle/fixtures/`) rather than derived from a full math-tier
+simulation — the sampling mechanics don't change shape when that data
+source does, only the caller supplying them.
 
 v0.1 is **headless**: no Skyrim installation required to build, run, or
 test it. The `adapters/skyrim/` SKSE seam only becomes relevant at v0.2.

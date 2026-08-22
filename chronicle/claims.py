@@ -58,6 +58,15 @@ CONFIDENCE_DECAY_HALF_LIFE = 500.0
 VERBATIM_DECAY_HALF_LIFE = 200.0
 GIST_DECAY_HALF_LIFE = 2000.0
 
+# Rumor stage machine thresholds (rule 16), same tunable-not-derived status
+# as the decay half-lives above. RUMOR_DORMANT_AFTER is gamets elapsed since
+# the holder last heard or told the story with no activity in between;
+# RUMOR_FORGOTTEN_GIST_THRESHOLD is the gist_strength floor below which the
+# story is functionally gone even though the record itself is never deleted
+# (event-sourcing discipline: state is derived, not destroyed).
+RUMOR_DORMANT_AFTER = 5000.0
+RUMOR_FORGOTTEN_GIST_THRESHOLD = 0.05
+
 
 def _decay(value: float, elapsed: float, half_life: float) -> float:
     return value * 0.5 ** (elapsed / half_life)
@@ -134,6 +143,92 @@ class BeliefInstance:
     gist_strength: float
     first_learned: float
     last_rehearsed: float
+
+
+@dataclass(frozen=True)
+class RumorState:
+    """One NPC's propagation-stage tracking for one claim/variant (rule 16).
+
+    stage is only ever stored as "heard" or "repeated" -- "unheard" is the
+    absence of a RumorState (nobody constructs one until the NPC has heard
+    something), and "dormant"/"forgotten" are never written here. They are
+    time/decay-derived at query time by stage_at(), the same lazy-derivation
+    discipline decay() already uses for confidence (rule 19): a story going
+    quiet doesn't require a tick loop to notice, and a later retelling can
+    reactivate a "dormant" rumor without this record needing to have
+    predicted that in advance.
+    """
+
+    npc_id: str
+    claim_id: str
+    variant_id: str | None
+    stage: str  # "heard" | "repeated"
+    first_heard: float
+    last_heard: float
+    last_told: float | None
+    exposure_count: int
+    distinct_source_count: int
+
+
+def hear(
+    *,
+    npc_id: str,
+    claim_id: str,
+    variant_id: str | None,
+    gamets: float,
+) -> RumorState:
+    """First exposure: an NPC has heard (or witnessed) a claim/variant. Stage starts at "heard"."""
+    return RumorState(
+        npc_id=npc_id,
+        claim_id=claim_id,
+        variant_id=variant_id,
+        stage="heard",
+        first_heard=gamets,
+        last_heard=gamets,
+        last_told=None,
+        exposure_count=1,
+        distinct_source_count=1,
+    )
+
+
+def hear_again(existing: RumorState, *, is_new_source: bool, gamets: float) -> RumorState:
+    """A further exposure to the same claim/variant -- rule 7's spirit applied to exposure counting.
+
+    is_new_source must come from the caller checking whether this source
+    already contributed to this NPC's exposure (ClaimStore tracks that),
+    the same explicit-lookup discipline claims.retell()/form_grudge() use
+    elsewhere in this codebase -- repetition from the same source doesn't
+    grow distinct_source_count, only exposure_count.
+    """
+    return replace(
+        existing,
+        last_heard=gamets,
+        exposure_count=existing.exposure_count + 1,
+        distinct_source_count=existing.distinct_source_count + (1 if is_new_source else 0),
+    )
+
+
+def tell(existing: RumorState, *, gamets: float) -> RumorState:
+    """The NPC has retold this claim/variant to someone else -- stage advances to "repeated"."""
+    return replace(existing, stage="repeated", last_told=gamets)
+
+
+def stage_at(rumor: RumorState, belief: BeliefInstance, at_gamets: float) -> str:
+    """The rumor's stage as of at_gamets, deriving "dormant"/"forgotten" lazily (rule 19).
+
+    belief must be the BeliefInstance this RumorState tracks propagation
+    for -- "forgotten" is keyed off the belief's decayed gist_strength
+    (fuzzy-trace theory's claim that gist outlives verbatim detail, so gist
+    going below threshold is a stronger "truly gone" signal than confidence
+    alone) rather than a separate, independently-drifting clock.
+    """
+    decayed = decay(belief, at_gamets)
+    if decayed.gist_strength < RUMOR_FORGOTTEN_GIST_THRESHOLD:
+        return "forgotten"
+    last_activity = rumor.last_told if rumor.last_told is not None else rumor.last_heard
+    if at_gamets - last_activity > RUMOR_DORMANT_AFTER:
+        return "dormant"
+    return rumor.stage
 
 
 def witness(
@@ -288,6 +383,54 @@ class ClaimStore:
         # corroborating testimony that raises confidence without displacing
         # the original provenance link.
         self._evidence_by_belief: dict[str, list[Evidence]] = {}
+        # Rumor stage machine (rule 16), keyed the same way as ADR-0006's
+        # RumorState.claim_variant_id: one entry per (holder, claim, variant)
+        # a given NPC has heard. _rumor_sources tracks which source_ids have
+        # already contributed to that NPC's exposure count, mirroring
+        # corroborate()'s already_counted set above for the same
+        # distinct-source-not-repetition reasoning (rule 7's spirit).
+        self._rumors: dict[tuple[str, str, str | None], RumorState] = {}
+        self._rumor_sources: dict[tuple[str, str, str | None], set[str]] = {}
+
+    def _record_hearing(
+        self, *, npc_id: str, claim_id: str, variant_id: str | None, source_id: str, gamets: float
+    ) -> RumorState:
+        key = (npc_id, claim_id, variant_id)
+        sources = self._rumor_sources.setdefault(key, set())
+        is_new_source = source_id not in sources
+        sources.add(source_id)
+
+        existing = self._rumors.get(key)
+        state = (
+            hear(npc_id=npc_id, claim_id=claim_id, variant_id=variant_id, gamets=gamets)
+            if existing is None
+            else hear_again(existing, is_new_source=is_new_source, gamets=gamets)
+        )
+        self._rumors[key] = state
+        return state
+
+    def _record_telling(self, *, npc_id: str, claim_id: str, variant_id: str | None, gamets: float) -> RumorState:
+        key = (npc_id, claim_id, variant_id)
+        existing = self._rumors.get(key)
+        if existing is None:
+            raise ValueError(
+                f"{npc_id!r} cannot tell claim {claim_id!r} variant {variant_id!r} without having heard it first"
+            )
+        state = tell(existing, gamets=gamets)
+        self._rumors[key] = state
+        return state
+
+    def rumor_state(self, npc_id: str, claim_id: str, variant_id: str | None) -> RumorState | None:
+        return self._rumors.get((npc_id, claim_id, variant_id))
+
+    def rumor_stage_now(self, npc_id: str, claim_id: str, variant_id: str | None, at_gamets: float) -> str:
+        """The rumor's current stage, deriving "dormant"/"forgotten" lazily (rule 19) -- see stage_at()."""
+        state = self._rumors[(npc_id, claim_id, variant_id)]
+        belief = next(
+            b for b in self._beliefs.values()
+            if b.holder_id == npc_id and b.claim_id == claim_id and b.variant_id == variant_id
+        )
+        return stage_at(state, belief, at_gamets)
 
     def witness(self, **kwargs: object) -> tuple[Claim, BeliefInstance, Evidence]:
         claim, belief, evidence = witness(**kwargs)  # type: ignore[arg-type]
@@ -317,6 +460,12 @@ class ClaimStore:
         self._claims[claim.id] = claim
         self._beliefs[belief.id] = belief
         self._evidence_by_belief[belief.id] = [evidence]
+        # Witnessing is the story's first hearing for this NPC, self-sourced --
+        # consistent with witness()'s Evidence.source_id also being the witness.
+        self._record_hearing(
+            npc_id=belief.holder_id, claim_id=claim.id, variant_id=None,
+            source_id=belief.holder_id, gamets=belief.first_learned,
+        )
         return claim, belief, evidence
 
     def retell(self, **kwargs: object) -> tuple[Variant, BeliefInstance, Evidence]:
@@ -324,6 +473,19 @@ class ClaimStore:
         self._variants[variant.id] = variant
         self._beliefs[belief.id] = belief
         self._evidence_by_belief[belief.id] = [evidence]
+        # The hearer heard this variant from the teller; the teller, by the
+        # act of retelling, advances their own rumor stage to "repeated" for
+        # whatever variant they held at the time (teller_belief.variant_id --
+        # the same value retell()'s own validation checks against parent_variant).
+        teller_belief: BeliefInstance = kwargs["teller_belief"]  # type: ignore[assignment]
+        self._record_hearing(
+            npc_id=belief.holder_id, claim_id=variant.claim_id, variant_id=variant.id,
+            source_id=evidence.source_id, gamets=belief.first_learned,
+        )
+        self._record_telling(
+            npc_id=evidence.source_id, claim_id=variant.claim_id,
+            variant_id=teller_belief.variant_id, gamets=evidence.gamets,
+        )
         return variant, belief, evidence
 
     def corroborate(
@@ -415,3 +577,16 @@ class ClaimStore:
 
     def claim(self, claim_id: str) -> Claim:
         return self._claims[claim_id]
+
+    def variant(self, variant_id: str) -> Variant:
+        return self._variants[variant_id]
+
+    def belief_of(self, holder_id: str, claim_id: str) -> BeliefInstance | None:
+        """The one belief holder_id holds about claim_id, or None if they don't hold one yet.
+
+        Used by chronicle.propagate to decide whether an encounter has
+        anything to propagate: exactly one belief per (holder, claim) can
+        exist at a time (witness()/retell() enforce this by construction),
+        so there's no ambiguity about which one this returns.
+        """
+        return next((b for b in self._beliefs.values() if b.holder_id == holder_id and b.claim_id == claim_id), None)

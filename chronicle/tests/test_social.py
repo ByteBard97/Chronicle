@@ -1,0 +1,234 @@
+import pytest
+
+from chronicle.social import (
+    SocialStateStore,
+    form_grudge,
+    form_relationship,
+    issue_obligation,
+    update_reputation,
+)
+
+
+def test_relationship_rejects_arbitrary_basis():
+    with pytest.raises(ValueError):
+        form_relationship(
+            id="r1",
+            from_id="proventus",
+            to_id="jarl_balgruuf",
+            basis="arbitrary",
+            basis_id=None,
+            strength=0.8,
+            gamets=0.0,
+        )
+
+
+def test_relationship_accepts_allowed_bases():
+    rel = form_relationship(
+        id="r1",
+        from_id="irileth",
+        to_id="jarl_balgruuf",
+        basis="shared_employer",
+        basis_id="whiterun_court",
+        strength=0.9,
+        gamets=0.0,
+    )
+    assert rel.basis == "shared_employer"
+    assert rel.strength == 0.9
+
+
+def test_store_rejects_duplicate_relationship_for_same_triple():
+    store = SocialStateStore()
+    rel = form_relationship(
+        id="r1", from_id="irileth", to_id="jarl_balgruuf",
+        basis="shared_employer", basis_id="whiterun_court", strength=0.9, gamets=0.0,
+    )
+    store.add_relationship(rel)
+
+    duplicate = form_relationship(
+        id="r2", from_id="irileth", to_id="jarl_balgruuf",
+        basis="shared_employer", basis_id="whiterun_court", strength=0.5, gamets=1.0,
+    )
+    with pytest.raises(ValueError):
+        store.add_relationship(duplicate)
+
+
+def test_grudge_requires_existing_relationship_to_victim():
+    with pytest.raises(ValueError):
+        form_grudge(
+            id="g1",
+            holder_id="a_random_farmer",
+            victim_id="jarl_balgruuf",
+            target_id="the_thalmor",
+            grievance_type="murder_of_ally",
+            source_belief_id="belief-farmer-death",
+            evidentiary_strength=0.9,
+            relationship_to_victim=None,
+            gamets=1000.0,
+        )
+
+
+def test_grudge_rejects_relationship_pointing_the_wrong_way():
+    # A relationship jarl_balgruuf -> irileth does not establish that
+    # irileth cares about jarl_balgruuf for grudge purposes -- form_grudge
+    # needs holder_id -> victim_id specifically, not any edge touching both.
+    backwards = form_relationship(
+        id="r1", from_id="jarl_balgruuf", to_id="irileth",
+        basis="shared_employer", basis_id="whiterun_court", strength=0.9, gamets=0.0,
+    )
+    with pytest.raises(ValueError):
+        form_grudge(
+            id="g1",
+            holder_id="irileth",
+            victim_id="jarl_balgruuf",
+            target_id="the_thalmor",
+            grievance_type="murder_of_ally",
+            source_belief_id="belief-irileth-death",
+            evidentiary_strength=0.9,
+            relationship_to_victim=backwards,
+            gamets=1000.0,
+        )
+
+
+def test_grudge_severity_scales_with_closeness_and_evidence():
+    close_relationship = form_relationship(
+        id="r1", from_id="irileth", to_id="jarl_balgruuf",
+        basis="shared_employer", basis_id="whiterun_court", strength=0.9, gamets=0.0,
+    )
+    distant_relationship = form_relationship(
+        id="r2", from_id="a_guard", to_id="jarl_balgruuf",
+        basis="faction", basis_id="whiterun_guard", strength=0.3, gamets=0.0,
+    )
+
+    close_grudge = form_grudge(
+        id="g1", holder_id="irileth", victim_id="jarl_balgruuf", target_id="the_thalmor",
+        grievance_type="murder_of_ally", source_belief_id="belief-irileth-death",
+        evidentiary_strength=0.9, relationship_to_victim=close_relationship, gamets=1000.0,
+    )
+    distant_grudge = form_grudge(
+        id="g2", holder_id="a_guard", victim_id="jarl_balgruuf", target_id="the_thalmor",
+        grievance_type="murder_of_ally", source_belief_id="belief-guard-death",
+        evidentiary_strength=0.9, relationship_to_victim=distant_relationship, gamets=1000.0,
+    )
+
+    # Same evidentiary strength, but irileth's closer relationship to the
+    # victim produces a more severe grudge than the guard's distant one --
+    # rule 9: severity scales with closeness + evidence, not a flat penalty.
+    assert close_grudge.severity > distant_grudge.severity
+    assert close_grudge.emotional_strength == 0.9
+    assert distant_grudge.emotional_strength == 0.3
+
+
+def test_store_grudge_lookup_by_holder_and_target():
+    store = SocialStateStore()
+    relationship = form_relationship(
+        id="r1", from_id="irileth", to_id="jarl_balgruuf",
+        basis="shared_employer", basis_id="whiterun_court", strength=0.9, gamets=0.0,
+    )
+    grudge = form_grudge(
+        id="g1", holder_id="irileth", victim_id="jarl_balgruuf", target_id="the_thalmor",
+        grievance_type="murder_of_ally", source_belief_id="belief-irileth-death",
+        evidentiary_strength=0.9, relationship_to_victim=relationship, gamets=1000.0,
+    )
+    store.add_grudge(grudge)
+
+    assert store.grudge("irileth", "the_thalmor") is grudge
+    assert store.grudge("irileth", "someone_else") is None
+    assert store.grudges_of("irileth") == (grudge,)
+
+
+def test_reputation_is_keyed_per_observer_subject_context():
+    store = SocialStateStore()
+    store.update_reputation(
+        observer_id="proventus", subject_id="the_thalmor", context="violence",
+        kind="witnessed", positive=False, gamets=1000.0,
+    )
+    store.update_reputation(
+        observer_id="proventus", subject_id="the_thalmor", context="commerce",
+        kind="reported", positive=True, gamets=1000.0,
+    )
+
+    violence_rep = store.reputation("proventus", "the_thalmor", "violence")
+    commerce_rep = store.reputation("proventus", "the_thalmor", "commerce")
+
+    # Same observer, same subject, different context -- independent records,
+    # not one collapsed score (rule 10).
+    assert violence_rep.mean < 0.5  # a negative, witnessed observation
+    assert commerce_rep.mean > 0.5  # a positive, reported observation
+    assert violence_rep != commerce_rep
+
+
+def test_reputation_witnessed_outweighs_reported():
+    witnessed = update_reputation(
+        None, observer_id="proventus", subject_id="the_thalmor", context="violence",
+        kind="witnessed", positive=False, gamets=1000.0,
+    )
+    reported = update_reputation(
+        None, observer_id="proventus", subject_id="the_thalmor", context="violence",
+        kind="reported", positive=False, gamets=1000.0,
+    )
+    # A witnessed negative act should move the estimate further from neutral
+    # than secondhand testimony of the same polarity.
+    assert witnessed.mean < reported.mean
+    assert witnessed.direct_count == 1
+    assert witnessed.witness_count == 0
+    assert reported.witness_count == 1
+
+
+def test_reputation_uncertainty_shrinks_as_evidence_accumulates():
+    store = SocialStateStore()
+    first = store.update_reputation(
+        observer_id="proventus", subject_id="the_thalmor", context="violence",
+        kind="witnessed", positive=False, gamets=1000.0,
+    )
+    second = store.update_reputation(
+        observer_id="proventus", subject_id="the_thalmor", context="violence",
+        kind="reported", positive=False, gamets=1050.0,
+    )
+    assert second.uncertainty < first.uncertainty
+
+
+def test_obligation_lifecycle_fulfill():
+    store = SocialStateStore()
+    obligation = issue_obligation(
+        id="obl-1", issuer_id="proventus", debtor_id="a_guard_captain",
+        beneficiary_id="jarl_balgruuf", action="avenge_murder",
+        condition="perpetrator identified", gamets=1000.0,
+    )
+    store.add_obligation(obligation)
+    assert obligation.status == "active"
+
+    fulfilled = store.fulfill_obligation("obl-1", gamets=2000.0)
+    assert fulfilled.status == "fulfilled"
+    assert fulfilled.fulfilled_at == 2000.0
+    # Immutability: the original record is untouched.
+    assert obligation.status == "active"
+
+
+def test_obligation_cannot_be_resolved_twice():
+    store = SocialStateStore()
+    obligation = issue_obligation(
+        id="obl-1", issuer_id="proventus", debtor_id="a_guard_captain",
+        beneficiary_id="jarl_balgruuf", action="avenge_murder",
+        condition="perpetrator identified", gamets=1000.0,
+    )
+    store.add_obligation(obligation)
+    store.fulfill_obligation("obl-1", gamets=2000.0)
+
+    with pytest.raises(ValueError):
+        store.violate_obligation("obl-1", gamets=3000.0)
+
+
+def test_obligation_involving_finds_issuer_debtor_and_beneficiary():
+    store = SocialStateStore()
+    obligation = issue_obligation(
+        id="obl-1", issuer_id="proventus", debtor_id="a_guard_captain",
+        beneficiary_id="jarl_balgruuf", action="avenge_murder",
+        condition="perpetrator identified", gamets=1000.0,
+    )
+    store.add_obligation(obligation)
+
+    assert store.obligations_involving("proventus") == (obligation,)
+    assert store.obligations_involving("a_guard_captain") == (obligation,)
+    assert store.obligations_involving("jarl_balgruuf") == (obligation,)
+    assert store.active_obligations_of("a_guard_captain") == (obligation,)
+    assert store.active_obligations_of("proventus") == ()

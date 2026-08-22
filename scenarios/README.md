@@ -16,6 +16,8 @@ succession/economic/patrol consequences (deferred to later milestones).
 | Scenario | Covers |
 |---|---|
 | [test_jarl_death_belief_cascade.py](test_jarl_death_belief_cascade.py) | witness -> mutated retelling (x2) -> evidence chain back to the canonical event (v0.1 payoff, spec §3) |
+| [test_jarl_death_social_cascade.py](test_jarl_death_social_cascade.py) | layer 4 (social state) derived from layer 3 (belief): a grudge forms only for an NPC with an existing relationship to the victim (rule 8), and reputation shifts independently per observer/context (rule 10) |
+| [test_jarl_death_encounter_driven_propagation.py](test_jarl_death_encounter_driven_propagation.py) | rumor propagation driven by sampled encounters from real NPC schedules (rules 2, 15), not a hand-picked teller/hearer pair — and proves the "never a global broadcast" half of rule 2 by contrast (an NPC with no schedule block never hears the story) |
 
 `scenarios/sync/` is a separate set of stub specs for the save/reload
 sync handshake, not yet executable — see its own README.
