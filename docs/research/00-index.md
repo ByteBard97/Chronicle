@@ -16,6 +16,9 @@ all reports — see each file for full detail and citations.
 | 09 | [09-save-sync-forensics.md](09-save-sync-forensics.md) | Save/reload sync — third independent pass, repository forensics | 1 report (batch 4) | filed — supersedes 05/06 on specifics |
 | 10 | [10-skyrimnet-health.md](10-skyrimnet-health.md) | SkyrimNet health deep-dive — inverts ADR-0003's provider priority | 1 report (batch 5) | filed — amends ADR-0003 |
 | 11 | [11-version-pin-and-transport.md](11-version-pin-and-transport.md) | Game version pin + HTTP/WebSocket bridge survey — resolves ADR-0008 | 3 reports (batch 6, merged) | filed — new ADR-0008 |
+| 12 | [12-whiterun-dashboard-map-data.md](12-whiterun-dashboard-map-data.md) | Whiterun debug-dashboard map assets, coordinates, telemetry, licensing | 3 reports (batch 7, merged) + 1 session pass | filed — license claims verified directly |
+| 13 | [13-dashboard-prior-art-source-read.md](13-dashboard-prior-art-source-read.md) | Dashboard prior art at source level — WS protocol, replay schema, projection | 1 source-reading pass (batch 8) | filed — resolves report 12's SkyrimWebSocket uncertainty |
+| 14 | [14-isometric-render-foundations.md](14-isometric-render-foundations.md) | 2.5D/isometric render foundations — real Whiterun geometry without building a renderer | 1 session pass (batch 8) + hands-on smoke test | filed — **fo76utils verified on this machine 2026-08-22** |
 
 Source PDFs worth keeping locally (not re-reads, schema/rule-authoring
 references): see [`papers/README.md`](papers/README.md).
@@ -40,6 +43,11 @@ references): see [`papers/README.md`](papers/README.md).
 - **Sparse-graph rule**: never maintain a complete N×N social matrix — sparse acquaintance/witness/family/faction edges only, evidenced by Socialog's 15-25ms→600ms per-tick cost growth from 50→450 characters. See ADR-0006. (08)
 - **Observer-local reputation**: Beta-distribution `(alpha, beta)` per `(observer, subject, context)`, never one global score. See ADR-0006. (08)
 - **Inspectability**: every derived social outcome must answer "who believes this, from what evidence, through whom, since when." See ADR-0007. (08)
+- **Dashboard map backdrop**: no permissively-licensed Whiterun map exists; generate the backdrop yourself (CK `Create Local Maps` over `WhiterunWorld`, or esm-geometry parsing at install time) and treat the *generator* as the distributable artifact, never the rendered image. Whiterun is its own worldspace (`0x0001A26F`) with interior cells on local coordinates — the map tool needs per-cell layers. (12)
+- **Dashboard frontend prior art**: uesp-gamemap code is MIT (tile pyramid + marker layer); Stanford's generative_agents is Apache-2.0 and its successor StanfordHCI/genagents is MIT (both verified 2026-08-22) — contributing time-scrubbed replay, the key pattern for rumor/belief debugging. Coordinate extraction: skyrim-cell-dump (**MIT** — Cargo.toml declaration, verified) + Mutagen or a short xEdit script; NPC schedule targets need PACK records. WhiterunWorld FormID `0x0001A26F`; cell math `floor(gameX/4096)`, two-point affine calibration is exact for Skyrim's linear projection. (12)
+- **Live telemetry channel**: in-process SKSE plugin hosting a local WebSocket (SkyrimWebSocket — MIT verified, CommonLibSSE-NG multi-runtime, 1.6.1170-compatible, active 2026-08) is the adopted reference; its wire protocol and spatial JSON block are Chronicle's canonical transport/ActorLocation schema (13). Fork plan for the bulk-actor stream (`RE::ProcessLists` resolver) has exact hook points. Reject external memory-reading. (12, 13)
+- **Sim trace/replay format**: adopt Smallville's step-file schema + delta compression (only-changed agents per step) for the headless JSONL trace; dashboard adds the scrubber Smallville lacks. One frontend, two feeds (headless sim now, SkyrimWebSocket later). (13)
+- **Isometric/2.5D backdrop**: renderable from real game geometry without a from-scratch renderer — fo76utils (MIT, pending TES5-statics verification) or ByroRedux (MIT, verified rendering WhiterunWorld, heavier); both read the user's own game files so no Bethesda assets ship. The downloaded 1.6.1170 depot files serve as the render corpus without touching the live install. (14)
 
 ## Merged [RISK] list
 
@@ -58,6 +66,7 @@ references): see [`papers/README.md`](papers/README.md).
 - **SkyrimNet direct coupling rated HIGH RISK** as a sole dependency: closed C++ core, no LICENSE file, single Ko-fi-funded maintainer, in-process design means a core exception is a crash-to-desktop. Mitigated, not eliminated, by the SAL (07).
 - **API version drift, with concrete integrator damage**: v6→v9 in ~1 month (Beta18→Beta20); Beta21 shipped explicit breaking changes; IntelEngine hard-gated on a specific version and once blocked on an unreleased build; SeverActions hit an init-ordering deadlock and a schema break. This concrete evidence is what moved SkyrimNet from "primary provider, hedged" (07) to "optional adapter, pinned" (10) — see ADR-0003's amendment. (07, sharpened by 10)
 - **No LICENSE/continuity statement, now confirmed via exhaustive-as-possible targeted search** (not just "not found in passing") across GitHub, docs, FAQ, Patreon, Ko-fi, Reddit. Action item tracked in `notes/ideas.md`: ask the maintainer directly. (10)
+- **Dashboard asset licensing traps**: every ready-made Whiterun map asset is non-redistributable (Prima-guide-derived GameMapScout map; CC BY-NC-ND DeviantArt maps; proprietary MapGenie; Bethesda-derived UESP/CK renders); modmapper/esper/SkyrimNet-GamePlugin are source-available with no LICENSE — internal use OK, no vendoring. Bulk-downloading Nexus mods violates Nexus ToS. (12)
 
 ## Open questions raised
 
@@ -68,12 +77,16 @@ See [`docs/decisions/open-questions.md`](../decisions/open-questions.md):
 - **Closed by research**: SkyrimNet build-vs-study — report 07 resolves ADR-0003 with a Substrate Abstraction Layer, rating direct SkyrimNet coupling HIGH RISK and the SAL hedge MEDIUM RISK. ADR-0003 is now `accepted`.
 - **Deferred, not forgotten**: economic simulation (prices, supply, trade ripple) — out of scope until the belief tier is proven, slated v0.4.
 - **Closed by research (batch 6, out of cycle)**: game version pin — three independent reports, fired in response to the 1.7.99 patch breaking the plugin ecosystem on 2026-08-20, unanimously recommend pinning to 1.6.1170 + SKSE 2.2.6. Resolved as [ADR-0008](../decisions/0008-game-version-pin.md). This was flagged as a real gap in `notes/ideas.md` before any report addressed it. **This closes the last tracked open item — nothing remains open.**
+- **Closed by research (batch 7, dashboard)**: Whiterun map assets / licensing for the debug dashboard — report 12 answers "can we build and distribute a 2D Whiterun map tool" (yes: generate the backdrop, ship the generator, reuse MIT/Apache prior art, in-process SKSE WebSocket for live telemetry). Feeds the dashboard slice, not an ADR — no decision-record change needed.
 
-## Research phase: complete
+## Research phase: complete (pre-build); build-phase reports continue
 
-11 reports across 6 batches are filed (batch 6 arrived after v0.1 was
+11 reports across 6 batches covered the pre-build questions (batch 6 arrived after v0.1 was
 already accepted and build had started — the 1.7.99 patch forced an
-out-of-cycle research pass). Every ADR the research surfaced a need for
+out-of-cycle research pass). Build-phase research continues as needed:
+batch 7 (report 12, dashboard map assets/licensing, 3 reports merged)
+arrived during the
+v0.1 build. Every ADR the research surfaced a need for
 has been drafted: 0001/0002 (accepted at scaffold time), 0003 (substrate,
 amended once), 0004/0005 (timeline branching / sync handshake —
 independently confirmed four times over), 0006 (data ownership layers),

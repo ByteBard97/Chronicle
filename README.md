@@ -27,7 +27,7 @@ that mutates as it travels to Riften, guard patrols that shift as a
 
 ## Status
 
-Research phase complete — 11 reports across 6 batches, 8 accepted ADRs.
+Research phase complete — 14 reports, 8 accepted ADRs.
 `docs/v0.1-spec.md` is accepted, and its full ~20-rule budget is now
 implemented and scenario-proven headless: the claim/variant/belief store
 with the rumor stage machine (`chronicle/claims.py`), the social-state
