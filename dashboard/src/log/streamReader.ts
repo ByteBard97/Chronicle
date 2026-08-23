@@ -23,6 +23,14 @@ export interface ByteRangeReadResult {
   consumedThrough: number;
   /** True if the underlying transport confirmed partial-content (206) semantics. */
   partial: boolean;
+  /**
+   * The transport's raw HTTP status (additive field, lane 15 Task 3):
+   * `LiveTailPoller` needs to distinguish a 416 (range beyond current EOF
+   * — the static-run case, back off) from a normal 200/206 read, which
+   * `partial` alone can't do (a 200-with-full-body server would leave
+   * `partial: false` for both a real read and a would-be-416 case).
+   */
+  status: number;
 }
 
 /**
@@ -46,6 +54,7 @@ export async function readByteRange(
     records: parsed.map((p) => p.record),
     consumedThrough: reader.consumedBytes,
     partial: res.partial,
+    status: res.status,
   };
 }
 
@@ -57,14 +66,36 @@ export async function readEntireStream(url: string): Promise<ByteRangeReadResult
 export type LiveTailListener = (records: FrameRecord[], consumedThrough: number) => void;
 
 /**
- * Polls `url` from the last consumed byte offset to current EOF on a fixed
- * interval (ui-spec §1.3's "~1 s cadence" default; the work packet asks
- * for the same). One poller per stream per run; `stop()` clears the timer.
+ * Backoff cap (lane 15 Task 3): a static (non-growing) run polled while
+ * LIVE-docked hits a 416 (requested range beyond current EOF) on every
+ * poll, forever — harmless individually, but sustained ~1/s polling
+ * against a run that will never grow is pure waste (and log noise).
+ * Doubling from the base interval on each 416, capped here, keeps
+ * liveness bounded (a growing run is picked up again within this window)
+ * while letting a static run's polling rate decay to a low steady state.
+ */
+const MAX_BACKOFF_MS = 10_000;
+
+/**
+ * Polls `url` from the last consumed byte offset to current EOF, normally
+ * on a fixed interval (ui-spec §1.3's "~1 s cadence" default). One poller
+ * per stream per run; `stop()` clears the timer.
+ *
+ * Lane 15 Task 3: the interval is no longer fixed — a 416 doubles the
+ * delay before the next poll (capped at `MAX_BACKOFF_MS`); any
+ * successful read (200/206) that actually advances `consumedThrough`
+ * resets the delay to the base `intervalMs` immediately, so a run that
+ * starts growing again is caught within one poll, not one backoff cycle.
+ * Public interface unchanged (constructor, `pollOnce()`, `start()`,
+ * `stop()`, `position`) — backoff is purely internal bookkeeping.
  */
 export class LiveTailPoller {
   private consumedThrough: number;
-  private timer: ReturnType<typeof setInterval> | undefined;
+  private timer: ReturnType<typeof setTimeout> | undefined;
   private polling = false;
+  private stopped = false;
+  /** The delay before the *next* poll — grows on 416, resets to `intervalMs` on progress. */
+  private currentDelayMs: number;
 
   constructor(
     private readonly url: string,
@@ -72,6 +103,7 @@ export class LiveTailPoller {
     private readonly intervalMs = 1000,
   ) {
     this.consumedThrough = startByteOffset;
+    this.currentDelayMs = intervalMs;
   }
 
   get position(): number {
@@ -84,7 +116,15 @@ export class LiveTailPoller {
     this.polling = true;
     try {
       const result = await readByteRange(this.url, this.consumedThrough);
+      const madeProgress = result.consumedThrough > this.consumedThrough;
       this.consumedThrough = result.consumedThrough;
+
+      if (result.status === 416) {
+        this.currentDelayMs = Math.min(this.currentDelayMs * 2, MAX_BACKOFF_MS);
+      } else if ((result.status === 200 || result.status === 206) && madeProgress) {
+        this.currentDelayMs = this.intervalMs;
+      }
+
       return result.records;
     } finally {
       this.polling = false;
@@ -92,17 +132,24 @@ export class LiveTailPoller {
   }
 
   start(onRecords: LiveTailListener): () => void {
-    this.timer = setInterval(() => {
-      void this.pollOnce().then((records) => {
-        if (records.length > 0) onRecords(records, this.consumedThrough);
-      });
-    }, this.intervalMs);
+    this.stopped = false;
+    const scheduleNext = () => {
+      if (this.stopped) return;
+      this.timer = setTimeout(() => {
+        void this.pollOnce().then((records) => {
+          if (records.length > 0) onRecords(records, this.consumedThrough);
+          scheduleNext();
+        });
+      }, this.currentDelayMs);
+    };
+    scheduleNext();
     return () => this.stop();
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.timer !== undefined) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = undefined;
     }
   }

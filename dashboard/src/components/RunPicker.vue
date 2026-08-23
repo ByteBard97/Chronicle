@@ -6,7 +6,19 @@
 // custom listbox (the mockup's faux-dropdown link at
 // map-c-skyrim.dc.html:23 is presentation of a real <select>, not a
 // different control).
-import { onMounted } from "vue";
+//
+// Lane 15 Task 2: when no run is selected (`model` is null -- no `run`
+// in the URL), the select DISPLAYS the registry's most recent run
+// (`runsStore.mostRecentRunId`) rather than "(none selected)", matching
+// the M3 mockup's top bar. This is display-only: `displayValue` never
+// writes back to `model` on its own, so `urlState.run`'s "defaults
+// omitted from the URL" law (state/urlState.ts) is untouched -- the
+// default becomes real (URL-persisted) only when the user actually
+// picks something (`@change`, unchanged below) or a deep link sets
+// `run` directly. An empty/missing registry falls `mostRecentRunId`
+// back to `null`, so `displayValue` falls back to `''` -- the original
+// "(none selected)" behavior, unchanged.
+import { computed, onMounted } from "vue";
 import { useRunsStore } from "../stores/runs";
 
 const runsStore = useRunsStore();
@@ -15,6 +27,7 @@ onMounted(() => {
 });
 
 const model = defineModel<string | null>();
+const displayValue = computed(() => model.value ?? runsStore.mostRecentRunId ?? "");
 </script>
 
 <template>
@@ -23,7 +36,7 @@ const model = defineModel<string | null>();
     <select
       id="run-picker"
       class="run-picker__select"
-      :value="model ?? ''"
+      :value="displayValue"
       :disabled="runsStore.status === 'loading'"
       @change="model = ($event.target as HTMLSelectElement).value || null"
     >

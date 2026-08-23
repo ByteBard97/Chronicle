@@ -98,4 +98,57 @@ describe("runs store: tolerates an absent runs/index.json", () => {
       expect(store.pickableRuns.filter((r) => r.run_id === "mock-t0")).toHaveLength(1);
     });
   });
+
+  describe("mostRecentRunId (lane 15 Task 2: RunPicker default)", () => {
+    it("is null before any registry has loaded (mock-t0 has no created_wall_ts)", () => {
+      const store = useRunsStore();
+      expect(store.mostRecentRunId).toBeNull();
+    });
+
+    it("picks the entry with the highest created_wall_ts", async () => {
+      const body = {
+        runs: [
+          { run_id: "older", seed_id: "s", created: "x", tick_range: [0, 1], streams: [], created_wall_ts: 100 },
+          { run_id: "newest", seed_id: "s", created: "x", tick_range: [0, 1], streams: [], created_wall_ts: 300 },
+          { run_id: "middle", seed_id: "s", created: "x", tick_range: [0, 1], streams: [], created_wall_ts: 200 },
+        ],
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })),
+      );
+      const store = useRunsStore();
+      await store.load();
+      expect(store.mostRecentRunId).toBe("newest");
+    });
+
+    it("excludes entries with no created_wall_ts from the comparison (the legacy fixture shape)", async () => {
+      const body = {
+        runs: [
+          { run_id: "legacy", seed_id: "s", created: "2026-08-22T00:00:00Z", tick_range: [0, 1], streams: [] },
+          { run_id: "dated", seed_id: "s", created: "x", tick_range: [0, 1], streams: [], created_wall_ts: 100 },
+        ],
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })),
+      );
+      const store = useRunsStore();
+      await store.load();
+      expect(store.mostRecentRunId).toBe("dated");
+    });
+
+    it("is null when the registry loaded but no entry has created_wall_ts", async () => {
+      const body = {
+        runs: [{ run_id: "legacy", seed_id: "s", created: "x", tick_range: [0, 1], streams: [] }],
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })),
+      );
+      const store = useRunsStore();
+      await store.load();
+      expect(store.mostRecentRunId).toBeNull();
+    });
+  });
 });

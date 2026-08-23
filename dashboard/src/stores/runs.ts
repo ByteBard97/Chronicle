@@ -7,6 +7,16 @@ export interface RunRegistryEntry {
   created: string;
   tick_range: [number, number];
   streams: string[];
+  /**
+   * Wall-clock write time (seconds since epoch), lane-15's addition: real
+   * registry entries (`chronicle/framelog.py`'s writer) carry this; only
+   * the legacy `range-check-fixture` entry and the synthetic
+   * `MOCK_T0_DISPLAY_ENTRY` below don't. Optional so this store's loose
+   * typing (see this file's header) doesn't newly reject real entries
+   * that lack it -- `mostRecentRunId` below simply excludes them from
+   * the "most recent" comparison rather than erroring.
+   */
+  created_wall_ts?: number;
 }
 
 interface RunsIndexFile {
@@ -60,6 +70,22 @@ export const useRunsStore = defineStore("runs", {
       state.runs.some((r) => r.run_id === MOCK_T0_DISPLAY_ENTRY.run_id)
         ? state.runs
         : [...state.runs, MOCK_T0_DISPLAY_ENTRY],
+
+    /**
+     * The registry's most recent run by `created_wall_ts`, or `null` if
+     * the registry is empty or no entry carries that field (lane-15
+     * Task 2: "RunPicker default"). Entries without `created_wall_ts`
+     * (the legacy fixture, the mock-t0 display entry) are excluded from
+     * the comparison rather than treated as oldest-or-newest by a
+     * fabricated fallback timestamp.
+     */
+    mostRecentRunId(): string | null {
+      const dated = this.pickableRuns.filter(
+        (r): r is RunRegistryEntry & { created_wall_ts: number } => typeof r.created_wall_ts === "number",
+      );
+      if (dated.length === 0) return null;
+      return dated.reduce((latest, r) => (r.created_wall_ts > latest.created_wall_ts ? r : latest)).run_id;
+    },
   },
   actions: {
     async load() {
