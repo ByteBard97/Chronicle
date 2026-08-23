@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { applyTraceRecord, emptySocialState, fromKeyframeState, replayTo, rumorKey } from "./reconstruct";
-import type { FrameRecord } from "./types";
+import { applyTraceRecord, emptySocialState, fromKeyframeState, replayTo, rumorKey, type SocialState } from "./reconstruct";
+import type { FrameRecord, KeyframeBelief } from "./types";
 import {
   RETELL_CONFIDENCE_DECAY,
   RETELL_GIST_DECAY,
@@ -122,6 +122,152 @@ describe("reconstruct: mock-t0 fixture", () => {
     // the payload level (sibling to 'state') is simply never looked at --
     // proving skip-and-continue doesn't require an explicit exclusion list.
     expect(() => fromKeyframeState(keyframeRecord!.payload.state as never, keyframeRecord!.tick)).not.toThrow();
+  });
+});
+
+describe("reconstruct: supersession (lane 27)", () => {
+  function seedBelief(state: SocialState, id: string, overrides: Partial<KeyframeBelief>) {
+    state.beliefs.set(id, {
+      id,
+      holder_id: "holder",
+      claim_id: "claim-x",
+      variant_id: null,
+      confidence: 1,
+      verbatim_strength: 1,
+      gist_strength: 1,
+      first_learned: 0,
+      last_rehearsed: 0,
+      ...overrides,
+    });
+  }
+
+  it("adoption branch: the incumbent was on the loser's variant -- re-points to the winner's variant using the TELLER's raw confidence (claims.py's retell()/resolve() convention: no pre-decay)", () => {
+    const state = emptySocialState(0);
+    seedBelief(state, "incumbent-belief", { holder_id: "holder", variant_id: "var-loser", confidence: 0.5, last_rehearsed: 0 });
+    seedBelief(state, "teller-belief", { holder_id: "teller", variant_id: "var-winner", confidence: 0.8, verbatim_strength: 0.9, gist_strength: 0.95, last_rehearsed: 10 });
+
+    applyTraceRecord(
+      state,
+      {
+        record_type: "supersession",
+        holder_id: "holder",
+        claim_id: "claim-x",
+        loser_variant_id: "var-loser",
+        winner_variant_id: "var-winner",
+        resolution_rule: "evidence-type-ordering+v1",
+        confidence_dent: 0.1,
+        teller_id: "teller",
+        teller_belief_id: "teller-belief",
+        evidence_id: "ev-supersession-1",
+        winner_belief_id: "incumbent-belief",
+      },
+      15,
+    );
+
+    const updated = state.beliefs.get("incumbent-belief");
+    expect(updated).toBeDefined();
+    expect(updated!.variant_id).toBe("var-winner");
+    expect(updated!.confidence).toBeCloseTo(0.8 * RETELL_CONFIDENCE_DECAY * (1 - 0.1), 12);
+    expect(updated!.verbatim_strength).toBeCloseTo(0.9 * RETELL_VERBATIM_DECAY, 12);
+    expect(updated!.gist_strength).toBeCloseTo(0.95 * RETELL_GIST_DECAY, 12);
+    expect(updated!.last_rehearsed).toBe(15);
+
+    const evidence = state.evidence.get("ev-supersession-1");
+    expect(evidence).toMatchObject({
+      belief_id: "incumbent-belief",
+      evidence_type: "reported",
+      source_id: "teller",
+      predecessor_belief_id: "teller-belief",
+      gamets: 15,
+      strength: 0.8, // teller's raw confidence, not the decayed/dented result
+    });
+  });
+
+  it("repel branch: the incumbent already held the winning variant -- decays in place, then dents, variant unchanged", () => {
+    const state = emptySocialState(0);
+    seedBelief(state, "incumbent-belief", { holder_id: "holder", variant_id: "var-winner", confidence: 0.6, last_rehearsed: 0 });
+    seedBelief(state, "teller-belief", { holder_id: "teller", variant_id: "var-loser", confidence: 0.4, last_rehearsed: 5 });
+
+    applyTraceRecord(
+      state,
+      {
+        record_type: "supersession",
+        holder_id: "holder",
+        claim_id: "claim-x",
+        loser_variant_id: "var-loser",
+        winner_variant_id: "var-winner",
+        resolution_rule: "evidence-type-ordering+v1",
+        confidence_dent: 0.1,
+        teller_id: "teller",
+        teller_belief_id: "teller-belief",
+        evidence_id: "ev-supersession-2",
+        winner_belief_id: "incumbent-belief",
+      },
+      20,
+    );
+
+    const updated = state.beliefs.get("incumbent-belief");
+    const decayedConfidence = 0.6 * Math.pow(0.5, 20 / 168.0);
+    expect(updated!.variant_id).toBe("var-winner"); // unchanged -- the challenge was repelled
+    expect(updated!.confidence).toBeCloseTo(decayedConfidence * (1 - 0.1), 12);
+    expect(updated!.last_rehearsed).toBe(20);
+
+    // Evidence strength is still the teller's raw confidence, win or lose.
+    expect(state.evidence.get("ev-supersession-2")).toMatchObject({ strength: 0.4 });
+  });
+
+  it("null winner_variant_id re-points the belief onto the canonical (un-varianted) root", () => {
+    const state = emptySocialState(0);
+    seedBelief(state, "incumbent-belief", { holder_id: "holder", variant_id: "var-loser", confidence: 0.5, last_rehearsed: 0 });
+    seedBelief(state, "teller-belief", { holder_id: "teller", variant_id: null, confidence: 0.9, last_rehearsed: 0 });
+
+    applyTraceRecord(
+      state,
+      {
+        record_type: "supersession",
+        holder_id: "holder",
+        claim_id: "claim-x",
+        loser_variant_id: "var-loser",
+        winner_variant_id: null,
+        resolution_rule: "evidence-type-ordering+v1",
+        confidence_dent: 0.1,
+        teller_id: "teller",
+        teller_belief_id: "teller-belief",
+        evidence_id: "ev-supersession-3",
+        winner_belief_id: "incumbent-belief",
+      },
+      3,
+    );
+
+    expect(state.beliefs.get("incumbent-belief")?.variant_id).toBeNull();
+  });
+
+  it("reader tolerance: an unresolvable belief_id (winner or teller) skips without throwing or mutating state", () => {
+    const state = emptySocialState(0);
+    seedBelief(state, "teller-belief", { holder_id: "teller", variant_id: "var-winner", confidence: 0.7, last_rehearsed: 0 });
+    const before = JSON.stringify([...state.beliefs.entries()]);
+
+    expect(() =>
+      applyTraceRecord(
+        state,
+        {
+          record_type: "supersession",
+          holder_id: "holder",
+          claim_id: "claim-x",
+          loser_variant_id: "var-loser",
+          winner_variant_id: "var-winner",
+          resolution_rule: "evidence-type-ordering+v1",
+          confidence_dent: 0.1,
+          teller_id: "teller",
+          teller_belief_id: "teller-belief",
+          evidence_id: "ev-supersession-4",
+          winner_belief_id: "missing-belief", // never formed in this reader's view
+        },
+        3,
+      ),
+    ).not.toThrow();
+    expect(JSON.stringify([...state.beliefs.entries()])).toBe(before);
+    expect(state.evidence.has("ev-supersession-4")).toBe(false);
   });
 });
 

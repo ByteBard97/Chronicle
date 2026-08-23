@@ -129,26 +129,23 @@ describe.skipIf(!runExists)("variant tree against runs/carrier-mutation-01 (real
     });
   });
 
-  it("holder count at T=30 (the intra-keyframe window before the resolving keyframe) shows the live reconstruct.ts gap", () => {
+  it("holder count at T=30 (the intra-keyframe window before the resolving keyframe) reflects the resolved supersession chain (lane 27)", () => {
     // Keyframes are every 24 ticks (23, 47, ...); the supersession chain
     // fires at ticks 26-28, strictly between keyframe 23 and keyframe 47.
-    // At T=30, state is keyframe-23 (pre-supersession) + a delta replay
-    // that silently skips `supersession` (reconstruct.ts's do-not-touch
-    // gap, see variantTree.ts's module header) -- so relief_caravaneer and
-    // ysolda still show up on their pre-resolution variants (-4 and -2)
-    // rather than the canonical root the log actually resolved them to by
-    // tick 28. This module correctly reflects that stale state, per the
-    // packet's literal "count state.beliefs" recipe.
+    // reconstruct.ts now replays `supersession` records (lane 27), so T=30
+    // already shows relief_caravaneer and ysolda re-pointed onto the
+    // canonical root -- the same end state T=200's keyframe bakes in,
+    // reached here purely through delta replay instead.
     const state = stateAt(allEvents, allTrace, 30);
     expect(state.beliefs.size).toBe(5);
     const tree = buildVariantTree(state, allTrace, "claim-market-murder", 30);
     const holderCounts = Object.fromEntries(tree.nodes.map((n) => [n.id, n.holderCount]));
     expect(holderCounts).toEqual({
-      [CANONICAL_NODE_ID]: 1, // belethor only -- ysolda/relief_caravaneer not yet folded onto canonical
+      [CANONICAL_NODE_ID]: 3, // belethor + relief_caravaneer + ysolda, both now resolved onto canonical
       "variant-auto-1": 1, // carlotta
-      "variant-auto-2": 1, // ysolda -- stale: the log resolves her off this variant by tick 28
+      "variant-auto-2": 0, // ysolda resolved off this variant
       "variant-auto-3": 1, // caravaneer
-      "variant-auto-4": 1, // relief_caravaneer -- stale: the log resolves him off this variant by tick 28
+      "variant-auto-4": 0, // relief_caravaneer resolved off this variant
     });
   });
 
