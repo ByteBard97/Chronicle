@@ -11,3 +11,6 @@ dist/
 /runs
 # Bethesda-derived bake -- local only, never commit
 public/assets/
+
+# visual-diff.mjs output -- generated screenshots/diff, not source
+scripts/visual-diff-output/

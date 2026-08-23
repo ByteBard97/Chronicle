@@ -60,8 +60,6 @@ def main() -> None:
     driver.run(0, TICKS)
     driver.close()
 
-    from pathlib import Path
-
     from chronicle.framelog import default_runs_dir
 
     run_dir = default_runs_dir() / RUN_ID

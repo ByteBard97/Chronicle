@@ -71,7 +71,11 @@ function parseArgs(argv) {
       process.exit(2);
     }
   }
-  opts.vueUrl ??= `http://127.0.0.1:${DEFAULT_VUE_PORT}/`;
+  // The mockup (map-c-skyrim.dc.html) is the M3 map view; the app's root
+  // route is Shell.vue, M1's intentionally map-less Tier-0 chrome (ui-spec
+  // §3's build order -- the map is a later milestone pulled forward here
+  // only as a visual harness). The comparison target is /map, not "/".
+  opts.vueUrl ??= `http://127.0.0.1:${DEFAULT_VUE_PORT}/map`;
   opts.mockUrl ??= `http://127.0.0.1:${DEFAULT_MOCK_PORT}/map-c-skyrim.dc.html`;
   return opts;
 }
@@ -237,8 +241,12 @@ async function main() {
           /* already gone */
         }
       });
-      opts.vueUrl = `http://127.0.0.1:${port}/`;
-      await waitForServer(opts.vueUrl, "vite preview");
+      const vueBaseUrl = `http://127.0.0.1:${port}/`;
+      await waitForServer(vueBaseUrl, "vite preview");
+      // Readiness probe hits the root (always resolves); the screenshot
+      // target is /map -- the mockup is the M3 map view, and Shell.vue's
+      // root route is M1's intentionally map-less Tier-0 chrome.
+      opts.vueUrl = `${vueBaseUrl}map`;
     }
 
     // --- Mock side ----------------------------------------------------

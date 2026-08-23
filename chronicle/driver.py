@@ -22,14 +22,23 @@ Decay and thresholds are not tick-loop work here: claims.py's decay is
 closed-form and applied at read time (rule 19), and Tier-3 threshold
 machinery doesn't exist yet -- "apply retellings/decay/thresholds" at M0
 means retellings only.
+
+Tier 2 (docs/scenario-ladder.md T2.2) adds the mutation policy: an
+encounter-driven retelling may mutate one slot of the story it carries
+(_decide_mutation below), gated and keyed by ADR-0009 rolls and evidenced
+by a mutation_applied trace record (frame-log schema §4) emitted just
+before the transmitted record. Scripted retellings via driver.retell()
+are unchanged -- explicit mutations stay caller-controlled.
 """
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Self
+from typing import NamedTuple, Self
 
 from chronicle.claims import (
     BeliefInstance,
@@ -47,6 +56,7 @@ from chronicle.framelog import (
     serialize_state,
 )
 from chronicle.propagate import teller_and_hearer
+from chronicle.rng import MUTATION_SLOT, MUTATION_VALUE, roll, roll_key
 from chronicle.schedule import (
     ENCOUNTER_PROBABILITY,
     ScheduleBlock,
@@ -64,6 +74,25 @@ from chronicle.social import (
     issue_obligation,
 )
 
+# Tier-2 retelling mutation gate (docs/scenario-ladder.md T2.2): the
+# probability that an encounter-driven retelling mutates one slot of the
+# story it carries. Same tunable-not-derived status as claims.py's decay
+# constants and schedule.py's ENCOUNTER_PROBABILITY -- a placeholder until
+# the math tier calibrates it against a scenario, not derived from any
+# source report.
+MUTATION_PROBABILITY = 0.2
+
+
+class _MutationDecision(NamedTuple):
+    """What _decide_mutation settled for one encounter-driven retelling (ladder T2.2)."""
+
+    slot: str
+    old_value: str | None
+    new_value: str
+    mutation_id: str
+    slot_roll_key: dict[str, object]
+    slot_roll_value: float
+
 
 class Driver:
     """Runs the sim over the stores and writes the frame log as it goes.
@@ -76,6 +105,15 @@ class Driver:
     pre-populated event_log -- mark NPCs deceased, and the tick loop
     excludes the deceased from encounter sampling (ladder T1.2: death
     stops new propagation only; the dead keep their existing beliefs).
+
+    Tier-2 mutation seam (ladder T2.2): mutation_probability gates how
+    often an encounter-driven retelling mutates, and mutation_candidates
+    supplies the values a mutation can substitute -- a Mapping keyed
+    (claim_kind, slot) naming the candidate domain per slot. This is the
+    caller-supplies-context pattern propagate.py already uses: fixtures
+    and scenarios supply domains; the engine stays domain-agnostic. With
+    no candidates registered (the default), encounter-driven retellings
+    never mutate and no mutation_applied record is ever emitted.
     """
 
     def __init__(
@@ -87,6 +125,8 @@ class Driver:
         generation: int = 0,
         schedule: Sequence[ScheduleBlock] = (),
         encounter_probability: float = ENCOUNTER_PROBABILITY,
+        mutation_probability: float = MUTATION_PROBABILITY,
+        mutation_candidates: Mapping[tuple[str, str], Sequence[str]] | None = None,
         keyframe_interval: int = DEFAULT_KEYFRAME_INTERVAL,
         runs_dir: Path | None = None,
         event_log: EventLog | None = None,
@@ -96,6 +136,12 @@ class Driver:
         self.seed_id = seed_id
         self.schedule = tuple(schedule)
         self.encounter_probability = encounter_probability
+        self.mutation_probability = mutation_probability
+        self.mutation_candidates = (
+            {key: tuple(values) for key, values in mutation_candidates.items()}
+            if mutation_candidates is not None
+            else {}
+        )
         self.keyframe_interval = keyframe_interval
         self.event_log = event_log if event_log is not None else EventLog()
         # Deceased NPCs (ladder T1.2): derived from NPCDied canonical events
@@ -390,24 +436,26 @@ class Driver:
             tick=tick,
             encounter_probability=self.encounter_probability,
         )
-        for roll in rolls:
+        for encounter_roll in rolls:
             self.writer.write_trace(
                 tick=tick,
                 payload={
                     "record_type": "encounter_rolled",
-                    "roll_key": dict(roll.roll_key),
-                    "value": roll.value,
-                    "threshold": roll.threshold,
-                    "outcome": "encountered" if roll.encountered else "no_encounter",
-                    "location_id": roll.location_id,
-                    "npc_a": roll.npc_a,
-                    "npc_b": roll.npc_b,
-                    "encountered": roll.encountered,
+                    "roll_key": dict(encounter_roll.roll_key),
+                    "value": encounter_roll.value,
+                    "threshold": encounter_roll.threshold,
+                    "outcome": "encountered" if encounter_roll.encountered else "no_encounter",
+                    "location_id": encounter_roll.location_id,
+                    "npc_a": encounter_roll.npc_a,
+                    "npc_b": encounter_roll.npc_b,
+                    "encountered": encounter_roll.encountered,
                 },
             )
-            if not roll.encountered:
+            if not encounter_roll.encountered:
                 continue
-            self._propagate_on_encounter(tick=tick, location_id=roll.location_id, npc_a=roll.npc_a, npc_b=roll.npc_b)
+            self._propagate_on_encounter(
+                tick=tick, location_id=encounter_roll.location_id, npc_a=encounter_roll.npc_a, npc_b=encounter_roll.npc_b
+            )
 
     def _propagate_on_encounter(self, *, tick: int, location_id: str, npc_a: str, npc_b: str) -> None:
         if not self._propagating_claims:
@@ -433,14 +481,43 @@ class Driver:
             assert teller_belief is not None  # teller_and_hearer() resolved it a line ago
             parent_variant = self.claims.variant(teller_belief.variant_id) if teller_belief.variant_id is not None else None
             n = next(self._auto_ids)
-            # Tier-2 mutation machinery doesn't exist yet, so encounter-
-            # driven retellings carry the story unmutated (mutate_slot
-            # defaults to None); scripted retellings pass mutations
-            # explicitly through driver.retell().
+            variant_id = f"variant-auto-{n}"
+            claim = self.claims.claim(claim_id)
+            # Tier-2 mutation policy (ladder T2.2): encounter-driven
+            # retellings may mutate one slot, decided by keyed rolls; the
+            # mutation_applied record (schema §4) is the roll evidence and
+            # is emitted BEFORE the transmitted record (the effect) below.
+            mutation = self._decide_mutation(
+                tick=tick, claim=claim, parent_variant=parent_variant,
+                teller_id=teller_id, hearer_id=hearer_id,
+            )
+            if mutation is not None:
+                self.writer.write_trace(
+                    tick=tick,
+                    payload={
+                        "record_type": "mutation_applied",
+                        "claim_id": claim_id,
+                        "parent_variant_id": parent_variant.id if parent_variant is not None else None,
+                        "variant_id": variant_id,
+                        "slot": mutation.slot,
+                        "old_value": mutation.old_value,
+                        "new_value": mutation.new_value,
+                        "mutation_id": mutation.mutation_id,
+                        # The mutation.slot roll (schema §4's roll-bearing
+                        # record shape: key plus value/threshold/outcome).
+                        # The mutation.value roll's key differs only in
+                        # purpose and is a pure function of it (ADR-0009),
+                        # so no evidence is lost by embedding one key.
+                        "roll_key": mutation.slot_roll_key,
+                        "value": mutation.slot_roll_value,
+                        "threshold": self.mutation_probability,
+                        "outcome": "mutated",
+                    },
+                )
             self.retell(
-                claim=self.claims.claim(claim_id),
+                claim=claim,
                 parent_variant=parent_variant,
-                variant_id=f"variant-auto-{n}",
+                variant_id=variant_id,
                 belief_id=f"belief-auto-{hearer_id}-{n}",
                 evidence_id=f"evidence-auto-{n}",
                 teller_id=teller_id,
@@ -448,7 +525,85 @@ class Driver:
                 hearer_id=hearer_id,
                 gamets=float(tick),
                 location_id=location_id,
+                mutate_slot=mutation.slot if mutation is not None else None,
+                mutated_value=mutation.new_value if mutation is not None else None,
             )
+
+    def _decide_mutation(
+        self,
+        *,
+        tick: int,
+        claim: Claim,
+        parent_variant: Variant | None,
+        teller_id: str,
+        hearer_id: str,
+    ) -> _MutationDecision | None:
+        """The Tier-2 mutation policy for one encounter-driven retelling (ladder T2.2).
+
+        Keyed rolls only (ADR-0009) -- a pure function of the run's seed
+        and the retelling context, so replay is exact. Two rolls:
+
+          - mutation.slot, draw=0: one roll both gates occurrence and picks
+            the slot. value < mutation_probability gates the mutation on;
+            conditioned on the gate, value / mutation_probability is still
+            uniform on [0, 1), so scaling it by the slot count picks
+            uniformly among the claim's slots. (Chosen over a separate
+            gate draw and pick draw: one fewer roll site per retelling, and
+            the record's roll_key then evidences occurrence and slot
+            choice at once.)
+          - mutation.value, draw=0: picks uniformly from the caller-
+            supplied candidate domain for (claim.kind, slot), the current
+            value excluded (claims.retell() rejects a no-op "mutation").
+
+        Returns None -- no mutation, and no mutation_applied record -- when
+        the gate fails, when no candidates are registered for the chosen
+        (kind, slot), or when every registered candidate equals the current
+        value. The schema's mutation_applied exists to record mutations
+        that happened, so a declined mutation emits nothing.
+        """
+        slots = sorted(claim.slots)
+        # ADR-0009's site for non-spatial rolls scopes to the claim id;
+        # participants are the retelling's two parties.
+        site = claim.id
+        participants = (teller_id, hearer_id)
+        gate = roll(
+            seed_id=self.seed_id, purpose=MUTATION_SLOT, tick=tick,
+            site=site, participants=participants, draw=0,
+        )
+        if gate >= self.mutation_probability:
+            return None
+        # gate / probability < 1 strictly; min() guards the float-rounding
+        # edge where the division lands on exactly 1.0.
+        slot = slots[min(int(gate / self.mutation_probability * len(slots)), len(slots) - 1)]
+        base_slots = parent_variant.slots if parent_variant is not None else claim.slots
+        old_value = base_slots[slot]
+        candidates = [c for c in self.mutation_candidates.get((claim.kind, slot), ()) if c != old_value]
+        if not candidates:
+            return None
+        pick = roll(
+            seed_id=self.seed_id, purpose=MUTATION_VALUE, tick=tick,
+            site=site, participants=participants, draw=0,
+        )
+        new_value = candidates[min(int(pick * len(candidates)), len(candidates) - 1)]
+        # The seeded mutation id the variant tree labels edges with (schema
+        # §4): a short hash of the value roll's key -- reproducible on
+        # replay by construction, never a random uuid.
+        value_key = roll_key(
+            seed_id=self.seed_id, purpose=MUTATION_VALUE, tick=tick,
+            site=site, participants=participants, draw=0,
+        )
+        mutation_id = "mut-" + hashlib.sha256(json.dumps(value_key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+        return _MutationDecision(
+            slot=slot,
+            old_value=old_value,
+            new_value=new_value,
+            mutation_id=mutation_id,
+            slot_roll_key=roll_key(
+                seed_id=self.seed_id, purpose=MUTATION_SLOT, tick=tick,
+                site=site, participants=participants, draw=0,
+            ),
+            slot_roll_value=gate,
+        )
 
     def _write_nothing_salient(
         self,
