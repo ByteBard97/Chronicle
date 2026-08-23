@@ -68,7 +68,8 @@ loop, no log writer, no trace. This lane builds all three per
 
 ## File boundaries
 
-- **Create:** `chronicle/driver.py`, `chronicle/framelog.py`, new tests
+- **Create:** `chronicle/driver.py`, `chronicle/framelog.py`,
+  `chronicle/rng.py` (per ADR-0009 — the keyed-roll choke point), new tests
   under `chronicle/tests/` as needed.
 - **Edit:** `chronicle/schedule.py` (RNG rework), `scenarios/` (driver
   rewiring only — no assertion changes), `.gitignore` (`runs/`).

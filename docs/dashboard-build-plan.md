@@ -186,6 +186,13 @@ The sim learns to write the log the spec froze.
   fork-at-T is split out of this milestone.
 - pytest deep links: a conftest hook builds dashboard URLs from assertion
   context + the runs registry. Ships here, per spec §1.2 consequence 1.
+- **Agent-debug CLI** (`python -m chronicle …`): minimal read-only
+  subcommands over the M0 reader — `inspect <npc> --at <tick>`,
+  `trace <claim>` (provenance chain), `feed --location/--npc`, plus the
+  `inject` event path the console composes. This is what lets an AI agent
+  (or a human) interrogate a run from a shell without opening the
+  dashboard — same log, same reader, no new coupling. Cheap here because
+  Lane 4 built the reader; expensive to retrofit.
 - `dashboard/README.md` reflects the social-graph view's explicit
   deferral (ui-spec §4's commitment). *(Landed with the constitution
   commit — done early so it can't be rediscovered as a "promised view
@@ -249,6 +256,14 @@ minutes, zero coaching; failure of any step is a spec bug. Dashboard v1
 ships when this passes.
 
 ## 3. Deferred milestones (gated on a real need, not a tier)
+
+- **MCP server over the frame log.** Exposes runs as MCP
+  resources/tools (inspect, trace, feed queries) so agents without shell
+  access (cloud-hosted design/review agents) can interrogate runs
+  conversationally. Read-only over the same logs; the write path stays
+  `inject` with fork semantics. **Unlock condition:** a concrete
+  cloud-agent debugging need — local agents are served by the M1 CLI, so
+  the MCP server earns its process only when shell-less consumers exist.
 
 - **Fork re-sim (formerly M1b).** A minimal local runner
   (`chronicle serve`) accepting event appends at LIVE and forks at

@@ -33,9 +33,9 @@ agent's report, the overseer's findings, and the verdict
 
 | Lane | State | Review |
 |------|-------|--------|
-| 1 — keyed-randomness ADR | dispatched | — |
+| 1 — keyed-randomness ADR | drafted by overseer (ADR-0009, `status: proposed`) | awaiting owner adjudication |
 | 2 — frame-log schema | dispatched | — |
 | 3 — tick quantum | dispatched | — |
 | 4 — M0 substrate | blocked on 1–3 | — |
 | 5 — M1 scaffold | dispatched | — |
-| design — M3 mockups | iterating (merge B-features onto A-aesthetic) | — |
+| design — M3 mockups | converged: merged register, both salience modes, docked-LIVE, storyboard all approved | pending token sheet + Markarth label fix, then frozen |
