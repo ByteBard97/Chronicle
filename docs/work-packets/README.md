@@ -13,6 +13,10 @@ Each packet is self-contained: hand it to an agent verbatim.
 
 **Start now, in parallel:** lanes 1, 2, 3, 5. **Start after 1–3 land:** lane 4.
 
+Soft dependency not shown in the table: Lane 2's roll-record payload cites
+Lane 1's `roll_key` vocabulary (members and order are ADR-0009's to decide).
+The coordinator reviews Lane 1 before Lane 2 finalizes trace payloads.
+
 ## Coordination rules (all lanes)
 
 1. **Frozen documents** — nobody edits `docs/ui-spec.md`,

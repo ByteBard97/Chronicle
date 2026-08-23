@@ -33,7 +33,12 @@ loop, no log writer, no trace. This lane builds all three per
 2. **Keyed RNG** in `chronicle/schedule.py`'s `sample_encounters()` per
    ADR-0009 (interface change: callers pass `seed_id`, not `rng`). Update
    call sites; keep scenario tests green (their determinism guarantee is
-   preserved by keying, not by stream order).
+   preserved by keying, not by stream order). **Warning:** keying changes
+   roll *values*, not just their independence — the sampled encounter
+   pattern in `test_jarl_death_encounter_driven_propagation.py` will differ
+   from the sequential-stream pattern. If an assertion flips for this
+   reason, report it to the coordinator — do not edit the test or tune the
+   seed to force green.
 3. **`chronicle/framelog.py`** — writer + reader, per the schema doc:
    - Writer: `runs/<run_id>/` with `events.jsonl` / `trace.jsonl`,
      `index.json` (tick → byte offset per stream + keyframe offsets)

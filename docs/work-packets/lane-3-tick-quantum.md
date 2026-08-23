@@ -45,11 +45,14 @@ dormancy; is that intended?).
 ## Task
 
 1. **Decision note** (`docs/decisions/0010-tick-quantum.md`, ADR format —
-   see any existing ADR): one tick = one game-hour. Record the quantum, and
-   the rebaselined constants with their derivations (e.g., "rumor dormancy
-   after ~N quiet days → 24N ticks"). Where a placeholder looks wrong in
-   real units, pick the value that matches the v0.1 spec's intent and say
-   so explicitly.
+   see any existing ADR): one tick = one game-hour. State the unit mapping
+   explicitly — `tick` (`schedule.py`, int) and `gamets` (`claims.py`,
+   `social.py`, float) are the same unit: 1 tick = 1 gamets = 1 game-hour —
+   so Lane 2's timestamps and Lane 4's driver advance one clock, not two.
+   Record the quantum, and the rebaselined constants with their derivations
+   (e.g., "rumor dormancy after ~N quiet days → 24N ticks"). Where a
+   placeholder looks wrong in real units, pick the value that matches the
+   v0.1 spec's intent and say so explicitly.
 2. **Constants diff:** update the values in `chronicle/claims.py` (and any
    other module constants that are time-denominated — grep for them) with
    comments naming the unit and derivation. **Logic must not change —

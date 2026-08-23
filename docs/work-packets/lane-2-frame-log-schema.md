@@ -43,7 +43,9 @@ Write `docs/frame-log-schema.md` (schema_version: 1):
   `chronicle/events.py` + the ladder (death, crime-witnessed, testimony,
   injection, …). Field-level: names, types, units, optionality.
 - **Trace stream payloads:** one record type per derivation/negative result:
-  encounter-rolled (roll value vs. threshold, key components), transmitted,
+  encounter-rolled (roll value vs. threshold, plus a `roll_key` substructure
+  whose members and order are owned by ADR-0009 — cite it, don't redefine
+  it), transmitted,
   nothing-salient, and the **reserved** declined-with-rule type (defined now,
   produced at Tier 3 — the schema reserves it so the feed renders four
   outcome states from day one), rule-evaluated / evaluated-but-not-fired
