@@ -38,6 +38,7 @@ agent's report, the overseer's findings, and the verdict
 | 3 — tick quantum | delivered (ADR-0010 + claims.py rebaseline, commit 5b168e7) | accepted — overseer re-verified: 52 pytest green, ruff clean, unit+derivation+rule comments present |
 | 4 — M0 substrate | delivered (driver/framelog/rng + keyed schedule rework) | accepted — overseer verified: 75 pytest green, ruff clean, no scenario assertion changes, reconstruction + index-rebuild proofs present; all three findings reconciled into `docs/frame-log-schema.md` §7/§9 (keyframe seq rule formalized; social-mutation trace gap and `_rumor_sources` reconstruction documented as known M0-scope limitations, not bugs) |
 | 5 — M1 scaffold | delivered + verified (npm ci/build clean, 27 vitest green, check-range 206 on both servers) | accepted |
-| 6 — M1 reader + chrome | dispatched (coordination note added: Lane 7 owns `SalienceSwitch` markup) | — |
-| 7 — design system + M1 styling | dispatched (design vendored at `dashboard/design/`) | — |
-| design — M3 mockups | converged: merged register, both salience modes, docked-LIVE, storyboard all approved | pending token sheet + Markarth label fix, then frozen |
+| 6 — M1 reader + chrome | in flight (external agent) | — |
+| 7 — design system + M1 styling | in flight (external agent) | — |
+| 8 — map conversion + visual parity | in flight (overseer subagents 8a/8b; foundation 28b81d6) | — |
+| design — M3 mockups | converged and frozen: token sheet delivered + vendored (`dashboard/design/`, c7f3d44) | Markarth label collision fix noted for the M3 build |

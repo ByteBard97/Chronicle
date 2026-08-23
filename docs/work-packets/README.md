@@ -12,6 +12,7 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 5 | [lane-5-m1-scaffold.md](lane-5-m1-scaffold.md) | — | medium (code) |
 | 6 | [lane-6-m1-reader-chrome.md](lane-6-m1-reader-chrome.md) | lane 5 (landed) | medium-large (code) |
 | 7 | [lane-7-design-system.md](lane-7-design-system.md) | — (design vendored) | medium (code) |
+| 8 | [lane-8-map-conversion.md](lane-8-map-conversion.md) | lane 8 foundation (28b81d6) | medium-large (code) |
 
 **Start now, in parallel:** lanes 1, 2, 3, 5. **Start after 1–3 land:** lane 4.
 
