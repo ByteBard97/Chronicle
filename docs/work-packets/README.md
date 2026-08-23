@@ -22,6 +22,9 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 15 | [lane-15-dashboard-hygiene.md](lane-15-dashboard-hygiene.md) | lanes 8, 10, 11 (landed) | small (code) |
 | 16 | [lane-16-timeline-real-data.md](lane-16-timeline-real-data.md) | lane 14 (in flight) | medium-large (code) |
 | 17 | [lane-17-carrier-mutation-demo-run.md](lane-17-carrier-mutation-demo-run.md) | lane 13 (landed) | small-medium (producer + cli) |
+| 18 | [lane-18-tier-3-design-prep.md](lane-18-tier-3-design-prep.md) | lane 12 (landed) | medium (design doc, no code) |
+| 19 | [lane-19-rule-registry-core.md](lane-19-rule-registry-core.md) | lane 18 (design accepted) | medium (code) |
+| 20 | [lane-20-grudge-decay.md](lane-20-grudge-decay.md) | lane 18 (design accepted) | small (code) |
 
 **Current wave:** lanes 13 (Track A), 14 (Track B), 15 (Track B) — 13 disjoint from 14/15; 14 and 15 coordinate via their file boundaries (15 owns SatelliteNode/RunPicker/streamReader; 14 owns the map data path).
 
