@@ -295,16 +295,6 @@ def test_t04_two_witnesses_one_canonical_event_one_claim_two_beliefs():
     driver.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Machinery gap: a disagreeing second witness does not produce a Variant. "
-        "ClaimStore.witness (chronicle/claims.py:459-463) raises ValueError "
-        "('claim ... already exists with different content') instead -- the "
-        "disagreeing-witness-produces-variant path the ladder's T0.4 names does "
-        "not exist in claims.witness()."
-    ),
-)
 def test_t04_disagreeing_second_witness_produces_a_variant_never_a_second_claim():
     """Ladder T0.4, second half (shared-claim invariant): a disagreeing second witness
     (different slot values for the same canonical event) produces a Variant, never a

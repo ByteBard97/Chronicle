@@ -46,6 +46,7 @@ from chronicle.claims import (
     ClaimStore,
     EventKey,
     Evidence,
+    Resolution,
     Variant,
 )
 from chronicle.events import Event, EventLog, NPCDied
@@ -55,7 +56,7 @@ from chronicle.framelog import (
     event_payload,
     serialize_state,
 )
-from chronicle.propagate import teller_and_hearer
+from chronicle.propagate import conflicting_pair, teller_and_hearer
 from chronicle.rng import MUTATION_SLOT, MUTATION_VALUE, roll, roll_key
 from chronicle.schedule import (
     ENCOUNTER_PROBABILITY,
@@ -194,7 +195,15 @@ class Driver:
     # gamets.
 
     def witness(self, **kwargs: object) -> tuple[Claim, BeliefInstance, Evidence]:
-        """Scripted first-hand observation; emits a belief_formed trace record (schema §4)."""
+        """Scripted first-hand observation; emits a belief_formed trace record (schema §4).
+
+        claim_slots carries the slots AS THE WITNESS REPORTED THEM (kwargs),
+        not the stored claim's: identical for an agreeing witness, but for a
+        disagreeing second witness (ladder T0.4) it is what lets the reader
+        re-execute witness()'s disagreement branch -- synthesized variant id
+        and all -- and keep reconstruction exact without a schema change.
+        """
+        reported_slots = dict(kwargs["slots"])  # type: ignore[arg-type]
         claim, belief, evidence = self.claims.witness(**kwargs)  # type: ignore[arg-type]
         if claim.id not in self._propagating_claims:
             self._propagating_claims.append(claim.id)
@@ -210,7 +219,7 @@ class Driver:
                 "holder_id": belief.holder_id,
                 "evidence_id": evidence.id,
                 "claim_kind": claim.kind,
-                "claim_slots": dict(claim.slots),
+                "claim_slots": reported_slots,
                 "canonical_event_key": {
                     "save_uuid": event_key.save_uuid,
                     "generation": event_key.generation,
@@ -231,15 +240,43 @@ class Driver:
         location_id is trace-only context (claims.retell() has no use for
         it): the encounter's location when the tick loop drives the
         retelling, None for a hand-scripted one.
+
+        A scripted re-hearing (ladder T2.3 conflict-2 disposition: the hearer
+        already holds the same content) mints nothing; the store returns the
+        EXISTING records and this wrapper's transmitted record references
+        those same ids. The one unruled corner -- re-hearing content the
+        hearer holds as the claim's un-varianted original telling (variant
+        None) -- has no variant to reference, so it raises rather than emit a
+        record the schema can't shape.
         """
         teller_belief: BeliefInstance = kwargs["teller_belief"]  # type: ignore[assignment]
-        variant, belief, evidence = self.claims.retell(**kwargs)  # type: ignore[arg-type]
+        result = self.claims.retell(**kwargs)  # type: ignore[arg-type]
+        if isinstance(result, Resolution):
+            # The store routed a scripted retell into conflict resolution
+            # (hearer holds differing content). The trace is the artifact --
+            # a resolution without its supersession record breaks the log
+            # discipline, so the caller must go through driver.resolve().
+            raise TypeError(
+                "scripted retell routed to conflict resolution (hearer holds differing "
+                "content) -- call driver.resolve() instead, so the supersession trace "
+                "record is emitted"
+            )
+        variant, belief, evidence = result
+        if variant is None:
+            raise ValueError(
+                "a scripted re-hearing of the claim's un-varianted original telling has no "
+                "variant id to reference in a transmitted record -- no ruled trace shape "
+                "(surface as a finding if a scenario needs it)"
+            )
+        # Trace tick is the telling's own gamets (kwargs) -- NOT
+        # variant.gamets, which for a re-hearing is the existing variant's
+        # creation tick, not this hearing's.
         self.writer.write_trace(
-            tick=int(variant.gamets),
+            tick=int(kwargs["gamets"]),  # type: ignore[arg-type]
             payload={
                 "record_type": "transmitted",
                 "claim_id": variant.claim_id,
-                "teller_id": evidence.source_id,
+                "teller_id": teller_belief.holder_id,
                 "teller_belief_id": teller_belief.id,
                 "hearer_id": belief.holder_id,
                 "hearer_belief_id": belief.id,
@@ -273,6 +310,22 @@ class Driver:
             },
         )
         return updated, evidence
+
+    def resolve(self, **kwargs: object) -> Resolution:
+        """Scripted conflicting-variant resolution (ladder T2.3); emits a supersession trace record (schema §4, as amended 2026-08-23).
+
+        The Resolution's field names match the schema row exactly, so the
+        payload is the record type plus the resolution spread verbatim --
+        no location_id: unlike transmitted, the §4 supersession row carries
+        none, and the payload matches the schema field-for-field.
+        """
+        gamets: float = kwargs["gamets"]  # type: ignore[assignment]
+        resolution = self.claims.resolve(**kwargs)  # type: ignore[arg-type]
+        self.writer.write_trace(
+            tick=int(gamets),
+            payload={"record_type": "supersession", **resolution._asdict()},
+        )
+        return resolution
 
     # -- derivations (scripted), layer 4: social mutations -------------------
     # The same wrapper contract as witness/retell/corroborate, for the
@@ -467,6 +520,26 @@ class Driver:
             resolved = teller_and_hearer(self.claims, claim_id=claim_id, npc_a=npc_a, npc_b=npc_b)
             if resolved is None:
                 both = self.claims.belief_of(npc_a, claim_id) is not None and self.claims.belief_of(npc_b, claim_id) is not None
+                if both:
+                    # Ladder T2.3: both informed is a decline only while their
+                    # content agrees. Differing variants are a contested hearing
+                    # -- the store's resolution write path settles it and the
+                    # supersession trace record (schema §4) is its evidence.
+                    conflict = conflicting_pair(self.claims, claim_id=claim_id, npc_a=npc_a, npc_b=npc_b)
+                    if conflict is not None:
+                        teller_id, hearer_id = conflict
+                        teller_belief = self.claims.belief_of(teller_id, claim_id)
+                        assert teller_belief is not None  # conflicting_pair() resolved it a line ago
+                        n = next(self._auto_ids)
+                        self.resolve(
+                            claim=self.claims.claim(claim_id),
+                            holder_id=hearer_id,
+                            teller_id=teller_id,
+                            teller_belief=teller_belief,
+                            evidence_id=f"evidence-auto-{n}",
+                            gamets=float(tick),
+                        )
+                        continue
                 self._write_nothing_salient(
                     tick=tick,
                     location_id=location_id,

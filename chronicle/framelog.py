@@ -691,6 +691,22 @@ class FrameLogReader:
                     evidence_id=payload["evidence_id"],
                     gamets=float(record["tick"]),
                 )
+            elif record_type == "supersession":
+                # Re-executed through the store's resolution write path (ladder
+                # T2.3), not applied as a delta: the amended payload (schema
+                # §4, 2026-08-23) carries the teller/evidence ids replay needs
+                # to rebuild the appended Evidence and the belief re-point +
+                # dent exactly, so post-keyframe reconstruction matches the
+                # live run. The recorded loser/winner/rule/dent fields let a
+                # reader cross-check the re-execution; they are not inputs.
+                claims.resolve(
+                    claim=claims.claim(payload["claim_id"]),
+                    holder_id=payload["holder_id"],
+                    teller_id=payload["teller_id"],
+                    teller_belief=claims.chain_for(payload["teller_belief_id"])[0][0],
+                    evidence_id=payload["evidence_id"],
+                    gamets=float(record["tick"]),
+                )
             elif record_type == "relationship_formed":
                 # The payload carries the full Relationship fields except
                 # last_updated, which equals formed_at at formation (schema

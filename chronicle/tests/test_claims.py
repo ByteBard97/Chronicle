@@ -312,9 +312,9 @@ def test_claim_store_rejects_a_second_independent_claim_for_the_same_event():
     assert irileth_belief.claim_id == "c1"
 
 
-def test_claim_store_rejects_the_same_claim_id_with_different_content():
+def test_disagreeing_second_witness_produces_a_variant_never_rewrites_claim():
     store = ClaimStore()
-    store.witness(
+    claim, _, _ = store.witness(
         claim_id="c1",
         belief_id="b1",
         evidence_id="e1",
@@ -325,20 +325,27 @@ def test_claim_store_rejects_the_same_claim_id_with_different_content():
         gamets=10.0,
     )
 
-    # Irileth actually saw the killer -- but that disagreement belongs on
-    # a Variant (a mutated retelling of her own account), not silently
-    # rewriting the shared canonical claim other beliefs already point at.
-    with pytest.raises(ValueError):
-        store.witness(
-            claim_id="c1",
-            belief_id="b2",
-            evidence_id="e2",
-            kind="npc_death",
-            slots={"perpetrator": "a Dark Brotherhood assassin", "cause": "assassination", "location": "dragonsreach"},
-            canonical_event_key=("s1", 0, 1),
-            witness_id="irileth",
-            gamets=10.0,
-        )
+    # Irileth actually saw the killer -- that disagreement belongs on a
+    # Variant of the one shared Claim (ladder T0.4), never a silent rewrite
+    # of the canonical claim other beliefs already point at.
+    _, irileth_belief, _ = store.witness(
+        claim_id="c1",
+        belief_id="b2",
+        evidence_id="e2",
+        kind="npc_death",
+        slots={"perpetrator": "a Dark Brotherhood assassin", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1),
+        witness_id="irileth",
+        gamets=10.0,
+    )
+    assert irileth_belief.claim_id == "c1"  # never a second Claim
+    variant = store.variant(irileth_belief.variant_id)
+    assert variant.claim_id == "c1"
+    assert variant.parent_variant_id is None  # roots at the claim by design
+    assert variant.mutated_slot == "perpetrator"
+    assert variant.slots["perpetrator"] == "a Dark Brotherhood assassin"
+    assert store.claim("c1").slots["perpetrator"] == "unknown"  # canonical telling stands
+    assert claim.slots["perpetrator"] == "unknown"
 
 
 def test_decay_erodes_confidence_and_verbatim_faster_than_gist():

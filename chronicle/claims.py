@@ -73,6 +73,23 @@ GIST_DECAY_HALF_LIFE = 1440.0  # ticks: ~60 game-days (24*60), slowest, rule 5's
 RUMOR_DORMANT_AFTER = 1080.0  # ticks: ~45 quiet game-days (24*45), rule 16.
 RUMOR_FORGOTTEN_GIST_THRESHOLD = 0.05  # dimensionless gist-strength floor, rule 16; not a time constant.
 
+# T2.3 conflicting-variant resolution (docs/scenario-ladder.md §T2.3, v0.4;
+# coordinator rulings 2026-08-23, docs/work-packets/reviews/2026-08-23-lane-12/).
+# RESOLUTION_RULE is the one canonical name of the rung's resolution rule --
+# the string the supersession trace record (docs/frame-log-schema.md §4) carries
+# and the rung test asserts against. CONTESTED_CLAIM_CONFIDENCE_DENT is the
+# multiplicative dent the *winner* of a resolution takes: a challenged belief is
+# held less certainly than an unchallenged one, even when the challenge fails.
+# Same tunable-not-derived status as the decay constants above (0.1 is half the
+# retelling haircut's 0.2, per the coordinator's ruling).
+RESOLUTION_RULE = "evidence-type-ordering+v1"
+CONTESTED_CLAIM_CONFIDENCE_DENT = 0.1
+
+# T2.3's type ordering: witnessed grounds first-hand, reported is hearsay.
+# "corroborated" never appears here by construction -- corroborating evidence
+# is only ever appended, never a belief's grounding (index 0) record.
+_EVIDENCE_TYPE_RANK = {"reported": 0, "witnessed": 1}
+
 
 def _decay(value: float, elapsed: float, half_life: float) -> float:
     return value * 0.5 ** (elapsed / half_life)
@@ -149,6 +166,30 @@ class BeliefInstance:
     gist_strength: float
     first_learned: float
     last_rehearsed: float
+
+
+class Resolution(NamedTuple):
+    """The outcome of ClaimStore.resolve() -- one contested hearing, settled.
+
+    Field names match the supersession trace record (docs/frame-log-schema.md
+    §4, as amended 2026-08-23) exactly, so the driver can spread it straight
+    into the payload. The store does not retain Resolution records:
+    supersessions are trace-only (the trace record is the artifact), and the
+    appended Evidence on the winner's belief is what replay re-executes from.
+    A None variant id names the claim's original telling (witness-held,
+    un-varianted).
+    """
+
+    holder_id: str
+    claim_id: str
+    loser_variant_id: str | None
+    winner_variant_id: str | None
+    resolution_rule: str
+    confidence_dent: float
+    teller_id: str
+    teller_belief_id: str
+    evidence_id: str
+    winner_belief_id: str
 
 
 @dataclass(frozen=True)
@@ -430,16 +471,42 @@ class ClaimStore:
         return self._rumors.get((npc_id, claim_id, variant_id))
 
     def rumor_stage_now(self, npc_id: str, claim_id: str, variant_id: str | None, at_gamets: float) -> str:
-        """The rumor's current stage, deriving "dormant"/"forgotten" lazily (rule 19) -- see stage_at()."""
+        """The rumor's current stage, deriving "dormant"/"forgotten" lazily (rule 19) -- see stage_at().
+
+        Stage queries are valid for the holder's ACTIVE variant only: after a
+        supersession re-points the holder's belief (resolve(), ladder T2.3),
+        the loser variant's RumorState stays on the books (they did hear it --
+        event-sourcing discipline) but no belief matches it anymore, so a
+        stale-variant query gets a clear error rather than a bare StopIteration
+        (coordinator ruling 2026-08-23).
+        """
         state = self._rumors[(npc_id, claim_id, variant_id)]
         belief = next(
-            b for b in self._beliefs.values()
-            if b.holder_id == npc_id and b.claim_id == claim_id and b.variant_id == variant_id
+            (b for b in self._beliefs.values()
+             if b.holder_id == npc_id and b.claim_id == claim_id and b.variant_id == variant_id),
+            None,
         )
+        if belief is None:
+            raise ValueError(
+                f"{variant_id!r} is not {npc_id!r}'s active variant for claim {claim_id!r} "
+                "(superseded or never held) -- stage queries are valid for the active variant only"
+            )
         return stage_at(state, belief, at_gamets)
 
     def witness(self, **kwargs: object) -> tuple[Claim, BeliefInstance, Evidence]:
         claim, belief, evidence = witness(**kwargs)  # type: ignore[arg-type]
+
+        # One belief per (holder, claim), enforced at the store (ladder T2.3):
+        # an NPC who already holds a belief about this claim -- e.g. a rumor --
+        # cannot ALSO record a first-hand witnessing through this path.
+        # Witness-after-rumor auto-resolution is a named follow-up (coordinator
+        # ruling 2026-08-23); this lane raises.
+        if self.belief_of(belief.holder_id, claim.id) is not None:
+            raise ValueError(
+                f"{belief.holder_id!r} already holds a belief about claim {claim.id!r} -- "
+                "witness-after-rumor resolution is not this lane's write path "
+                "(follow-up rung candidate, reviews/2026-08-23-lane-12 finding 5)"
+            )
 
         existing_claim_id = self._claim_id_by_event.get(claim.canonical_event_key)
         if existing_claim_id is not None and existing_claim_id != claim.id:
@@ -451,16 +518,45 @@ class ClaimStore:
 
         existing_claim = self._claims.get(claim.id)
         if existing_claim is not None and existing_claim != claim:
-            # Rule 12/21: a canonical claim never mutates in place -- two
-            # witnesses to the same event must agree on the claim's
-            # content, since every belief already pointing at this
-            # claim_id (via chain_for) would otherwise retroactively
-            # resolve to different content.
-            raise ValueError(
-                f"claim {claim.id!r} already exists with different content -- "
-                "a second witness to the same event must report identical claim slots/kind, "
-                "since claims never mutate in place (any disagreement belongs on a Variant instead)"
+            # Rule 12/21: a canonical claim never mutates in place. A second
+            # witness who DISAGREES about the claim's content (ladder T0.4)
+            # hangs the disagreement off a Variant of the one shared Claim --
+            # rooted at the claim by design (parent_variant_id=None, a second,
+            # legitimate kind of lineage root alongside the un-varianted
+            # original telling), mutated_slot naming the disagreed slot.
+            # Limited to single-slot disagreement: Variant models exactly one
+            # mutated slot, so multi-slot disagreement raises naming the
+            # follow-up rather than writing a lossy variant (coordinator
+            # ruling 2026-08-23).
+            if claim.kind != existing_claim.kind or set(claim.slots) != set(existing_claim.slots):
+                raise ValueError(
+                    f"claim {claim.id!r} already exists with a different kind/slot shape -- "
+                    "a second witness to the same event must at least agree on the claim's structure"
+                )
+            differing = [k for k in claim.slots if claim.slots[k] != existing_claim.slots[k]]
+            if len(differing) > 1:
+                raise ValueError(
+                    f"second witness disagrees on {len(differing)} slots of claim {claim.id!r} "
+                    f"({differing}) -- Variant models exactly one mutated slot; multi-slot "
+                    "witness disagreement is a follow-up (reviews/2026-08-23-lane-12 finding 5)"
+                )
+            variant_id = f"{claim.id}-witness-disagreement-{belief.holder_id}"
+            if variant_id in self._variants:
+                raise ValueError(f"{variant_id!r} already exists -- a witness's disagreement variant is recorded once")
+            variant = Variant(
+                id=variant_id,
+                claim_id=claim.id,
+                parent_variant_id=None,
+                slots=dict(claim.slots),
+                mutated_slot=differing[0],
+                gamets=belief.first_learned,
             )
+            self._variants[variant.id] = variant
+            belief = replace(belief, variant_id=variant.id)
+            # The stored claim keeps the FIRST witness's slots: the canonical
+            # telling never mutates, and every belief already pointing at this
+            # claim_id (via chain_for) still resolves to the same content.
+            claim = existing_claim
 
         self._claim_id_by_event[claim.canonical_event_key] = claim.id
         self._claims[claim.id] = claim
@@ -468,13 +564,53 @@ class ClaimStore:
         self._evidence_by_belief[belief.id] = [evidence]
         # Witnessing is the story's first hearing for this NPC, self-sourced --
         # consistent with witness()'s Evidence.source_id also being the witness.
+        # A disagreeing witness heard their own variant of it (T0.4).
         self._record_hearing(
-            npc_id=belief.holder_id, claim_id=claim.id, variant_id=None,
+            npc_id=belief.holder_id, claim_id=claim.id, variant_id=belief.variant_id,
             source_id=belief.holder_id, gamets=belief.first_learned,
         )
         return claim, belief, evidence
 
-    def retell(self, **kwargs: object) -> tuple[Variant, BeliefInstance, Evidence]:
+    def retell(self, **kwargs: object) -> tuple[Variant | None, BeliefInstance, Evidence] | Resolution:
+        claim: Claim = kwargs["claim"]  # type: ignore[assignment]
+        hearer_id: str = kwargs["hearer_id"]  # type: ignore[assignment]
+        # One belief per (holder, claim), enforced at the store (ladder T2.3) --
+        # this closes the silent-duplicate hole: until now the invariant held
+        # only because the propagation driver declined both-informed encounters.
+        # An informed hearer is never a duplicate any more (coordinator ruling
+        # 2026-08-23, reviews/2026-08-23-lane-12 conflict-2 disposition):
+        # DIFFERING content routes to resolve() -- BEFORE the pure constructor
+        # below mints anything, since correction semantics adopt the teller's
+        # variant as-held (no new Variant on a supersession); SAME content is a
+        # re-hearing, minting nothing.
+        existing = self.belief_of(hearer_id, claim.id)
+        if existing is not None:
+            teller_belief: BeliefInstance = kwargs["teller_belief"]  # type: ignore[assignment]
+            if self.held_slots(existing) != self.held_slots(teller_belief):
+                return self.resolve(
+                    claim=claim,
+                    holder_id=hearer_id,
+                    teller_id=kwargs["teller_id"],  # type: ignore[arg-type]
+                    teller_belief=teller_belief,
+                    evidence_id=kwargs["evidence_id"],  # type: ignore[arg-type]
+                    gamets=kwargs["gamets"],  # type: ignore[arg-type]
+                )
+            # Re-hearing (rule 7's exposure counting): the hearer already holds
+            # this content -- mint no variant/belief/evidence, but the hearing
+            # (and the telling) are real and recorded, so distinct-source and
+            # exposure counts stay exact. Returns the EXISTING records; the
+            # scripted driver's transmitted record references those same ids
+            # (schema §4:117's gloss, amended 2026-08-23).
+            self._record_hearing(
+                npc_id=hearer_id, claim_id=claim.id, variant_id=existing.variant_id,
+                source_id=teller_belief.holder_id, gamets=kwargs["gamets"],  # type: ignore[arg-type]
+            )
+            self._record_telling(
+                npc_id=teller_belief.holder_id, claim_id=claim.id,
+                variant_id=teller_belief.variant_id, gamets=kwargs["gamets"],  # type: ignore[arg-type]
+            )
+            variant = self._variants[existing.variant_id] if existing.variant_id is not None else None
+            return variant, existing, self._evidence_by_belief[existing.id][0]
         variant, belief, evidence = retell(**kwargs)  # type: ignore[arg-type]
         self._variants[variant.id] = variant
         self._beliefs[belief.id] = belief
@@ -555,6 +691,154 @@ class ClaimStore:
         self._evidence_by_belief[belief_id].append(evidence)
         return updated, evidence
 
+    def resolve(
+        self,
+        *,
+        claim: Claim,
+        holder_id: str,
+        teller_id: str,
+        teller_belief: BeliefInstance,
+        evidence_id: str,
+        gamets: float,
+    ) -> Resolution:
+        """Conflicting-variant resolution (ladder T2.3): the holder's belief meets a differing telling.
+
+        A supersession is a CORRECTION, not a transmission (coordinator ruling
+        2026-08-23): no new Variant is minted -- the loser adopts the winning
+        side's variant as-held, so winner/loser are always the two pre-existing
+        variants and transmitted's a-variant-on-every-transmission invariant is
+        untouched. The only new store object is one Evidence appended to the
+        winner's belief, recording the contested hearing itself; that is what
+        puts both encounters in the winner's evidence chain.
+
+        The frozen policy (scenario-ladder.md §T2.3, v0.4), pure claims-layer
+        data, no social-state lookups:
+
+          - evidence-type ordering: the side whose belief's grounding evidence
+            (chain_for's terminal walk, index 0) is the stronger TYPE wins --
+            witnessed > reported;
+          - strength tiebreak: on a type tie, the higher SUM of the stored
+            strengths of all Evidence records supporting each side's belief
+            (grounding + corroborations, summed as-stored -- decay is a
+            read-time concern, rule 19) wins;
+          - exact tie: the incumbent stands -- the challenger must be STRICTLY
+            stronger to displace (the only reading consistent with the rung's
+            rejection of keep-newer).
+
+        Either way the winner takes the contested-claim dent (a challenged
+        belief is held less certainly even when the challenge fails) and the
+        supersession is returned for the trace record -- the store keeps no
+        Resolution list (supersessions are trace-only).
+        """
+        incumbent = self.belief_of(holder_id, claim.id)
+        if incumbent is None:
+            raise ValueError(
+                f"{holder_id!r} holds no belief about claim {claim.id!r} -- "
+                "an uncontested hearing is retell(), not resolve()"
+            )
+        if teller_id == holder_id:
+            raise ValueError("a belief cannot contest itself")
+        if teller_belief.claim_id != claim.id or teller_belief.holder_id != teller_id:
+            raise ValueError("teller_belief must be the teller's belief about the contested claim")
+        if self._beliefs.get(teller_belief.id) != teller_belief:
+            raise ValueError("teller_belief is stale -- fetch the current version from the store")
+        if self.held_slots(incumbent) == self.held_slots(teller_belief):
+            raise ValueError(
+                f"{holder_id!r} and {teller_id!r} hold the same content for claim {claim.id!r} -- "
+                "no conflict to resolve (same-content encounters stay nothing_salient)"
+            )
+        if gamets < incumbent.last_rehearsed or gamets < teller_belief.last_rehearsed:
+            raise ValueError("a resolution cannot precede either belief's last rehearsal")
+
+        incumbent_type = self._evidence_by_belief[incumbent.id][0].evidence_type
+        challenger_type = self._evidence_by_belief[teller_belief.id][0].evidence_type
+        incumbent_rank = _EVIDENCE_TYPE_RANK.get(incumbent_type, -1)
+        challenger_rank = _EVIDENCE_TYPE_RANK.get(challenger_type, -1)
+        if challenger_rank != incumbent_rank:
+            challenger_wins = challenger_rank > incumbent_rank
+        else:
+            incumbent_sum = sum(e.strength for e in self._evidence_by_belief[incumbent.id])
+            challenger_sum = sum(e.strength for e in self._evidence_by_belief[teller_belief.id])
+            challenger_wins = challenger_sum > incumbent_sum  # strict: exact tie -> incumbent stands
+
+        # The contested hearing, recorded once on the winner's belief either
+        # way -- reported testimony from the teller, strength as given
+        # (retell()'s pre-decay convention, not the hearer's post-decay effect).
+        evidence = Evidence(
+            id=evidence_id,
+            belief_id=incumbent.id,
+            evidence_type="reported",
+            source_id=teller_id,
+            predecessor_belief_id=teller_belief.id,
+            gamets=gamets,
+            strength=teller_belief.confidence,
+        )
+        if challenger_wins:
+            # Adoption: the holder's relationship to the NEW story is one
+            # retelling old -- re-derive strengths from the teller's belief
+            # exactly as retell() does -- then the dent on confidence.
+            # first_learned is preserved: it's when they first learned OF the
+            # claim, and the belief (the holder's mutable relationship to it)
+            # survives the re-point.
+            updated = replace(
+                incumbent,
+                variant_id=teller_belief.variant_id,
+                confidence=teller_belief.confidence * RETELL_CONFIDENCE_DECAY * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT),
+                verbatim_strength=teller_belief.verbatim_strength * RETELL_VERBATIM_DECAY,
+                gist_strength=teller_belief.gist_strength * RETELL_GIST_DECAY,
+                last_rehearsed=gamets,
+            )
+            loser_variant_id, winner_variant_id = incumbent.variant_id, teller_belief.variant_id
+        else:
+            # Challenge repelled: corroborate()-style decay-then-replace, then
+            # the dent; the incumbent's variant and memory strengths stand.
+            decayed = decay(incumbent, gamets)
+            updated = replace(
+                decayed,
+                confidence=decayed.confidence * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT),
+                last_rehearsed=gamets,
+            )
+            loser_variant_id, winner_variant_id = teller_belief.variant_id, incumbent.variant_id
+        self._beliefs[incumbent.id] = updated
+        self._evidence_by_belief[incumbent.id].append(evidence)
+
+        # Rumor bookkeeping, exactly as retell() maintains it (coordinator
+        # ruling 2026-08-23): the hearer heard the incoming variant (whether or
+        # not they adopted it -- the loser variant's entry stays on the books),
+        # the teller told theirs. On adoption the hearing entry is the one the
+        # re-pointed belief matches; no re-keying needed.
+        self._record_hearing(
+            npc_id=holder_id, claim_id=claim.id, variant_id=teller_belief.variant_id,
+            source_id=teller_id, gamets=gamets,
+        )
+        self._record_telling(
+            npc_id=teller_id, claim_id=claim.id, variant_id=teller_belief.variant_id, gamets=gamets,
+        )
+
+        return Resolution(
+            holder_id=holder_id,
+            claim_id=claim.id,
+            loser_variant_id=loser_variant_id,
+            winner_variant_id=winner_variant_id,
+            resolution_rule=RESOLUTION_RULE,
+            confidence_dent=CONTESTED_CLAIM_CONFIDENCE_DENT,
+            teller_id=teller_id,
+            teller_belief_id=teller_belief.id,
+            evidence_id=evidence_id,
+            winner_belief_id=incumbent.id,
+        )
+
+    def held_slots(self, belief: BeliefInstance) -> Mapping[str, str | None]:
+        """The slot content a belief currently holds: its variant's slots, or the
+        claim's own slots for a witness's un-varianted original telling
+        (variant_id=None). Conflict detection compares CONTENT, not variant
+        identity -- an eyewitness and the holder of an unmutated retelling of
+        their story are not in conflict.
+        """
+        if belief.variant_id is not None:
+            return self._variants[belief.variant_id].slots
+        return self._claims[belief.claim_id].slots
+
     def beliefs_of(self, holder_id: str) -> tuple[BeliefInstance, ...]:
         """Every belief a given NPC holds, across every claim."""
         return tuple(b for b in self._beliefs.values() if b.holder_id == holder_id)
@@ -592,7 +876,8 @@ class ClaimStore:
 
         Used by chronicle.propagate to decide whether an encounter has
         anything to propagate: exactly one belief per (holder, claim) can
-        exist at a time (witness()/retell() enforce this by construction),
-        so there's no ambiguity about which one this returns.
+        exist at a time (witness()/retell() raise on duplicate-creating
+        calls and resolve() re-points in place, ladder T2.3), so there's
+        no ambiguity about which one this returns.
         """
         return next((b for b in self._beliefs.values() if b.holder_id == holder_id and b.claim_id == claim_id), None)
