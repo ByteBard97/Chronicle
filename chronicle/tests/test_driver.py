@@ -4,7 +4,7 @@ import json
 
 from chronicle.claims import EventKey
 from chronicle.driver import Driver
-from chronicle.events import NPCDied
+from chronicle.events import CrimeWitnessed, EventLog, NPCDied
 from chronicle.framelog import FrameLogReader
 from chronicle.schedule import ScheduleBlock
 
@@ -164,3 +164,143 @@ def test_writer_flushes_each_tick_so_a_tailing_reader_sees_records_before_close(
     assert rows  # trace rows from the first 5 ticks are already on disk
     assert (tmp_path / "run-live" / "index.json").exists()
     driver.close()
+
+
+def test_dead_npcs_neither_tell_nor_are_told_and_generate_no_rolls(tmp_path):
+    """Ladder T1.2 machinery: NPCDied excludes the deceased from encounter sampling.
+
+    Hulda (a witness) and whiterun_guard_1 (ignorant) both die at tick 5,
+    before their tavern blocks begin; irileth (a second witness, of a
+    different theft) and ysolda (ignorant) live and are co-present
+    throughout. The dead must neither tell (hulda's story reaches no one)
+    nor be told (the guard never learns irileth's story), and no
+    encounter_rolled record may name them -- while living propagation
+    (irileth -> ysolda) proceeds untouched. A dead NPC's own existing
+    beliefs are untouched too: death stops new propagation only.
+    """
+    driver = Driver(
+        run_id="run-dead-excluded",
+        seed_id=_SEED,
+        save_uuid="save-1",
+        generation=0,
+        schedule=(
+            ScheduleBlock(npc_id="irileth", location_id="bannered_mare", start_tick=0, end_tick=30),
+            ScheduleBlock(npc_id="ysolda", location_id="bannered_mare", start_tick=0, end_tick=30),
+            # Hulda and the guard are scheduled at the tavern only AFTER
+            # their deaths -- any roll naming them is a resurrection.
+            ScheduleBlock(npc_id="hulda", location_id="bannered_mare", start_tick=10, end_tick=30),
+            ScheduleBlock(npc_id="whiterun_guard_1", location_id="bannered_mare", start_tick=10, end_tick=30),
+        ),
+        encounter_probability=1.0,
+        runs_dir=tmp_path,
+    )
+    # Two thefts, two witnesses: irileth (living) saw claim A, hulda saw
+    # claim B and then died before her tavern block. The guard dies too.
+    driver.inject_event(
+        CrimeWitnessed(
+            tick=0, save_uuid="save-1", generation=0, seq=1, gamets=0.0, wall_ts=0.0,
+            witness_id="irileth", perpetrator_id="unknown", crime_type="theft", location_id="bannered_mare",
+        )
+    )
+    driver.inject_event(
+        CrimeWitnessed(
+            tick=0, save_uuid="save-1", generation=0, seq=2, gamets=0.0, wall_ts=1.0,
+            witness_id="hulda", perpetrator_id="unknown", crime_type="theft", location_id="the_market",
+        )
+    )
+    for seq, npc_id in ((3, "hulda"), (4, "whiterun_guard_1")):
+        driver.inject_event(
+            NPCDied(
+                tick=5, save_uuid="save-1", generation=0, seq=seq, gamets=5.0, wall_ts=5.0,
+                npc_id=npc_id, cause="killed by the player", killer_id="player", location_id="dragonsreach",
+            )
+        )
+    driver.witness(
+        claim_id="claim-theft-a", belief_id="belief-irileth-a", evidence_id="evidence-irileth-a",
+        kind="crime_witnessed",
+        slots={"perpetrator": "unknown", "crime_type": "theft", "location": "bannered_mare"},
+        canonical_event_key=EventKey("save-1", 0, 1), witness_id="irileth", gamets=0.0,
+    )
+    driver.witness(
+        claim_id="claim-theft-b", belief_id="belief-hulda-b", evidence_id="evidence-hulda-b",
+        kind="crime_witnessed",
+        slots={"perpetrator": "unknown", "crime_type": "theft", "location": "the_market"},
+        canonical_event_key=EventKey("save-1", 0, 2), witness_id="hulda", gamets=0.0,
+    )
+    driver.run(0, 30)
+    driver.close()
+
+    # Living propagation still works: ysolda learned claim A from irileth.
+    assert driver.belief_of("ysolda", "claim-theft-a") is not None
+    # The dead hearer stays ignorant: the guard never holds claim A.
+    assert driver.belief_of("whiterun_guard_1", "claim-theft-a") is None
+    # The dead teller: hulda's claim B reached nobody else...
+    for npc in ("irileth", "ysolda", "whiterun_guard_1"):
+        assert driver.belief_of(npc, "claim-theft-b") is None
+    # ...but her own belief is untouched -- death stops new propagation only.
+    assert driver.belief_of("hulda", "claim-theft-b") is not None
+
+    reader = FrameLogReader(tmp_path / "run-dead-excluded")
+    trace = [r["payload"] for r in reader.records("trace")]
+    # Encounter sampling ran (irileth/ysolda were rolled every tick)...
+    rolls = [p for p in trace if p["record_type"] == "encounter_rolled"]
+    assert rolls
+    # ...but no roll ever named a dead NPC, and no transmission ever
+    # involved one as teller or hearer.
+    for p in rolls:
+        assert "hulda" not in (p["npc_a"], p["npc_b"])
+        assert "whiterun_guard_1" not in (p["npc_a"], p["npc_b"])
+    transmitted = [p for p in trace if p["record_type"] == "transmitted"]
+    assert all(p["teller_id"] not in ("hulda", "whiterun_guard_1") for p in transmitted)
+    assert all(p["hearer_id"] not in ("hulda", "whiterun_guard_1") for p in transmitted)
+
+
+def test_deaths_in_a_prepopulated_event_log_are_honored(tmp_path):
+    """Start-from-keyframe path (ladder T1.2): an NPCDied already present in the
+    event_log passed to the constructor marks the NPC deceased -- the dead are
+    not resurrected by resuming from prior state.
+    """
+    event_log = EventLog()
+    event_log.append(
+        CrimeWitnessed(
+            tick=0, save_uuid="save-1", generation=0, seq=1, gamets=0.0, wall_ts=0.0,
+            witness_id="hulda", perpetrator_id="unknown", crime_type="theft", location_id="the_market",
+        )
+    )
+    event_log.append(
+        NPCDied(
+            tick=0, save_uuid="save-1", generation=0, seq=2, gamets=0.0, wall_ts=1.0,
+            npc_id="hulda", cause="killed by the player", killer_id="player", location_id="the_market",
+        )
+    )
+    driver = Driver(
+        run_id="run-prepopulated-death",
+        seed_id=_SEED,
+        save_uuid="save-1",
+        generation=0,
+        schedule=(
+            ScheduleBlock(npc_id="hulda", location_id="bannered_mare", start_tick=0, end_tick=10),
+            ScheduleBlock(npc_id="ysolda", location_id="bannered_mare", start_tick=0, end_tick=10),
+        ),
+        encounter_probability=1.0,
+        runs_dir=tmp_path,
+        event_log=event_log,
+    )
+    # Hulda witnessed the theft before she died (a scripted derivation --
+    # death excludes her from encounters, not from the historical record).
+    driver.witness(
+        claim_id="claim-theft", belief_id="belief-hulda", evidence_id="evidence-hulda",
+        kind="crime_witnessed",
+        slots={"perpetrator": "unknown", "crime_type": "theft", "location": "the_market"},
+        canonical_event_key=EventKey("save-1", 0, 1), witness_id="hulda", gamets=0.0,
+    )
+    driver.run(0, 10)
+    driver.close()
+
+    # Ysolda was co-present with hulda's block every tick and never heard the
+    # story; with hulda excluded, ysolda is a lone present NPC, so no pair
+    # was ever rolled at all.
+    assert driver.belief_of("ysolda", "claim-theft") is None
+    reader = FrameLogReader(tmp_path / "run-prepopulated-death")
+    rolls = [r["payload"] for r in reader.records("trace") if r["payload"]["record_type"] == "encounter_rolled"]
+    assert rolls == []

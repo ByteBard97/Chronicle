@@ -39,7 +39,7 @@ from chronicle.claims import (
     Evidence,
     Variant,
 )
-from chronicle.events import Event, EventLog
+from chronicle.events import Event, EventLog, NPCDied
 from chronicle.framelog import (
     DEFAULT_KEYFRAME_INTERVAL,
     FrameLogWriter,
@@ -72,6 +72,10 @@ class Driver:
     close() so the run's registry entry is marked complete. Stores may be
     supplied pre-populated (start-from-keyframe shaping -- pass exactly
     what FrameLogReader.state_at() returns); they default to empty.
+    NPCDied canonical events -- injected live or already present in a
+    pre-populated event_log -- mark NPCs deceased, and the tick loop
+    excludes the deceased from encounter sampling (ladder T1.2: death
+    stops new propagation only; the dead keep their existing beliefs).
     """
 
     def __init__(
@@ -94,6 +98,15 @@ class Driver:
         self.encounter_probability = encounter_probability
         self.keyframe_interval = keyframe_interval
         self.event_log = event_log if event_log is not None else EventLog()
+        # Deceased NPCs (ladder T1.2): derived from NPCDied canonical events
+        # -- including any already present in a pre-populated event_log, so
+        # the start-from-keyframe path cannot resurrect the dead. inject_event
+        # adds to this set as further deaths arrive.
+        self._deceased: set[str] = {
+            event.npc_id
+            for event in self.event_log.lineage(save_uuid, generation)
+            if isinstance(event, NPCDied)
+        }
         self.claims = claims if claims is not None else ClaimStore()
         self.social = social if social is not None else SocialStateStore()
         self.writer = FrameLogWriter(
@@ -122,6 +135,8 @@ class Driver:
         """
         if not self.event_log.append(event):
             return False
+        if isinstance(event, NPCDied):
+            self._deceased.add(event.npc_id)
         self.writer.write_event(tick=event.tick, seq=event.seq, payload=event_payload(event, origin=origin))
         return True
 
@@ -359,6 +374,16 @@ class Driver:
 
     def _run_tick(self, tick: int) -> None:
         present = npcs_present_at(self.schedule, tick)
+        if self._deceased:
+            # The dead are not present to be met (ladder T1.2): drop them
+            # before rolling. A location left with a lone survivor has no
+            # pairs, so no roll -- and no encounter_rolled record -- ever
+            # names the deceased.
+            present = {
+                location_id: tuple(npc for npc in npcs if npc not in self._deceased)
+                for location_id, npcs in present.items()
+            }
+            present = {location_id: npcs for location_id, npcs in present.items() if len(npcs) >= 2}
         rolls = sample_encounters(
             present,
             seed_id=self.seed_id,
