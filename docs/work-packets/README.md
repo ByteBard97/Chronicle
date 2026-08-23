@@ -14,6 +14,7 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 7 | [lane-7-design-system.md](lane-7-design-system.md) | — (design vendored) | medium (code) |
 | 8 | [lane-8-map-conversion.md](lane-8-map-conversion.md) | lane 8 foundation (28b81d6) | medium-large (code) |
 | 9 | [lane-9-m1-cli-and-deep-links.md](lane-9-m1-cli-and-deep-links.md) | lane 4 (landed) | medium (code) |
+| 10 | [lane-10-map-timeline-component-tests.md](lane-10-map-timeline-component-tests.md) | lane 8 (landed) | medium-large (test) |
 
 **Start now, in parallel:** lanes 1, 2, 3, 5. **Start after 1–3 land:** lane 4.
 
