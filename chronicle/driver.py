@@ -57,12 +57,13 @@ from chronicle.framelog import (
     serialize_state,
 )
 from chronicle.propagate import conflicting_pair, teller_and_hearer
-from chronicle.rng import MUTATION_SLOT, MUTATION_VALUE, roll, roll_key
+from chronicle.rng import MUTATION_SLOT, MUTATION_VALUE, TELL_DECISION, roll, roll_key
 from chronicle.rules import (
     CORROBORATION,
     ENCOUNTER_SAMPLING,
     MUTATION_POLICY,
     SHARED_CLAIM_INVARIANT,
+    TELL_DECISION_POLICY,
     TESTIMONY_TRANSFER,
     VARIANT_RESOLUTION,
     WITNESS_CREATES_BELIEF,
@@ -94,6 +95,13 @@ from chronicle.social import (
 # the math tier calibrates it against a scenario, not derived from any
 # source report.
 MUTATION_PROBABILITY = 0.2
+
+# Tier-3 tell-decision gate (ladder T3.4, rule 15; design doc R10): the
+# probability that an unmotivated, resolved teller tells at all. 1.0 is the
+# migration-safe default -- with no privacy mappings and this threshold,
+# behavior is identical to pre-gate runs (the 196-test battery is the
+# regression proof); fixtures lower it per-run at construction time.
+TELL_PROBABILITY = 1.0
 
 
 class _MutationDecision(NamedTuple):
@@ -140,6 +148,8 @@ class Driver:
         encounter_probability: float = ENCOUNTER_PROBABILITY,
         mutation_probability: float = MUTATION_PROBABILITY,
         mutation_candidates: Mapping[tuple[str, str], Sequence[str]] | None = None,
+        tell_probability: float = TELL_PROBABILITY,
+        claim_privacy: Mapping[str, str] | None = None,
         keyframe_interval: int = DEFAULT_KEYFRAME_INTERVAL,
         runs_dir: Path | None = None,
         event_log: EventLog | None = None,
@@ -156,6 +166,13 @@ class Driver:
             if mutation_candidates is not None
             else {}
         )
+        self.tell_probability = tell_probability
+        # The tell-decision gate's privacy classification (rule 15 stage 1):
+        # claim_kind -> the slot naming the claim's subject. Presence in the
+        # mapping classifies the kind as private; the motive check itself
+        # looks up the teller's kinship edge to that subject. Same
+        # caller-supplies-context idiom as mutation_candidates above.
+        self.claim_privacy = dict(claim_privacy) if claim_privacy is not None else {}
         self.keyframe_interval = keyframe_interval
         self.event_log = event_log if event_log is not None else EventLog()
         # Deceased NPCs (ladder T1.2): derived from NPCDied canonical events
@@ -195,7 +212,7 @@ class Driver:
         *,
         tick: int,
         inputs: Mapping[str, object],
-        outcome: RuleResult,
+        outcome: RuleResult | None = None,
     ) -> RuleResult | None:
         """Evaluate a registered rule and emit its rule_evaluated record (schema §4:122).
 
@@ -204,6 +221,10 @@ class Driver:
         entity refs) attached -- a counter stuck at 3-of-4 is visible, not
         silent. A disabled rule emits nothing and returns None. Rules never
         query stores; the caller assembles everything the row carries.
+
+        outcome is the call-site-determined result for RecordedRule
+        wrappers; computing rules (tell-decision, the read-path rules)
+        derive their own and are called with outcome=None.
         """
         if not self.rules.enabled(name):
             return None
@@ -644,7 +665,7 @@ class Driver:
             # (ui-doctrines D7: non-events are records).
             self._write_nothing_salient(tick=tick, location_id=location_id, npc_a=npc_a, npc_b=npc_b, claim_id=None, reason="neither-informed")
             return
-        for claim_id in self._propagating_claims:
+        for claim_ordinal, claim_id in enumerate(self._propagating_claims):
             resolved = teller_and_hearer(self.claims, claim_id=claim_id, npc_a=npc_a, npc_b=npc_b)
             if resolved is None:
                 both = self.claims.belief_of(npc_a, claim_id) is not None and self.claims.belief_of(npc_b, claim_id) is not None
@@ -681,9 +702,52 @@ class Driver:
             teller_belief = self.claims.belief_of(teller_id, claim_id)
             assert teller_belief is not None  # teller_and_hearer() resolved it a line ago
             parent_variant = self.claims.variant(teller_belief.variant_id) if teller_belief.variant_id is not None else None
+            claim = self.claims.claim(claim_id)
+            # Rule 15, the tell-decision gate (ladder T3.4; design doc R9):
+            # after teller_and_hearer resolves a real transmission pair,
+            # before the mutation decision -- and never on T2.3's
+            # resolution path (a contested hearing is not a telling). The
+            # gate decides from caller-assembled context; declining emits
+            # transmission_declined (schema §4:121) and ends the claim's
+            # turn in this encounter.
+            if self.rules.enabled(TELL_DECISION_POLICY):
+                motive = self._tell_decline_motive(claim, teller_id)
+                tell_roll_key = None
+                tell_roll_value = None
+                if motive is None:
+                    # Stage 2 (R10): the keyed roll. draw is the claim's
+                    # ordinal in this loop, keeping two claims told in the
+                    # same tick/site/pair distinct (ADR-0009).
+                    tell_roll_key = roll_key(
+                        seed_id=self.seed_id, purpose=TELL_DECISION, tick=tick,
+                        site=location_id, participants=(teller_id, hearer_id), draw=claim_ordinal,
+                    )
+                    tell_roll_value = roll(
+                        seed_id=self.seed_id, purpose=TELL_DECISION, tick=tick,
+                        site=location_id, participants=(teller_id, hearer_id), draw=claim_ordinal,
+                    )
+                decision = self._evaluate_rule(
+                    TELL_DECISION_POLICY,
+                    tick=tick,
+                    inputs={
+                        "claim_id": claim_id,
+                        "teller_id": teller_id,
+                        "hearer_id": hearer_id,
+                        "location_id": location_id,
+                        "motive": motive,
+                        "roll_value": tell_roll_value,
+                        "threshold": self.tell_probability,
+                    },
+                )
+                if decision is not None and decision.fired:
+                    self._write_transmission_declined(
+                        tick=tick, claim_id=claim_id, teller_id=teller_id, hearer_id=hearer_id,
+                        location_id=location_id,
+                        roll_key=tell_roll_key if motive is None else None,
+                    )
+                    continue
             n = next(self._auto_ids)
             variant_id = f"variant-auto-{n}"
-            claim = self.claims.claim(claim_id)
             # Tier-2 mutation policy (ladder T2.2): encounter-driven
             # retellings may mutate one slot, decided by keyed rolls; the
             # mutation_applied record (schema §4) is the roll evidence and
@@ -822,6 +886,53 @@ class Driver:
                 site=site, participants=participants, draw=0,
             ),
             slot_roll_value=gate,
+        )
+
+    def _tell_decline_motive(self, claim: Claim, teller_id: str) -> str | None:
+        """Rule 15 stage 1 (R10): the deterministic motive check, caller-assembled.
+
+        Reads the construction-time claim_privacy mapping (claim kind -> the
+        slot naming its subject); a private claim whose subject the teller
+        is kin to is kept, always. The social lookup happens HERE, in the
+        driver -- never inside a claims operation (the T2.3 lesson). Returns
+        the sub-reason string for the rule_evaluated inputs (O5), or None.
+        """
+        subject_slot = self.claim_privacy.get(claim.kind)
+        if subject_slot is None:
+            return None
+        subject = claim.slots.get(subject_slot)
+        if subject is None:
+            return None
+        if self.social.relationship(teller_id, subject, "kinship") is not None:
+            return "kin-motive"
+        return None
+
+    def _write_transmission_declined(
+        self,
+        *,
+        tick: int,
+        claim_id: str,
+        teller_id: str,
+        hearer_id: str,
+        location_id: str,
+        roll_key: dict[str, object] | None,
+    ) -> None:
+        """The gate's decline record (schema §4:121, field-for-field).
+
+        roll_key is the stage-2 roll's key, or None for a stage-1
+        deterministic (motive) decline -- the schema's null-roll_key case.
+        """
+        self.writer.write_trace(
+            tick=tick,
+            payload={
+                "record_type": "transmission_declined",
+                "claim_id": claim_id,
+                "teller_id": teller_id,
+                "hearer_id": hearer_id,
+                "location_id": location_id,
+                "rule": TELL_DECISION_POLICY,
+                "roll_key": roll_key,
+            },
         )
 
     def _write_nothing_salient(

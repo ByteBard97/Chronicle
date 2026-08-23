@@ -17,9 +17,11 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
     accumulator values in inputs (R3). A disabled rule emits nothing.
     inputs is caller-assembled context -- rules never query stores
     themselves (the T2.3 lesson, docs/scenario-ladder.md:60).
-  - Rules 11-19 register as disabled stubs from day one (R12): they exist
-    by name so the registry lists all 19, but emit nothing and run nothing
-    until their tier's lane lands.
+  - Unlanded rules register as disabled stubs from day one (R12): they
+    exist by name so the registry lists all 19, but emit nothing and run
+    nothing until their tier's lane lands. Rule 15 (tell-decision-policy)
+    is the first to go live (lane 23) -- the stub set is now 11-14 and
+    16-19.
   - Budget (O4 ruling): 9+10 are one state machine and 4 is
     schema-not-rule -- 17/20 against the ceiling. The registry still lists
     all 19 names; the table below is the vocabulary, slugified from §8's
@@ -175,6 +177,39 @@ class DormancyReactivationRule:
         return RuleResult(fired=stage in ("dormant", "forgotten"), result={"stage": stage})
 
 
+class TellDecisionRule:
+    """Rule 15, the tell-decision gate (ladder T3.4; design doc R10, lane 23).
+
+    Two stages, both driven by caller-assembled inputs (the rule never
+    queries stores -- the T2.3 lesson):
+
+      1. Deterministic motive decline: inputs["motive"] names a
+         caller-found motive (e.g. "kin-motive") -- decline, always, no
+         roll. The paired transmission_declined record carries
+         roll_key=None for exactly this case (schema §4:121).
+      2. Keyed roll: inputs["roll_value"] against inputs["threshold"]
+         (the driver's tell_probability). value < threshold tells;
+         otherwise the gate declines.
+
+    fired means the gate DECLINED the transmission -- the rule's effect,
+    not its evaluation (every evaluation emits rule_evaluated regardless,
+    R3). O5: the sub-reason lives in result/inputs, never in the rule name.
+    """
+
+    name = TELL_DECISION_POLICY
+    tier = 3
+
+    def evaluate(self, ctx: RuleContext) -> RuleResult:
+        motive = ctx.inputs["motive"]
+        if motive is not None:
+            return RuleResult(fired=True, result={"reason": motive})
+        roll_value = ctx.inputs["roll_value"]
+        threshold = ctx.inputs["threshold"]
+        assert isinstance(roll_value, float) and isinstance(threshold, float)
+        declined = roll_value >= threshold
+        return RuleResult(fired=declined, result={"reason": "roll"} if declined else None)
+
+
 def _default_rules() -> tuple[Rule, ...]:
     """The 19 §8 rules: 1-10 enabled (wrappers/read-path), 11-19 disabled stubs."""
     return (
@@ -192,7 +227,7 @@ def _default_rules() -> tuple[Rule, ...]:
         StubRule(GRUDGE_CREATION, 3),
         StubRule(GRUDGE_DECAY, 3),
         StubRule(OBLIGATION_LIFECYCLE, 3),
-        StubRule(TELL_DECISION_POLICY, 3),
+        TellDecisionRule(),
         StubRule(REPUTATION_ACCUMULATION, 3),
         StubRule(SCHEDULE_WRITE_BACK, 4),
         StubRule(PAIRWISE_ENCOUNTER_WEIGHTING, 4),
