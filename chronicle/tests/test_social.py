@@ -1,11 +1,15 @@
 import pytest
 
 from chronicle.social import (
+    GRUDGE_EMOTIONAL_HALF_LIFE,
+    GRUDGE_EVIDENTIARY_HALF_LIFE,
     Reputation,
     SocialStateStore,
     _resolve_obligation,
     form_grudge,
     form_relationship,
+    grudge_at,
+    grudge_cooled,
     issue_obligation,
     update_reputation,
 )
@@ -309,3 +313,66 @@ def test_form_grudge_rejects_a_missing_relationship_to_the_victim():
             grievance_type="murder", source_belief_id="belief-hulda", evidentiary_strength=0.4,
             relationship_to_victim=None, gamets=5.0,
         )
+
+
+# ---------------------------------------------------------------------------
+# grudge decay (rule 13 -- lane 20, the missing twin of belief decay)
+# ---------------------------------------------------------------------------
+
+
+def _grudge(last_rehearsed: float = 0.0):
+    rel = form_relationship(
+        id="rel-1", from_id="hulda", to_id="jarl_balgruuf",
+        basis="kinship", basis_id=None, strength=0.9, gamets=0.0,
+    )
+    return form_grudge(
+        id="grudge-1", holder_id="hulda", victim_id="jarl_balgruuf", target_id="the_thalmor",
+        grievance_type="murder", source_belief_id="belief-hulda", evidentiary_strength=0.9,
+        relationship_to_victim=rel, gamets=last_rehearsed,
+    )
+
+
+def test_grudge_at_decays_both_strengths_emotional_slower_than_evidentiary():
+    from chronicle.claims import _decay
+
+    grudge = _grudge()
+    aged = grudge_at(grudge, 336.0)
+    assert aged.emotional_strength == pytest.approx(_decay(0.9, 336.0, GRUDGE_EMOTIONAL_HALF_LIFE))
+    assert aged.evidentiary_strength == pytest.approx(_decay(0.9, 336.0, GRUDGE_EVIDENTIARY_HALF_LIFE))
+    assert aged.emotional_strength < grudge.emotional_strength
+    assert aged.evidentiary_strength < grudge.evidentiary_strength
+    # The constants-ordering assert: the feeling outlives the facts.
+    assert aged.emotional_strength > aged.evidentiary_strength
+
+
+def test_grudge_decays_slower_than_belief_confidence_over_the_same_window():
+    """T3.2's 'grudge decays slower than the rumor' at the constants level."""
+    from chronicle.claims import CONFIDENCE_DECAY_HALF_LIFE, _decay
+
+    grudge = _grudge()
+    elapsed = 168.0
+    aged = grudge_at(grudge, elapsed)
+    decayed_confidence = _decay(0.9, elapsed, CONFIDENCE_DECAY_HALF_LIFE)
+    assert aged.emotional_strength > decayed_confidence
+    assert aged.evidentiary_strength > decayed_confidence
+
+
+def test_grudge_cooled_flips_at_the_forgiveness_threshold_crossing():
+    # severity(0) = 0.9, forgiveness_threshold = 0.2; with the ruled
+    # half-lives the decayed severity crosses 0.2 at ~1060 ticks elapsed.
+    grudge = _grudge()
+    assert not grudge_cooled(grudge, 0.0)
+    assert not grudge_cooled(grudge, 1050.0)
+    assert grudge_cooled(grudge, 1070.0)
+    # A cooled grudge is never deleted -- the record and its decayed view stand.
+    assert grudge_at(grudge, 1070.0).severity < grudge.forgiveness_threshold
+
+
+def test_grudge_at_never_mutates_its_input():
+    grudge = _grudge()
+    aged = grudge_at(grudge, 1000.0)
+    assert aged is not grudge
+    assert grudge.emotional_strength == 0.9
+    assert grudge.evidentiary_strength == 0.9
+    assert grudge.severity == pytest.approx(0.9)
+    assert grudge.last_rehearsed == 0.0

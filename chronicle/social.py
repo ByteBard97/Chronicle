@@ -44,6 +44,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from chronicle.claims import _decay
+
 
 def _require_unit_interval(name: str, value: float) -> None:
     if not 0.0 <= value <= 1.0:
@@ -66,6 +68,17 @@ REPUTATION_WEIGHT_BY_KIND = {
     "corroborated": 0.75,
     "reported": 0.5,
 }
+
+# Grudge decay half-lives, in gamets/ticks (rule 13 -- the missing twin of
+# belief decay, ruled 2026-08-23 under lane 18's R7). Same tunable-not-derived
+# placeholder status as claims.py's decay constants (docs/decisions/
+# open-questions.md); the *ordering* is the load-bearing part: emotional
+# strength outlives evidentiary strength (the facts of a grievance fade faster
+# than the feeling), and both outlive belief confidence
+# (CONFIDENCE_DECAY_HALF_LIFE = 168) by a wide margin -- T3.2's assertable
+# "grudge decays slower than the rumor" holds at the constants level.
+GRUDGE_EMOTIONAL_HALF_LIFE = 672.0  # ticks: ~28 game-days (24*28) -- anger outlives the story.
+GRUDGE_EVIDENTIARY_HALF_LIFE = 336.0  # ticks: ~14 game-days (24*14) -- between confidence (168) and gist (1440).
 
 
 @dataclass(frozen=True)
@@ -252,6 +265,36 @@ def form_grudge(
         last_rehearsed=gamets,
         forgiveness_threshold=forgiveness_threshold,
     )
+
+
+def grudge_at(grudge: Grudge, at_gamets: float) -> Grudge:
+    """The grudge as of a moment in time -- rule 13's decay-at-read.
+
+    Pure derivation, the same pattern as claims.py's stage_at(): emotional
+    and evidentiary strengths decay from last_rehearsed via claims._decay
+    with their own half-lives, and severity recomputes from the decayed
+    strengths with the formation-time weights. The stored record is never
+    mutated (event-sourcing discipline: state is derived, not destroyed).
+    """
+    elapsed = max(0.0, at_gamets - grudge.last_rehearsed)
+    emotional = _decay(grudge.emotional_strength, elapsed, GRUDGE_EMOTIONAL_HALF_LIFE)
+    evidentiary = _decay(grudge.evidentiary_strength, elapsed, GRUDGE_EVIDENTIARY_HALF_LIFE)
+    return replace(
+        grudge,
+        severity=min(1.0, GRUDGE_EMOTIONAL_WEIGHT * emotional + GRUDGE_EVIDENTIARY_WEIGHT * evidentiary),
+        emotional_strength=emotional,
+        evidentiary_strength=evidentiary,
+    )
+
+
+def grudge_cooled(grudge: Grudge, at_gamets: float) -> bool:
+    """Whether the decayed grudge has fallen below its forgiveness threshold.
+
+    A cooled grudge no longer gates behavior rules (Tier 4b's avoidance);
+    it is never deleted. The comparison is against decayed severity -- the
+    record's composite strength.
+    """
+    return grudge_at(grudge, at_gamets).severity < grudge.forgiveness_threshold
 
 
 def issue_obligation(
