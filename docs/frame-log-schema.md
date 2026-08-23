@@ -210,6 +210,13 @@ write-temp-rename.
   keeps an M3-era log readable by an M5-era reader and vice versa.
 - The key encoding inside `roll_key` (component order, separators, hash)
   is part of ADR-0009's contract; changing it is a schema break.
+- **Keyframe `seq` discipline:** the `events` stream's `seq` namespace is
+  shared between canonical events (whose envelope `seq` IS `Event.seq`)
+  and keyframes (which have no `Event.seq` of their own). Keyframes take
+  `seq` values above the highest `Event.seq` seen so far in the run —
+  guaranteeing no collision without needing a second counter. (Settled by
+  Lane 4's implementation; formalized here per this document's own
+  additive-only-evolution rule.)
 
 ## 8. Notes for the implementer (Lane 4)
 
@@ -224,3 +231,33 @@ write-temp-rename.
 - **Writer order within a tick:** events first, then trace, then keyframe
   (when due), one flush at the end of the batch — the liveness contract in
   §1.
+
+## 9. Known gaps (routed from Lane 4's delivery, 2026-08-22)
+
+Two gaps Lane 4 hit and worked around for M0's actual scope, not yet
+reflected elsewhere in this document. Neither is a bug against anything
+this document currently requires; both are here so the next tier that
+touches this ground doesn't have to rediscover them.
+
+- **No trace-stream record type yet for social-layer (`social.py`)
+  mutations.** §4's record types cover claims/rumor propagation only —
+  there is no `grudge_formed` / `obligation_fulfilled` /
+  `relationship_formed` / `reputation_updated` trace record. This is
+  consistent with scope: nothing in `chronicle/driver.py`'s tick loop
+  currently drives `social.py` mutations autonomously (grudges/obligations
+  are hand-authored in fixtures, not simulated per-tick yet). But it means
+  that once a future tier *does* wire social mutations into the driver,
+  those changes will only become visible at the next keyframe — no
+  tick-accurate record of *when* a grudge formed between keyframes. Add
+  record types to §4 at that point; this is an additive change, not a
+  break.
+- **`ClaimStore._rumor_sources` is not a keyframe key.** §5's
+  `rumor_states` array captures `RumorState` but not the internal
+  distinct-source exposure-counting set `_rumor_sources` uses to decide
+  `is_new_source` on each hearing. Lane 4's reader reconstructs it exactly
+  from each belief's grounding evidence (`_evidence_by_belief[id][0]`) —
+  exact at M0 because every `(holder, claim, variant)` currently has
+  exactly one grounding source. If a future tier lets a belief accumulate
+  re-hearings from a second source *and* that boundary can fall between
+  two keyframes, this reconstruction stops being exact and `state` needs
+  an additive `rumor_sources` key.
