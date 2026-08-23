@@ -36,31 +36,44 @@ state exists anywhere in the sim.**
 1. **Roll function.** A new module `chronicle/rng.py` provides:
 
    ```
-   roll(seed_id, purpose, tick, **key_parts) -> float   # uniform [0, 1)
+   roll(seed_id, purpose, tick, site, participants, draw) -> float   # uniform [0, 1)
    ```
 
-   Implementation: SHA-256 over a canonical serialization
-   `seed_id | purpose | tick | part1=value1 | part2=value2 | …`
-   (parts sorted by name; lists serialized sorted and comma-joined), first
-   8 bytes as uint64, divided by 2⁶⁴. SHA-256 truncation is statistically
-   adequate for simulation rolls and needs no dependency.
+   The six `roll_key` members (owned here; cited by
+   `docs/frame-log-schema.md` §4, for which changing this encoding is a
+   schema break):
+   - `seed_id` — the run's statistical identity;
+   - `purpose` — the roll site's registered string (below);
+   - `tick` — the current tick;
+   - `site` — the location id, or a scoped non-location string for
+     non-spatial rolls (e.g. the claim id for mutation rolls);
+   - `participants` — the sorted, order-normalized entity ids involved;
+   - `draw` — a 0-based discriminator distinguishing multiple rolls in an
+     otherwise identical context (e.g. mutation slot pick vs. value pick).
+
+   Implementation: SHA-256 over the canonical serialization
+   `seed_id | purpose | tick | site | participants(comma-joined) | draw`,
+   first 8 bytes as uint64, divided by 2⁶⁴. SHA-256 truncation is
+   statistically adequate for simulation rolls and needs no dependency.
 
 2. **Purposes are a registry.** Each roll site gets a dotted purpose string
-   defined once in `chronicle/rng.py` (e.g. `ENCOUNTER_SAMPLE =
-   "encounter.sample"`; later `mutation.slot`, `tell.decision`). No ad-hoc
-   purpose strings at call sites.
+   defined once in `chronicle/rng.py`, initial set matching
+   `docs/frame-log-schema.md` §4: `encounter.co-presence` (schedule
+   sampling), `mutation.slot` / `mutation.value` (Tier 2), `tell.decision`
+   (Tier 3). No ad-hoc purpose strings at call sites.
 
 3. **Interface migration.** `sample_encounters()` takes `seed_id: str`
    instead of `rng: random.Random`; its per-pair roll key is
-   `purpose=ENCOUNTER_SAMPLE, tick=tick, location=location_id,
-   pair=(npc_a, npc_b)` (pair order-normalized). Callers (driver, scenario
+   `purpose="encounter.co-presence", tick=tick, site=location_id,
+   participants=(npc_a, npc_b), draw=0`. Callers (driver, scenario
    tests) pass the run's `seed_id` — which the frame-log envelope already
    carries from record one.
 
 4. **Trace records carry the key.** Each roll emitted to the derivation
-   trace records `(purpose, tick, key_parts, value)` (and the threshold
-   where one exists), so the merge-scan first-divergent-roll finder compares
-   values for identical keys across runs.
+   trace records the full `roll_key` plus `value`, `threshold` (where one
+   exists), and `outcome` — the frame-log schema §4 field set — so the
+   merge-scan first-divergent-roll finder compares values for identical
+   keys across runs.
 
 ## Alternatives considered
 
