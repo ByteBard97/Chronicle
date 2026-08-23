@@ -92,7 +92,7 @@ Event kinds:
 | `npc_died` | 0 | `npc_id` (string), `cause` (string), `killer_id` (string \| null), `location_id` (string \| null) |
 | `crime_witnessed` | 0 | `witness_id` (string), `perpetrator_id` (string), `crime_type` (string), `location_id` (string \| null) |
 | `rumor_heard` | 0 | `hearer_id` (string), `source_id` (string), `rumor_id` (string), `content` (string) |
-| `escalation_warning` | 3 — **reserved** | warning escalations materialized as events before their claims propagate (ladder T3.1: no orphan beliefs). Fields defined when the threshold machinery lands |
+| `escalation_warning` | 3 — **reserved** | `holder_id` (string — the escalating NPC, e.g. the repeatedly-wronged merchant), `grievance_kind` (string — the claim kind the accumulator counted, holder-as-victim), `count` (number — accumulator value at crossing), `threshold` (number). Warning escalations materialized as events before their claims propagate (ladder T3.1: no orphan beliefs); the warning claim is witnessed off this event's canonical key. Fields defined 2026-08-23 (lane-18 F2, coordinator ruling) |
 | `schedule_rewrite` | 4a — **reserved** | the rewrite as an event with a causal link to its trigger (ladder T4a.1). Fields defined with schedule write-back |
 | `role_lapse` | 5 — **reserved** | duty-lapse effects as events (ladder T5.1). Fields defined with roles |
 

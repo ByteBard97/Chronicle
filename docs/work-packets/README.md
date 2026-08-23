@@ -27,6 +27,8 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 20 | [lane-20-grudge-decay.md](lane-20-grudge-decay.md) | lane 18 (design accepted) | small (code) |
 | 21 | [lane-21-variant-tree.md](lane-21-variant-tree.md) | lanes 12, 14, 16, 17 (landed) | medium-large (code) |
 | 22 | [lane-22-provenance-drilldown.md](lane-22-provenance-drilldown.md) | lanes 6, 12, 17 (landed); lane 21 concurrent | medium-large (code) |
+| 23 | [lane-23-tell-decision.md](lane-23-tell-decision.md) | lane 19 (landed) | medium (code) |
+| 24 | [lane-24-accumulation-threshold.md](lane-24-accumulation-threshold.md) | lanes 19, 23 (serial on driver.py) | medium (code) |
 
 **Current wave:** lanes 13 (Track A), 14 (Track B), 15 (Track B) — 13 disjoint from 14/15; 14 and 15 coordinate via their file boundaries (15 owns SatelliteNode/RunPicker/streamReader; 14 owns the map data path).
 
