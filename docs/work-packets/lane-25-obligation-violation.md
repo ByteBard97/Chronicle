@@ -87,6 +87,11 @@ other `scenarios/` files, `dashboard/`, `runs/`
 ## Conventions
 
 - Match the social/driver idiom; rule citations in docstrings.
+- **Scenario-authoring notes (lane-24 delivery):** engine-internal
+  events (rule-cascade escalations) consume branch seqs — hand-numbered
+  fixture seqs must skip past them; scripted pre-run writes aren't
+  visible to `FrameLogReader` until a flush (the writer flushes per
+  tick).
 - **Local commits OK** (path-scoped, explicit adds); never push.
 - Existing test assertions immutable; conflicts are findings.
 - Report format: delivered, acceptance per criterion with command

@@ -80,6 +80,10 @@ encounter retell → `"reported"`, corroboration → `"corroborated"`.
 ## Conventions
 
 - Match the social/driver idiom; rule citations in docstrings.
+- **Scenario-authoring notes (lane-24 delivery):** engine-internal
+  events consume branch seqs — hand-numbered fixture seqs must skip
+  past them; scripted pre-run writes aren't visible to
+  `FrameLogReader` until a flush.
 - **Local commits OK** (path-scoped, explicit adds); never push.
 - Existing test assertions immutable; conflicts are findings.
 - Report format: delivered, acceptance per criterion with command

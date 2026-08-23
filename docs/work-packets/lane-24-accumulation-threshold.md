@@ -76,6 +76,10 @@ encounters); **no double-fire** on theft five.
    encounters-only (transmitted records exist only via encounters);
    theft five fires nothing (latch). Plus a reconstruction-parity
    assert (state_at over the firing tick — no double-fire on replay).
+   **Authoring notes (from delivery):** engine-internal events (the
+   escalation) consume branch seqs — hand-numbered fixture seqs must
+   skip past them; and scripted pre-run writes aren't visible to
+   `FrameLogReader` until a flush (the writer flushes per tick).
 5. Determinism + no behavior change at defaults (suite unedited).
 
 ## Acceptance
@@ -94,7 +98,10 @@ encounters); **no double-fire** on theft five.
 **Create:** `scenarios/test_tier3_accumulation.py`
 
 **Edit:** `chronicle/rules.py`, `chronicle/driver.py`,
-`chronicle/events.py`
+`chronicle/events.py`, `chronicle/framelog.py` (event serialization
+branch — omitted from the original packet's list in error; the writer
+raises on unknown event types, so the new event needs its mechanical
+branch. Confirmed retroactively 2026-08-23)
 
 **Do not touch:** frozen/coordinator docs (§3:95 is done), `rng.py`,
 `social.py`, `claims.py`, other `scenarios/` files, `dashboard/`, `runs/`

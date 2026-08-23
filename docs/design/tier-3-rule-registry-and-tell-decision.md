@@ -159,6 +159,18 @@ per-tick sweep — evaluation happens exactly when the accumulator can
 change, which also bounds `rule_evaluated` volume (one row per
 belief-forming event, not one per tick per NPC).
 
+**Implementation amendment (2026-08-23, lane 24, coordinator-confirmed):**
+the latch as implemented is **store-derived** — the escalation belief's
+existence — not trace-record-derived. Two practical failures of the
+letter of this pin surfaced in delivery: writer buffering misses
+unflushed same-phase records (theft 5 scripted immediately after theft 4
+would double-fire), and a start-from-keyframe driver's *new* run dir has
+no old trace to scan, while the store (which `state_at` reconstructs
+exactly) carries over. The escalation belief is itself log-derived state
+(rebuilt from `belief_formed` at replay), so it serves the pin's stated
+purpose — "reconstruction can't double-fire" — strictly better. Replay
+parity proven in the rung test.
+
 ### Decision R6 — escalation is a real event; the claim is witnessed off it
 
 On firing, the driver (1) injects an `escalation_warning` event into the
