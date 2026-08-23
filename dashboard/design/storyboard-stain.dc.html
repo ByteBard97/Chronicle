@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Alegreya:ital,wght@0,500;1,500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#060809;color:#d6d0c2;font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace}
+a{color:#c9a86a;text-decoration:none}a:hover{color:#e6c88f;text-decoration:underline}
+</style>
+</helmet>
+<div data-screen-label="Storyboard — the stain spreads" style="padding:36px 40px 44px;min-height:100vh;box-sizing:border-box">
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">
+    <div style="font-family:Cinzel,serif;font-size:18px;font-weight:600;letter-spacing:.3em;color:#e6c88f">THE STAIN SPREADS</div>
+    <div style="font-size:10px;color:#857f70">C-114 "Jarl Balgruuf is dead" · run t6-jarl-01 · vision §7 walkthrough step 2</div>
+    <div style="flex:1"></div>
+    <a href="map-c-skyrim.dc.html" style="font-size:10px;border:1px solid rgba(201,168,106,.3);padding:2px 9px;border-radius:3px">◀ live view</a>
+  </div>
+  <div style="display:flex;gap:26px;margin-top:26px;align-items:flex-start;flex-wrap:wrap">
+    <sc-for list="{{ frames }}" as="f" hint-placeholder-count="3">
+      <div style="width:400px;flex:none">
+        <div style="display:flex;align-items:baseline;gap:9px">
+          <span style="font-size:12px;font-weight:600;color:#e6c88f;white-space:nowrap">{{ f.day }}</span>
+          <span style="font-size:9px;color:#857f70;white-space:nowrap">{{ f.tick }}</span>
+        </div>
+        <div style="font-family:Alegreya,Georgia,serif;font-style:italic;font-size:13px;color:#cfc8b8;line-height:1.5;margin:5px 0 10px;min-height:39px">{{ f.cap }}</div>
+        <div style="width:400px;height:400px;position:relative;overflow:hidden;border:1px solid rgba(201,168,106,.24);border-radius:8px;background:#04060a">
+          <img src="assets/whiterun_topdown_4k.webp" alt="Whiterun render" style="position:absolute;width:136.5%;left:-11%;top:-3%;filter:saturate(.88) brightness(.94)">
+          <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 55% 48%,transparent 46%,rgba(4,6,9,.68) 100%)"></div>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+            <path d="M22.2 73.8 Q16 71 11.5 63" fill="none" stroke="#58c1d4" stroke-width="1.5" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" opacity="{{ f.routeOp }}"></path>
+          </svg>
+          <div style="position:absolute;left:11.5%;top:63%;transform:translate(-50%,-50%)">
+            <div style="width:38px;height:38px;border:1.5px dashed {{ f.mkRing }};border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(6,9,12,.74)">
+              <div style="width:8px;height:8px;border-radius:50%;background:{{ f.mkDot }}"></div>
+            </div>
+            <div style="position:absolute;left:46px;top:50%;transform:translateY(-50%);text-align:left">
+              <div style="font-family:Cinzel,serif;font-size:9px;font-weight:600;letter-spacing:.18em;color:{{ f.mkRing }};white-space:nowrap">MARKARTH</div>
+              <div style="font-size:8.5px;color:#857f70;white-space:nowrap;margin-top:1px">{{ f.mkSub }}</div>
+            </div>
+          </div>
+          <sc-if value="{{ f.carrier }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;left:16.4%;top:69.7%;transform:translate(-50%,-50%)">
+              <div style="width:8px;height:8px;border-radius:50%;background:#58c1d4;box-shadow:0 0 0 2px rgba(4,6,9,.7)"></div>
+              <div style="position:absolute;left:11px;top:-4px;white-space:nowrap;font-size:8.5px;background:rgba(6,9,12,.8);border:1px solid rgba(88,193,212,.35);padding:1px 5px;border-radius:2px;color:#9fd4e0">Ri'saad ▸ carrying v2</div>
+            </div>
+          </sc-if>
+          <sc-for list="{{ f.labs }}" as="lb" hint-placeholder-count="3">
+            <div style="position:absolute;left:{{ lb.x }}%;top:{{ lb.y }}%;transform:translate(-50%,0);font-family:Cinzel,serif;font-size:7.5px;letter-spacing:.16em;color:rgba(226,219,203,.6);text-shadow:0 1px 4px rgba(0,0,0,.95);white-space:nowrap;pointer-events:none">{{ lb.n }}</div>
+          </sc-for>
+          <sc-for list="{{ f.marks }}" as="m" hint-placeholder-count="8">
+            <div title="{{ m.name }}" style="position:absolute;left:{{ m.left }}%;top:{{ m.top }}%;transform:translate(-50%,-50%);width:{{ m.size }}px;height:{{ m.size }}px;border-radius:50%;background:{{ m.fill }};border:2px solid {{ m.ring }};box-shadow:0 0 0 2px rgba(3,5,8,.65)"></div>
+          </sc-for>
+        </div>
+        <div style="font-size:9px;color:#857f70;margin-top:9px">{{ f.counts }}</div>
+        <div style="position:relative;height:18px;margin-top:7px">
+          <div style="position:absolute;left:0;right:0;top:8px;height:1px;background:rgba(201,168,106,.28)"></div>
+          <div style="position:absolute;left:51%;width:8.5%;top:6px;height:5px;background:linear-gradient(90deg,rgba(255,82,51,.25),rgba(255,82,51,.8),rgba(255,82,51,.3));border-radius:2px"></div>
+          <div style="position:absolute;left:{{ f.ph }}%;top:1px;bottom:1px;width:2px;background:#e6c88f;transform:translateX(-50%)"></div>
+          <div style="position:absolute;right:0;top:5px;width:7px;height:7px;border-radius:50%;background:#e05252"></div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+  <div style="margin-top:26px;font-size:9.5px;color:#6b6558;max-width:860px;line-height:1.7">Acceptance read (vision §7): a stranger scrubs D8 → D14 and watches the stain cross the city, then hop with the carrier to Markarth — where the first belief to arrive is already the mutated v2. Stage counts reconcile to 26 in every frame. <a href="map-c-skyrim.dc.html">Open the live view ▸</a></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const L = {dragonsreach:[2970,285],gildergreen:[2088,1631],temple:[1965,1492],shrine:[2261,1433],gray_mane:[1882,1725],battle_born:[1444,1428],jorrvaskr:[2631,1656],skyforge:[2981,1289],bannered:[2278,2345],market:[2086,2319],belethors:[1975,2461],arcadias:[2121,2501],warmaidens:[1295,2441],ysoldas:[2090,2774],stables:[683,2897],main_gate:[995,2304],olava:[1568,2691]};
+    const CAST = [
+      ['Irileth','dragonsreach',['repeated','repeated','repeated']],['Proventus Avenicci','dragonsreach',['heard','repeated','repeated']],['Farengar','dragonsreach',['heard','heard','repeated']],['Hrongar','dragonsreach',['heard','repeated','repeated']],
+      ['Nazeem','gildergreen',['unheard','heard','heard']],['Danica Pure-Spring','temple',['unheard','heard','repeated']],['Heimskr','shrine',['unheard','dormant','dormant']],
+      ['Olfina Gray-Mane','gray_mane',['unheard','heard','repeated']],['Idolaf Battle-Born','battle_born',['unheard','heard','repeated']],
+      ['Aela','jorrvaskr',['unheard','repeated','repeated']],['Farkas','jorrvaskr',['unheard','heard','heard']],['Kodlak Whitemane','jorrvaskr',['unheard','unheard','heard']],['Eorlund Gray-Mane','skyforge',['unheard','unheard','heard']],
+      ['Hulda','bannered',['unheard','repeated','repeated']],['Mikael','bannered',['heard','repeated','repeated']],['Sinmir','bannered',['unheard','heard','heard']],
+      ['Fralia Gray-Mane','market',['unheard','repeated','repeated']],['Carlotta Valentia','market',['unheard','heard','heard']],
+      ['Belethor','belethors',['unheard','heard','repeated']],['Arcadia','arcadias',['unheard','heard','heard']],
+      ['Adrianne Avenicci','warmaidens',['unheard','heard','heard']],['Ulfberth War-Bear','warmaidens',['unheard','unheard','heard']],
+      ['Ysolda','ysoldas',['unheard','heard','heard']],['Skulvar Sable-Hilt','stables',['unheard','unheard','heard']],['Gate Guard','main_gate',['unheard','unheard','heard']],['Olava the Feeble','olava',['unheard','forgotten','forgotten']]
+    ];
+    const SC = {unheard:['rgba(0,0,0,.12)','#9aa3ad',8],heard:['#e3b34c','#141008',10],repeated:['#ff5233','#ffe8d9',12],dormant:['#8fb4d9','#16202b',9],forgotten:['#565b63','#20242a',7]};
+    const RING = [[0,0],[1.5,-0.7],[-1.4,0.9],[0.8,1.5],[-1.1,-1.4]];
+    const labs = [['DRAGONSREACH',88,10.5],['THE BANNERED MARE',64.9,79],['MARKET',56,71.5],['MAIN GATE',22.2,76.6]].map(l => ({n: l[0], x: l[1], y: l[2]}));
+    const META = [
+      {day:'DAY 8',tick:'t 23,184 · six hours after',cap:'The Jarl is dead. Only Dragonsreach knows — Irileth is already retelling it inside the keep.',routeOp:'0.12',carrier:false,mkRing:'#5b6470',mkDot:'#3f454f',mkSub:'0 of 9 · unheard',ph:51.3,counts:'unheard 21 · heard 4 · repeated 1 · Markarth 0/9'},
+      {day:'DAY 11',tick:'t 31,442 · the live-view playhead',cap:'The stain has crossed the market. Ri\u2019saad\u2019s caravan carries the mutated v2 west toward Markarth.',routeOp:'0.75',carrier:true,mkRing:'#58c1d4',mkDot:'#3f454f',mkSub:'0 of 9 · carrier en route',ph:70.1,counts:'unheard 5 · heard 12 · repeated 7 · dormant 1 · forgotten 1 · Markarth 0/9'},
+      {day:'DAY 14',tick:'t 40,608 · carrier arrival',cap:'Markarth hears it first from Ri\u2019saad — secondhand, mutated, and confidently wrong.',routeOp:'0.35',carrier:false,mkRing:'#e3b34c',mkDot:'#e3b34c',mkSub:'1 of 9 · first heard · v2',ph:89.8,counts:'heard 12 · repeated 12 · dormant 1 · forgotten 1 · Markarth 1/9'}
+    ];
+    const frames = META.map((meta, fi) => {
+      const seen = {};
+      const marks = CAST.map(c => {
+        const p = L[c[1]], k = (seen[c[1]] = (seen[c[1]] ?? -1) + 1), j = RING[k % 5], st = SC[c[2][fi]];
+        return {name: c[0] + ' — ' + c[2][fi], left: ((p[0]-330)/30 + j[0]).toFixed(1), top: ((p[1]-90)/30 + j[1]).toFixed(1), fill: st[0], ring: st[1], size: st[2]};
+      });
+      return Object.assign({marks, labs}, meta);
+    });
+    return {frames};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Alegreya:ital,wght@0,500;1,500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#060809;color:#d6d0c2;font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;overflow:hidden}
+a{color:#c9a86a;text-decoration:none}a:hover{color:#e6c88f;text-decoration:underline}
+@keyframes cpulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div data-screen-label="Map C — Skyrim chrome" style="height:100vh;display:flex;flex-direction:column;background:#060809;font-size:11px">
+  <div style="height:44px;flex:none;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid rgba(201,168,106,.26);background:rgba(10,12,14,.9)">
+    <div style="font-family:Cinzel,serif;font-weight:600;font-size:13px;letter-spacing:.3em;color:#e6c88f">CHRONICLE</div>
+    <div style="display:flex;gap:8px;align-items:center;flex:none">
+      <a href="#" style="border:1px solid rgba(201,168,106,.3);padding:2px 8px;border-radius:3px;background:rgba(201,168,106,.07);white-space:nowrap">run t6-jarl-01 ▾</a>
+      <a href="#" style="color:#857f70;white-space:nowrap">branch a3f2c9.g0</a>
+      <a href="#" style="color:#857f70;white-space:nowrap">seed 1181</a>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;border:1px solid rgba(201,168,106,.3);border-radius:3px;overflow:hidden;flex:none">
+      <a href="#" style="padding:3px 10px;color:#857f70;white-space:nowrap">DEV</a>
+      <a href="#" style="padding:3px 10px;background:{{ obsBg }};color:{{ obsC }};border-left:1px solid rgba(201,168,106,.3);border-right:1px solid rgba(201,168,106,.3);white-space:nowrap">OBSERVER</a>
+      <a href="#" style="padding:3px 10px;background:{{ stoBg }};color:{{ stoC }};white-space:nowrap">STORY</a>
+    </div>
+    <a href="#" style="color:#6b6558;font-size:10px;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">?run=t6-jarl-01&amp;t=31442&amp;sel=fralia&amp;lens=C-114 ⧉</a>
+    <a href="map-a-density.dc.html" style="flex:none;white-space:nowrap;color:#857f70">A</a>
+    <a href="map-b-cinematic.dc.html" style="flex:none;white-space:nowrap;color:#857f70">B</a>
+    <a href="storyboard-stain.dc.html" style="flex:none;white-space:nowrap;border:1px solid rgba(201,168,106,.3);padding:2px 8px;border-radius:3px">storyboard ▸</a>
+  </div>
+  <div style="flex:1;min-height:0;display:flex">
+    <div style="flex:1;position:relative;background:#04060a;overflow:hidden;display:flex;justify-content:center">
+      <div style="height:100%;aspect-ratio:1/1;position:relative;flex:none;overflow:hidden">
+        <img src="assets/whiterun_topdown_4k.webp" alt="Whiterun top-down render" style="position:absolute;width:136.5%;left:-11%;top:-3%;filter:saturate(.88) brightness(.94)">
+        <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 55% 48%,transparent 46%,rgba(4,6,9,.68) 100%)"></div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+          <path d="M22.2 73.8 Q16 71 11.5 63" fill="none" stroke="#58c1d4" stroke-width="1.5" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" opacity="0.75"></path>
+        </svg>
+        <div style="position:absolute;left:11.5%;top:63%;transform:translate(-50%,-50%)">
+          <div style="width:52px;height:52px;border:1.5px dashed #58c1d4;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(6,9,12,.74)">
+            <div style="width:10px;height:10px;border-radius:50%;background:#454b55;border:2px solid #2a2f38"></div>
+          </div>
+          <div style="position:absolute;left:60px;top:50%;transform:translateY(-50%);text-align:left">
+            <div style="font-family:Cinzel,serif;font-size:10px;font-weight:600;letter-spacing:.2em;color:#9fd4e0;white-space:nowrap">MARKARTH</div>
+            <div style="font-size:9px;color:#857f70;white-space:nowrap;margin-top:2px"><a href="#" style="color:#857f70">{{ mkSub }}</a></div>
+          </div>
+        </div>
+        <div style="position:absolute;left:16.2%;top:69.5%;transform:translate(-50%,-50%)">
+          <div style="width:9px;height:9px;border-radius:50%;background:#58c1d4;box-shadow:0 0 0 2px rgba(4,6,9,.7),0 0 10px rgba(88,193,212,.8);animation:cpulse 1.8s infinite"></div>
+          <div style="position:absolute;left:12px;top:-4px;white-space:nowrap;font-size:9px;background:rgba(6,9,12,.8);border:1px solid rgba(88,193,212,.35);padding:1px 5px;border-radius:2px;color:#9fd4e0"><a href="#" style="color:#9fd4e0">carrier: Ri'saad ▸ ETA D14 · carrying v2</a></div>
+        </div>
+        <sc-for list="{{ labels }}" as="lb" hint-placeholder-count="4">
+          <div style="position:absolute;left:{{ lb.x }}%;top:{{ lb.y }}%;transform:translate(-50%,0);font-family:Cinzel,serif;font-size:8.5px;letter-spacing:.18em;color:rgba(226,219,203,.66);text-shadow:0 1px 4px rgba(0,0,0,.95);white-space:nowrap;pointer-events:none">{{ lb.n }}</div>
+        </sc-for>
+        <sc-for list="{{ markers }}" as="m" hint-placeholder-count="8">
+          <div style="position:absolute;left:{{ m.left }}%;top:{{ m.top }}%;transform:translate(-50%,-50%)">
+            <sc-if value="{{ m.sel }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:26px;height:26px;border:1.5px solid #e6c88f;border-radius:50%"></div>
+            </sc-if>
+            <a href="#" title="{{ m.name }}" style="display:block;width:{{ m.size }}px;height:{{ m.size }}px;border-radius:50%;background:{{ m.fill }};border:2px solid {{ m.ring }};box-shadow:0 0 0 2px rgba(3,5,8,.65)"></a>
+            <sc-if value="{{ m.g }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:8px;top:-11px;width:12px;height:12px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;background:rgba(8,10,13,.9);border:1px solid {{ m.gc }};color:{{ m.gc }};border-radius:2px">{{ m.g }}</div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+      <div style="position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:8px;width:252px">
+        <div style="background:rgba(10,12,14,.82);backdrop-filter:blur(10px);border:1px solid rgba(201,168,106,.26);border-radius:8px;padding:9px 11px">
+          <div style="font-family:Cinzel,serif;color:#a89a7c;font-size:8.5px;letter-spacing:.22em;margin-bottom:5px">LENS — ONE OVERLAY ACTIVE</div>
+          <a href="#" style="display:block;font-size:11px">rumor-stage · <span style="color:#e8e2d4">C-114 "Jarl Balgruuf is dead"</span> ▾</a>
+          <div style="color:#857f70;font-size:9.5px;margin-top:3px">all variants · 26 tracked · <a href="#">variant tree ▸</a></div>
+        </div>
+        <div style="background:rgba(10,12,14,.82);backdrop-filter:blur(10px);border:1px solid rgba(201,168,106,.18);border-radius:8px;padding:8px 11px 9px;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;flex-wrap:wrap;gap:5px">
+            <a href="#" style="border:1px solid rgba(201,168,106,.4);background:rgba(201,168,106,.1);padding:2px 7px;border-radius:3px;color:#e6c88f;white-space:nowrap">{{ glyphChip }} glyphs</a>
+            <a href="#" style="border:1px solid rgba(201,168,106,.4);background:rgba(201,168,106,.1);padding:2px 7px;border-radius:3px;color:#e6c88f;white-space:nowrap">✓ labels</a>
+            <a href="#" style="border:1px solid rgba(201,168,106,.4);background:rgba(201,168,106,.1);padding:2px 7px;border-radius:3px;color:#e6c88f;white-space:nowrap">✓ routes</a>
+            <a href="#" style="border:1px solid rgba(133,127,112,.35);padding:2px 7px;border-radius:3px;color:#857f70;white-space:nowrap">□ deviations</a>
+          </div>
+          <div style="color:#857f70;font-size:9px;line-height:1.5">glyph = worst case: deviation ▸ grudge ▸ spreading ▸ new belief</div>
+        </div>
+      </div>
+      <div style="position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+        <div style="display:flex;flex-direction:column;border:1px solid rgba(201,168,106,.3);border-radius:6px;overflow:hidden;background:rgba(10,12,14,.85);backdrop-filter:blur(10px)">
+          <a href="#" title="zoom in" style="padding:4px 9px;color:#d6d0c2;border-bottom:1px solid rgba(201,168,106,.16);text-align:center">+</a>
+          <a href="#" title="zoom out" style="padding:4px 9px;color:#d6d0c2;border-bottom:1px solid rgba(201,168,106,.16);text-align:center">−</a>
+          <a href="#" title="fit city" style="padding:4px 9px;color:#857f70;text-align:center">⌖</a>
+        </div>
+        <div style="background:rgba(10,12,14,.82);border:1px solid rgba(133,127,112,.25);border-radius:3px;padding:2px 7px;color:#6b6558;font-size:8.5px">scroll zoom · drag pan</div>
+
+      </div>
+      <div style="position:absolute;right:12px;bottom:12px;background:rgba(10,12,14,.85);backdrop-filter:blur(10px);border:1px solid rgba(201,168,106,.22);border-radius:8px;padding:7px 11px;display:flex;flex-direction:column;gap:5px;font-size:9px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="font-family:Cinzel,serif;color:#a89a7c;letter-spacing:.16em;flex:none;white-space:nowrap;font-size:8px">C-114 STAGE</span>
+          <sc-for list="{{ legend }}" as="s" hint-placeholder-count="5">
+            <span style="display:flex;align-items:center;gap:4px;white-space:nowrap">
+              <span style="width:{{ s.sw }}px;height:{{ s.sw }}px;border-radius:50%;background:{{ s.fill }};border:2px solid {{ s.ring }};flex:none"></span>
+              <span style="color:#bdb6a4">{{ s.name }}</span>
+              <a href="#">{{ s.count }}</a>
+            </span>
+          </sc-for>
+          <a href="#" style="color:#857f70;white-space:nowrap">coverage 20/26</a>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;color:#857f70">
+          <span style="font-family:Cinzel,serif;color:#a89a7c;letter-spacing:.16em;flex:none;white-space:nowrap;font-size:8px">GLYPHS</span>
+          <span style="white-space:nowrap"><span style="color:#ffd166;font-weight:600">D</span> deviation</span>
+          <span style="white-space:nowrap"><span style="color:#e05252;font-weight:600">G</span> grudge</span>
+          <span style="white-space:nowrap"><span style="color:#ff9a3d;font-weight:600">S</span> spreading</span>
+          <span style="white-space:nowrap"><span style="color:#7fd1b9;font-weight:600">N</span> new belief</span>
+        </div>
+      </div>
+    </div>
+    <div style="width:372px;flex:none;border-left:1px solid rgba(201,168,106,.26);background:rgba(10,12,14,.92);display:flex;flex-direction:column;min-height:0">
+      <div style="padding:12px 16px 9px;border-bottom:1px solid rgba(201,168,106,.16)">
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <div style="font-family:Cinzel,serif;font-size:14px;font-weight:600;color:#e8e2d4;white-space:nowrap">Fralia Gray-Mane</div>
+          <a href="#" style="font-size:10px">market</a>
+          <div style="flex:1"></div>
+          <div style="display:flex;border:1px solid rgba(201,168,106,.3);border-radius:3px;overflow:hidden;font-size:9px">
+            <a href="#" style="padding:2px 6px;background:rgba(201,168,106,.14);color:#e6c88f">watch</a>
+            <a href="#" style="padding:2px 6px;color:#857f70;border-left:1px solid rgba(201,168,106,.3)">follow</a>
+          </div>
+          <a href="#" title="pin" style="color:#857f70">⊙</a>
+          <a href="#" title="close" style="color:#857f70">✕</a>
+        </div>
+        <div style="color:#6b6558;font-size:9px;margin-top:3px">as-of t=31,442 · sel in url · <a href="#" style="color:#6b6558">deep-link ⧉</a></div>
+      </div>
+      <div style="display:flex;border-bottom:1px solid rgba(201,168,106,.16);font-size:10px">
+        <a href="#" style="padding:7px 12px;color:#e8e2d4;border-bottom:2px solid #c9a86a">BELIEFS</a>
+        <a href="#" style="padding:7px 12px;color:#857f70">RELATIONSHIPS</a>
+        <a href="#" style="padding:7px 12px;color:#857f70">SCHEDULE</a>
+        <a href="#" style="padding:7px 12px;color:#857f70">HISTORY</a>
+      </div>
+      <div style="padding:6px 16px;border-bottom:1px solid rgba(201,168,106,.16);display:flex;gap:8px;color:#6b6558;font-size:9.5px">
+        salience: {{ salName }} ▾ <span style="flex:1"></span> <a href="#" style="color:#6b6558">all events ⤢</a>
+      </div>
+      <div style="flex:1;overflow-y:auto;overflow-x:hidden;min-width:0;padding:11px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="border:1px solid rgba(255,82,51,.3);border-radius:8px;background:rgba(255,82,51,.05);padding:11px 12px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+            <a href="#" style="font-size:9px;border:1px solid rgba(201,168,106,.4);padding:1px 5px;border-radius:2px;white-space:nowrap">C-114</a>
+            <span style="font-size:9px;padding:1px 6px;border-radius:2px;background:rgba(255,82,51,.14);border:1px solid #7e2a18;color:#ff9a75;white-space:nowrap">REPEATED</span>
+            <a href="#" style="font-size:9px;padding:1px 6px;border-radius:2px;background:rgba(198,120,221,.12);border:1px solid #7a4d8a;color:#d9a3ea;white-space:nowrap">v2 · "Imperial agents"</a>
+          </div>
+          <div style="font-family:Alegreya,Georgia,serif;font-size:13.5px;color:#e8e2d4;line-height:1.45;margin-bottom:8px">Jarl Balgruuf is dead — slain by Imperial agents.</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="width:68px;color:#857f70;font-size:9.5px;white-space:nowrap">{{ lblConf }}</span>
+            <div style="flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:2px"><div style="width:78%;height:100%;background:linear-gradient(90deg,#c9a86a,#e6c88f);border-radius:2px"></div></div>
+            <a href="#" style="font-size:10px">0.78</a>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+            <span style="width:68px;color:#857f70;font-size:9.5px;white-space:nowrap">{{ lblVerb }}</span>
+            <div style="flex:1;height:4px;background:rgba(255,255,255,.08);border-radius:2px"><div style="width:41%;height:100%;background:#5d84ad;border-radius:2px"></div></div>
+            <svg width="42" height="12" style="flex:none"><polyline points="0,3 12,5 24,7 34,9 42,10" fill="none" stroke="#5d84ad" stroke-width="1.5"></polyline></svg>
+            <a href="#" style="font-size:10px">0.41</a>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="width:68px;color:#857f70;font-size:9.5px;white-space:nowrap">{{ lblGist }}</span>
+            <div style="flex:1;height:4px;background:rgba(255,255,255,.08);border-radius:2px"><div style="width:86%;height:100%;background:#7fa8c9;border-radius:2px"></div></div>
+            <svg width="42" height="12" style="flex:none"><polyline points="0,9 12,6 24,4 34,3 42,3" fill="none" stroke="#7fa8c9" stroke-width="1.5"></polyline></svg>
+            <a href="#" style="font-size:10px">0.86</a>
+          </div>
+          <sc-if value="{{ isObs }}" hint-placeholder-val="{{ true }}">
+            <div style="font-size:9.5px;color:#bdb6a4;line-height:1.6;border-top:1px solid rgba(201,168,106,.16);padding-top:7px;overflow-wrap:break-word">
+              ◈ told-by ← <a href="#">Hulda</a> · <a href="#">t 29,101</a> · <a href="#">The Bannered Mare</a><br>
+              chain: <a href="#">Irileth</a> (witness, <a href="#">t 23,301</a>) ← <a href="#" style="color:#857f70">2 unchanged relays ⊕</a> ← <a href="#" style="color:#d9a3ea">✱ v2 mutation (Mikael, t 24,613)</a><br>
+              <a href="#">provenance ▸ 4 hops · 1 mutation</a> · <a href="#">variant tree ▸</a>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isStory }}" hint-placeholder-val="{{ false }}">
+            <div style="font-family:Alegreya,Georgia,serif;font-style:italic;font-size:12px;color:#cfc8b8;line-height:1.65;border-top:1px solid rgba(201,168,106,.16);padding-top:7px">
+              Heard from <a href="#">Hulda</a> at <a href="#">The Bannered Mare</a>, Day 10.<br>
+              The story changed once on its way to her — <a href="#">Mikael</a> made the assassin <em>Imperial</em>.<br>
+              <a href="#">trace the telling ▸ 4 hops · 1 mutation</a>
+            </div>
+          </sc-if>
+        </div>
+        <div style="border:1px solid rgba(201,168,106,.14);border-radius:8px;background:rgba(255,255,255,.02);padding:11px 12px;opacity:.85">
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+            <a href="#" style="font-size:9px;border:1px solid rgba(201,168,106,.4);padding:1px 5px;border-radius:2px;white-space:nowrap">C-087</a>
+            <span style="font-size:9px;padding:1px 6px;border-radius:2px;background:rgba(127,178,229,.14);border:1px solid #3a5471;color:#a7c8e8;white-space:nowrap">DORMANT</span>
+            <span style="font-size:9px;padding:1px 6px;border-radius:2px;border:1px solid rgba(133,127,112,.35);color:#857f70;white-space:nowrap">canonical</span>
+          </div>
+          <div style="font-family:Alegreya,Georgia,serif;font-size:12.5px;color:#d6d0c2;line-height:1.45;margin-bottom:7px">Eorlund's steel is the finest in Skyrim.</div>
+          <sc-if value="{{ isObs }}" hint-placeholder-val="{{ true }}">
+            <div style="font-size:9.5px;color:#857f70;line-height:1.6">derived: last rehearsed <a href="#">t 12,004</a> · half-life <a href="#">8,640</a> → strength <a href="#">0.22</a><br>◉ witnessed first-hand · <a href="#">provenance ▸ 1 hop</a></div>
+          </sc-if>
+          <sc-if value="{{ isStory }}" hint-placeholder-val="{{ false }}">
+            <div style="font-family:Alegreya,Georgia,serif;font-style:italic;font-size:11.5px;color:#a29b8a;line-height:1.65">fading — not spoken of since tick <a href="#">12,004</a> · strength <a href="#">0.22</a>, derived · <a href="#">why ▸</a></div>
+          </sc-if>
+        </div>
+        <div style="color:#6b6558;font-size:9.5px">14 beliefs · showing 2 salient · <a href="#">all ▸</a></div>
+      </div>
+      <div style="padding:7px 16px;border-top:1px solid rgba(201,168,106,.16);display:flex;font-size:9.5px;color:#6b6558">
+        <span>pins: 1</span><span style="flex:1"></span><a href="#" style="color:#6b6558">close all ✕✕</a>
+      </div>
+    </div>
+  </div>
+  <div style="min-height:98px;flex:none;border-top:1px solid rgba(201,168,106,.26);background:rgba(10,12,14,.92);display:flex;flex-direction:column;padding:8px 16px 8px;gap:4px">
+    <div style="display:flex;align-items:center;gap:12px;flex:1;min-height:0">
+      <div style="display:flex;align-items:center;gap:5px;flex:none">
+        <a href="#" title="-1 day" style="border:1px solid rgba(201,168,106,.3);padding:3px 7px;border-radius:3px;white-space:nowrap">◀◀D</a>
+        <a href="#" title="prev block" style="border:1px solid rgba(201,168,106,.3);padding:3px 7px;border-radius:3px;white-space:nowrap">◀|</a>
+        <a href="#" style="border:1px solid rgba(201,168,106,.5);background:rgba(201,168,106,.14);padding:3px 10px;border-radius:3px;color:#e6c88f;white-space:nowrap">▶</a>
+        <a href="#" title="next block" style="border:1px solid rgba(201,168,106,.3);padding:3px 7px;border-radius:3px;white-space:nowrap">|▶</a>
+        <a href="#" title="+1 day" style="border:1px solid rgba(201,168,106,.3);padding:3px 7px;border-radius:3px;white-space:nowrap">D▶▶</a>
+        <div style="display:flex;gap:3px;margin-left:6px">
+          <a href="#" style="padding:2px 5px;color:#857f70;font-size:9px">¼×</a>
+          <a href="#" style="padding:2px 5px;font-size:9px;background:rgba(201,168,106,.14);border:1px solid rgba(201,168,106,.4);border-radius:2px;color:#e6c88f">1×</a>
+          <a href="#" style="padding:2px 5px;color:#857f70;font-size:9px">4×</a>
+          <a href="#" style="padding:2px 5px;color:#857f70;font-size:9px">8×</a>
+        </div>
+      </div>
+      <div style="flex:1;position:relative;height:46px;min-width:0">
+        <div style="position:absolute;left:0;right:0;bottom:12px;height:1px;background:rgba(201,168,106,.28)"></div>
+        <div style="position:absolute;left:51%;width:8.5%;bottom:13px;height:6px;background:linear-gradient(90deg,rgba(255,82,51,.25),rgba(255,82,51,.85),rgba(255,82,51,.3));border-radius:2px" title="187 events D8–D9 · heat"></div>
+        <sc-for list="{{ days }}" as="d" hint-placeholder-count="6">
+          <div style="position:absolute;left:{{ d.pos }}%;bottom:0;transform:translateX(-50%);text-align:center">
+            <div style="width:1px;height:5px;background:rgba(201,168,106,.35);margin:0 auto"></div>
+            <div style="font-size:8px;color:#6b6558">D{{ d.n }}</div>
+          </div>
+        </sc-for>
+        <sc-for list="{{ events }}" as="e" hint-placeholder-count="8">
+          <a href="#" title="{{ e.lbl }}" style="position:absolute;left:{{ e.pos }}%;bottom:15px;width:3px;height:15px;background:{{ e.c }};border-radius:1px;transform:translateX(-50%);box-shadow:0 0 4px rgba(0,0,0,.6)"></a>
+        </sc-for>
+        <div style="position:absolute;left:{{ phPos }}%;bottom:2px;top:0;width:2px;background:{{ phColor }};transform:translateX(-50%);box-shadow:0 0 6px {{ phGlow }}"></div>
+        <div style="position:absolute;left:{{ phPos }}%;top:-2px;transform:translateX(-100%);background:{{ phColor }};color:#0b0e12;font-size:9px;font-weight:600;padding:1px 6px;border-radius:2px;white-space:nowrap">{{ phLabel }}</div>
+      </div>
+      <div style="flex:none;border:1px solid {{ dockBorder }};border-radius:3px;padding:4px 9px;background:{{ dockBg }}">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#e05252;box-shadow:0 0 6px rgba(224,82,82,.7);animation:cpulse 1.4s infinite"></span>
+          <span style="color:{{ dockColor }};font-size:10px;white-space:nowrap">{{ dockLine1 }}</span>
+        </div>
+        <a href="#" style="font-size:9px;color:#6b6558;white-space:nowrap">{{ dockLine2 }}</a>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;font-size:9px;color:#857f70;flex:none;min-width:0">
+      <span style="font-family:Cinzel,serif;color:#a89a7c;flex:none;white-space:nowrap;font-size:8px;letter-spacing:.16em">MARKERS</span>
+      <a href="#" style="color:#d9a441;flex:none;white-space:nowrap">▮ claim born</a>
+      <a href="#" style="color:#c678dd;flex:none;white-space:nowrap">▮ mutation</a>
+      <a href="#" style="color:#e05252;flex:none;white-space:nowrap">▮ grudge</a>
+      <a href="#" style="color:#e8e2d4;flex:none;white-space:nowrap">▮ death</a>
+      <a href="#" style="color:#58c1d4;flex:none;white-space:nowrap">▮ carrier</a>
+      <a href="#" style="color:#9d7fd1;flex:none;white-space:nowrap">▮ threshold</a>
+      <span style="flex:1"></span>
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">10 typed · cluster D8–D9 heat (187 evt)</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;salience&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;observer&quot;,&quot;story&quot;],&quot;default&quot;:&quot;observer&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Salience&quot;},&quot;showGlyphs&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Map layers&quot;},&quot;stainLens&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Map layers&quot;},&quot;liveDocked&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Timeline&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const lens = this.props.stainLens ?? true, glyphs = this.props.showGlyphs ?? true;
+    const story = (this.props.salience ?? 'observer') === 'story';
+    const L = {dragonsreach:[2970,285],gildergreen:[2088,1631],temple:[1965,1492],shrine:[2261,1433],gray_mane:[1882,1725],battle_born:[1444,1428],jorrvaskr:[2631,1656],skyforge:[2981,1289],bannered:[2278,2345],market:[2086,2319],belethors:[1975,2461],arcadias:[2121,2501],warmaidens:[1295,2441],ysoldas:[2090,2774],stables:[683,2897],main_gate:[995,2304],olava:[1568,2691]};
+    const CAST = [
+      ['Irileth','dragonsreach','repeated','D'],['Proventus Avenicci','dragonsreach','repeated','S'],['Farengar','dragonsreach','heard',null],['Hrongar','dragonsreach','repeated','G'],
+      ['Nazeem','gildergreen','heard',null],['Danica Pure-Spring','temple','heard','D'],['Heimskr','shrine','dormant',null],
+      ['Olfina Gray-Mane','gray_mane','heard','N'],['Idolaf Battle-Born','battle_born','heard','G'],
+      ['Aela','jorrvaskr','repeated',null],['Farkas','jorrvaskr','heard',null],['Kodlak Whitemane','jorrvaskr','unheard',null],['Eorlund Gray-Mane','skyforge','unheard',null],
+      ['Hulda','bannered','repeated','S'],['Mikael','bannered','repeated','S'],['Sinmir','bannered','heard',null],
+      ['Fralia Gray-Mane','market','repeated',null,true],['Carlotta Valentia','market','heard','N'],
+      ['Belethor','belethors','heard',null],['Arcadia','arcadias','heard','N'],
+      ['Adrianne Avenicci','warmaidens','heard',null],['Ulfberth War-Bear','warmaidens','unheard',null],
+      ['Ysolda','ysoldas','heard',null],['Skulvar Sable-Hilt','stables','unheard',null],['Gate Guard','main_gate','unheard',null],['Olava the Feeble','olava','forgotten',null]
+    ];
+    const SC = {unheard:['rgba(0,0,0,.12)','#9aa3ad',9],heard:['#e3b34c','#141008',11],repeated:['#ff5233','#ffe8d9',13],dormant:['#8fb4d9','#16202b',10],forgotten:['#565b63','#20242a',7]};
+    const GC = {D:'#ffd166',G:'#e05252',S:'#ff9a3d',N:'#7fd1b9'};
+    const RING = [[0,0],[1.5,-0.7],[-1.4,0.9],[0.8,1.5],[-1.1,-1.4]];
+    const seen = {};
+    const markers = CAST.map(c => {
+      const p = L[c[1]], k = (seen[c[1]] = (seen[c[1]] ?? -1) + 1), j = RING[k % 5], st = SC[c[2]];
+      return {name: c[0] + ' — ' + c[2], left: ((p[0]-330)/30 + j[0]).toFixed(1), top: ((p[1]-90)/30 + j[1]).toFixed(1),
+        fill: lens ? st[0] : '#79828e', ring: lens ? st[1] : '#3a414c', size: st[2],
+        g: glyphs ? (c[3] || null) : null, gc: GC[c[3]] || '#888', sel: !!c[4]};
+    });
+    const EV = [[2.2,'#d9a441','C-102 born: "Nazeem bought Chillfurrow"',0],[3.6,'#e05252','grudge: Sinmir → Mikael',1],[8.02,'#e8e2d4','death: Jarl Balgruuf',1],[8.08,'#d9a441','C-114 born: "Jarl Balgruuf is dead"',1],[8.55,'#c678dd','C-114 v2: assassin→Imperial agents (Mikael)',1],[9.15,'#c678dd','C-114 v3: Imperial→Thalmor (Idolaf)',1],[9.5,'#e05252','grudge: Hrongar → unknown assassin',1],[10.3,'#58c1d4','carrier departs: Ri\u2019saad → Markarth',1],[12.9,'#9d7fd1','threshold: Irileth lockdown ends',0],[14.1,'#58c1d4','carrier arrives: Markarth',1]];
+    const events = (story ? EV.filter(e => e[3]) : EV).map(e => ({pos: (e[0]/15.7*100).toFixed(1), c: e[1], lbl: 't ' + Math.round(e[0]*2880).toLocaleString() + ' · ' + e[2]}));
+    const days = Array.from({length: 15}, (_, i) => ({pos: ((i+1)/15.7*100).toFixed(1), n: i+1}));
+    const legend = [['unheard',5],['heard',12],['repeated',7],['dormant',1],['forgotten',1]].map(s => ({name: s[0], count: s[1], fill: SC[s[0]][0], ring: SC[s[0]][1], sw: SC[s[0]][2] - 3}));
+    const labels = [['DRAGONSREACH',88,9.5],['JORRVASKR',76.7,55],['SKYFORGE',88.4,42.5],['THE BANNERED MARE',64.9,78.2],['MARKET',56,71.5],['TEMPLE OF KYNARETH',54.5,43.8],['MAIN GATE',22.2,76.6],['STABLES',11.8,96.2],['WARMAIDEN\u2019S',32.2,81.2]].map(l => ({n: l[0], x: l[1], y: l[2]}));
+    const docked = this.props.liveDocked ?? false;
+    return {markers, events, days, legend, labels, glyphChip: glyphs ? '✓' : '□',
+      isObs: !story, isStory: story, salName: story ? 'story' : 'observer',
+      lblConf: story ? 'she believes' : 'confidence', lblVerb: story ? 'the words' : 'verbatim', lblGist: story ? 'the gist' : 'gist',
+      mkSub: story ? 'the word has not yet arrived · 0 of 9' : 'satellite · 0/9 heard',
+      obsBg: story ? 'rgba(0,0,0,0)' : 'rgba(201,168,106,.14)', obsC: story ? '#857f70' : '#e6c88f',
+      stoBg: story ? 'rgba(201,168,106,.14)' : 'rgba(0,0,0,0)', stoC: story ? '#e6c88f' : '#857f70',
+      phPos: docked ? 96.8 : 70.1, phColor: docked ? '#ff8a80' : '#e8e2d4', phGlow: docked ? 'rgba(224,82,82,.6)' : 'rgba(232,226,212,.5)',
+      phLabel: docked ? 't 45,187 · D15 17:10 ▸ advancing' : 't 31,442 · D11 06:20',
+      dockBorder: docked ? '#7e3030' : 'rgba(201,168,106,.3)', dockBg: docked ? 'rgba(224,82,82,.08)' : 'rgba(255,255,255,.02)', dockColor: docked ? '#ffb3ad' : '#857f70',
+      dockLine1: docked ? 'LIVE — docked · following newest frame' : 'LIVE · t 45,187',
+      dockLine2: docked ? '+38 events since D14 · scrub to detach' : 'detached — scrubbed to D11 · ⇥ dock'};
+  }
+}
+</script>
+</body>
+</html>

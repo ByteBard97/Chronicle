@@ -39,4 +39,5 @@ agent's report, the overseer's findings, and the verdict
 | 4 — M0 substrate | **unblocked** (1–2 landed; 3 parallel-safe) | — |
 | 5 — M1 scaffold | delivered + verified (npm ci/build clean, 27 vitest green, check-range 206 on both servers) | accepted |
 | 6 — M1 reader + chrome | packet ready | — |
+| 7 — design system + M1 styling | packet ready (design vendored at `dashboard/design/`) | — |
 | design — M3 mockups | converged: merged register, both salience modes, docked-LIVE, storyboard all approved | pending token sheet + Markarth label fix, then frozen |
