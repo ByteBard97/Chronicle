@@ -23,10 +23,48 @@ map. UI contract:
 
 This is the M1 scaffold milestone (`docs/work-packets/lane-5-m1-scaffold.md`):
 the Range spike, the app skeleton, the URL-state module, and typed Pinia
-store stubs. **No views are built here** — the NPC inspector, encounter
-feed, map, etc. are later packets. The app currently renders a single
-smoke-test page (`src/views/Shell.vue`) proving the frame boots and the
-substrate is reachable; it is not meant to look finished.
+store stubs. The map, encounter feed, variant tree, and provenance drill-
+down are still later packets (Tier 1+, ui-spec §3 build order) and are not
+built here. `src/views/Shell.vue` now also hosts skinned, static-fixture
+demonstrations of the two Tier-0 views (NPC inspector, injection console)
+per the design system below — Lane 6's reader wires real per-tick data into
+them at integration; nothing here reads a run yet.
+
+## Design system
+
+`dashboard/design/` (vendored, read-only) is the approved reference: the
+Variant-C mockup `map-c-skyrim.dc.html` and its token contract
+`design-tokens.md`. The build lives in two places:
+
+- `src/styles/tokens.css` — every design-tokens.md value as a CSS custom
+  property, in a TRACED section, plus an EXTENDED section for values that
+  only exist in the mockup's inline styles/JS (not written out in the
+  tokens doc's prose) — e.g. the belief-bar colors, the panel-title color,
+  the per-tone belief-card chip triads, and the fact that panel alpha
+  actually varies by chrome role (.82/.85/.9/.92) rather than the doc's
+  single .82. `src/styles/global.css` loads the three OFL font families
+  (Cinzel / IBM Plex Mono / Alegreya) from Google Fonts for dev
+  convenience, matching the mockup's `<link>`. **Self-hosting these fonts
+  is a distribution-time task**, not done here — fetch the three families'
+  static/variable `.woff2` files, serve them from `dashboard/public/fonts/`
+  (or wherever the build's static assets land) and swap the `@import` for
+  local `@font-face` rules before shipping somewhere that can't reach
+  Google Fonts or shouldn't depend on a third-party font CDN.
+- `src/components/` — base presentational components (PanelGlass, Chip,
+  StrengthBar, StageDot, GlyphBadge, LegendStrip, SalienceSwitch), each
+  with a component test asserting props → classes/structure, plus the
+  Tier-0 view skins built on top of them (NpcInspector, BeliefCard,
+  InjectionConsole). `RunPicker.vue`'s existing `<select>` was skinned in
+  place, not rebuilt, to keep its structure/id/store contract (and the
+  Shell.vue tests that depend on it) intact.
+
+`SalienceSwitch` is a plain props-in/emit-out component (`mode` +
+`update:mode`), typed against `SalienceLevel` from `src/stores/salience.ts`
+so either side of the store wiring works. `Shell.vue` keeps the original
+`<select id="salience-level">` (visually hidden via `.sr-only`) bound to the
+same store as the visible `SalienceSwitch`, so the existing
+`Shell.test.ts` assertion on that select's options and the new skinned
+control can never disagree.
 
 ## Getting started
 

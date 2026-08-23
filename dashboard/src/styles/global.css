@@ -1,0 +1,44 @@
+/*
+ * Global chrome foundation. Loaded once from main.ts, after tokens.css
+ * (tokens.css already sets body{}/@keyframes cpulse — this file adds
+ * only what's missing: font loading, box-sizing, and the sr-only
+ * utility used to keep a native control's semantics under a
+ * custom-skinned one).
+ *
+ * Fonts: Cinzel / IBM Plex Mono / Alegreya, all OFL-licensed, loaded from
+ * Google Fonts for dev convenience (matches the approved mockup's
+ * <link>). Self-hosting these three families is a distribution-time
+ * task — see dashboard/README.md's design section.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Alegreya:ital,wght@0,500;1,500&display=swap");
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Visually hide an element while keeping it in the accessibility tree
+ * and hit-testable by tests/assistive tech (used to keep a native
+ * <select>'s semantics under a custom-skinned control — see
+ * SalienceSwitch's use in Shell.vue). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,202 @@
+/* Chronicle design tokens — source of truth: dashboard/design/design-tokens.md
+   (approved variant C). Every value traces to that document. */
+
+:root {
+  /* chrome */
+  --c-page-bg: #060809;
+  --c-map-well: #04060a;
+  --c-panel-glass: rgba(10, 12, 14, 0.82);
+  --c-panel-glass-strong: rgba(10, 12, 14, 0.9);
+  --c-hairline: rgba(201, 168, 106, 0.26);
+  --c-hairline-soft: rgba(201, 168, 106, 0.18);
+  --c-divider: rgba(201, 168, 106, 0.16);
+  --c-text-primary: #e8e2d4;
+  --c-text-body: #d6d0c2;
+  --c-text-secondary: #bdb6a4;
+  --c-text-dim: #857f70;
+  --c-text-faint: #6b6558;
+  --c-accent: #c9a86a;
+  --c-accent-hover: #e6c88f;
+  --c-chip-active-fill: rgba(201, 168, 106, 0.14);
+  --c-chip-active-border: rgba(201, 168, 106, 0.4);
+  --c-panel-title: #a89a7c;
+
+  /* rumor stages (fill / ring) — hue+value+shape separated,
+     deuteranopia-checked per design-tokens.md */
+  --stage-unheard-fill: rgba(0, 0, 0, 0.12);
+  --stage-unheard-ring: #9aa3ad;
+  --stage-heard-fill: #e3b34c;
+  --stage-heard-ring: #141008;
+  --stage-repeated-fill: #ff5233;
+  --stage-repeated-ring: #ffe8d9; /* cream ring + size carry the signal */
+  --stage-dormant-fill: #8fb4d9;
+  --stage-dormant-ring: #16202b;
+  --stage-forgotten-fill: #565b63;
+  --stage-forgotten-ring: #20242a;
+
+  /* glyphs (worst-case precedence D > G > S > N) */
+  --glyph-d: #ffd166;
+  --glyph-g: #e05252;
+  --glyph-s: #ff9a3d;
+  --glyph-n: #7fd1b9;
+
+  /* timeline event types */
+  --ev-claim-born: #d9a441;
+  --ev-mutation: #c678dd;
+  --ev-grudge: #e05252;
+  --ev-death: #e8e2d4;
+  --ev-carrier: #58c1d4;
+  --ev-threshold: #9d7fd1;
+  --live: #e05252;
+
+  /* map furniture */
+  --c-carrier: #58c1d4;
+  --c-carrier-text: #9fd4e0;
+  --c-marker-halo: rgba(3, 5, 8, 0.65);
+  --c-selection-ring: #e6c88f;
+
+  /* type */
+  --font-display: "Cinzel", serif;
+  --font-data: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --font-narrative: "Alegreya", serif;
+
+  /* spacing grid 4/8/12/16; radii */
+  --radius-chip: 3px;
+  --radius-panel: 8px;
+}
+
+body {
+  margin: 0;
+  background: var(--c-page-bg);
+  color: var(--c-text-body);
+  font-family: var(--font-data);
+  font-size: 11px;
+}
+
+a {
+  color: var(--c-accent);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--c-accent-hover);
+  text-decoration: underline;
+}
+
+@keyframes cpulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Additions below (lane 7) — this file was edited concurrently by    */
+/* another process while this lane was mid-write (see lane-7 report's */
+/* findings list); nothing above this line was touched, only appended */
+/* to fill acceptance-criteria gaps (marker geometry, type scale,     */
+/* spacing grid) that the packet requires as CSS custom properties.   */
+/* ------------------------------------------------------------------ */
+:root {
+  /* marker geometry constants (design-tokens.md "Spacing & geometry") */
+  --stage-unheard-size: 9px;
+  --stage-heard-size: 11px;
+  --stage-repeated-size: 13px;
+  --stage-dormant-size: 10px;
+  --stage-forgotten-size: 7px;
+  /* Legend dots render 3px smaller than the marker size (map-c-skyrim.dc
+     .html:287, `s.sw = SC[s.name][2] - 3`) — per-stage, not a uniform
+     scale, since a flat scale-factor distorts the smaller stages. */
+  --stage-unheard-legend-size: 6px;
+  --stage-heard-legend-size: 8px;
+  --stage-repeated-legend-size: 10px;
+  --stage-dormant-legend-size: 7px;
+  --stage-forgotten-legend-size: 4px;
+  --marker-ring-width: 2px;
+  --marker-halo-width: 2px;
+  --selection-ring-size: 26px;
+  --selection-ring-width: 1.5px;
+  --glyph-badge-size: 12px;
+  --glyph-badge-border-width: 1px;
+  --glyph-badge-font: 8px;
+  --glyph-badge-offset-x: 8px;
+  --glyph-badge-offset-y: -11px;
+
+  /* spacing grid 4/8/12/16 (values only; --radius-* already above) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --panel-padding: 10px; /* doc gives 9-11px; midpoint */
+
+  /* type scale (design-tokens.md "Type scale") */
+  --fs-wordmark: 13px;
+  --ls-wordmark: 0.3em;
+  --fs-npc-name: 14px;
+  --fs-panel-title: 8.5px;
+  --ls-panel-title: 0.2em; /* doc gives .16-.22em; midpoint */
+  --fs-map-label: 8.5px;
+  --ls-map-label: 0.18em;
+  --fs-body: 11px;
+  --fs-secondary: 9.5px;
+  --fs-micro: 9px;
+  --fs-chip: 9.5px; /* doc gives 9-10px; midpoint */
+  --fs-claim-text: 13.5px;
+  --fs-story-provenance: 12px;
+
+  /* EXTENDED — present in map-c-skyrim.dc.html's inline styles/render-  */
+  /* Vals() but not named in design-tokens.md's prose. Kept for visual   */
+  /* parity with the approved mockup; see lane-7 report for the full     */
+  /* trace-back per value. */
+  --c-panel-glass-topbar: rgba(10, 12, 14, 0.9); /* top bar alpha */
+  --c-panel-glass-soft: rgba(10, 12, 14, 0.85); /* legend/zoom alpha */
+  /* Inspector + timeline footer alpha (map-c-skyrim.dc.html:120,200) —
+     distinct from --c-panel-glass-strong (.9, redefined by the
+     concurrent write to equal the top bar's alpha); named separately
+     so the mockup's .92 depth cue for these two panels survives. */
+  --c-panel-glass-inspector: rgba(10, 12, 14, 0.92);
+
+  --bar-confidence-grad-a: #c9a86a;
+  --bar-confidence-grad-b: #e6c88f;
+  --bar-verbatim: #5d84ad;
+  --bar-gist: #7fa8c9;
+  --bar-track: rgba(255, 255, 255, 0.08);
+  --bar-height-confidence: 5px;
+  --bar-height-strength: 4px;
+
+  /* belief-card stage/variant chip triads (fill / border / text) — a  */
+  /* third color family beyond the marker stage colors and the glyph   */
+  /* colors, used only for inspector chips. */
+  --chip-repeated-fill: rgba(255, 82, 51, 0.14);
+  --chip-repeated-border: #7e2a18;
+  --chip-repeated-text: #ff9a75;
+  --chip-dormant-fill: rgba(127, 178, 229, 0.14);
+  --chip-dormant-border: #3a5471;
+  --chip-dormant-text: #a7c8e8;
+  --chip-variant-fill: rgba(198, 120, 221, 0.12);
+  --chip-variant-border: #7a4d8a;
+  --chip-variant-text: #d9a3ea;
+  --chip-muted-border: rgba(133, 127, 112, 0.35);
+
+  --card-active-border: rgba(255, 82, 51, 0.3);
+  --card-active-bg: rgba(255, 82, 51, 0.05);
+  --card-quiet-border: rgba(201, 168, 106, 0.14);
+  --card-quiet-bg: rgba(255, 255, 255, 0.02);
+
+  --c-surface-deepest: #0b0e12; /* LIVE dock pill text-on-red */
+
+  /* LIVE dock pill, docked vs detached (map-c-skyrim.dc.html:235,298). */
+  --dock-docked-border: var(--c-hairline);
+  --dock-docked-bg: rgba(255, 255, 255, 0.02);
+  --dock-docked-text: var(--c-text-dim);
+  --dock-detached-border: #7e3030;
+  --dock-detached-bg: rgba(224, 82, 82, 0.08);
+  --dock-detached-text: #ffb3ad;
+
+  /* Story-salience narrative gloss text colors (map-c-skyrim.dc.html:
+     177,195) — distinct per belief tone, not in the doc's text ramp. */
+  --c-story-text-active: #cfc8b8;
+  --c-story-text-quiet: #a29b8a;
+}
