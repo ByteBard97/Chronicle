@@ -1,12 +1,12 @@
 # Lane 22 — provenance drill-down (Track B, dashboard; M3 §3.6)
 
-**Status:** Ready to start immediately. Substrate landed: lane 6's
-reader (`SocialState` beliefs + evidence), lane 12's supersession
-records, lane 17's demo run (real chains with mutations +
-supersessions), lanes 11/14/16's idioms. **Concurrency note:** lane 21
-(variant tree) is in flight — this lane's invocation points are the
-*landed* screens (FeedScreen, MapScreen) only; the tree holder-table
-invocation is a named follow-up, not this lane.
+**Status:** **Dependencies amended 2026-08-23 (pre-dispatch review
+rulings):** lane 27 (supersession replay — the review's finding (a):
+without it, appended Evidence is missing from replay and chains are
+silently incomplete for T in (supersession tick, next keyframe)) and
+lane 28 (inspector real-data wiring — finding (b): the invocation
+points were pinned to an inspector that still renders fixture beliefs)
+must land **first**. Substrate otherwise landed as before.
 
 **Effort:** medium-large (derived module + panel component + two
 invocation wirings + tests).
@@ -80,11 +80,12 @@ when" — rendered).
   (existing codec — verify the shape and extend *within* it; if the
   codec can't express a drill target, that's a finding, not a new query
   key — §1.2's key list is frozen).
-- **Invocation points (this lane):** a "drill" affordance on belief
-  elements in (a) FeedScreen's inspector region and (b) MapScreen's
-  inspector. Same component, both hosts. The variant-tree holder table
-  is the follow-up (lane 21 in flight — file a named finding, don't
-  touch its files).
+- **Invocation points (amended 2026-08-23):** a "drill" affordance on
+  belief elements in (a) the real `NpcInspector` (both host screens —
+  post-lane-28, its Beliefs-tab cards are real, drill-invokable
+  elements) and (b) the **variant tree's holder table** (lane 21,
+  landed — real holders; the earlier deferral is moot). Same component,
+  all hosts.
 - **As-of-T:** the panel renders the chain as of the screen's current
   T; scrubbing re-derives. Confidence deltas per span come from the
   chain's stored confidences (read, don't recompute decay — the
