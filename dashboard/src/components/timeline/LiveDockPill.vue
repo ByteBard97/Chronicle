@@ -1,38 +1,35 @@
 <script setup lang="ts">
 /**
  * LiveDockPill — the LIVE dock pill at the right of the timeline bar
- * (map-c-skyrim.dc.html:235-241, values from renderVals():298-300).
- * Two display states from LIVE_STATES:
- *  - detached (default): gold hairline, "LIVE · t 45,187" /
- *    "detached — scrubbed to D11 · ⇥ dock"
- *  - docked: red treatment (border #7e3030, bg rgba(224,82,82,.08),
- *    text #ffb3ad), "LIVE — docked · following newest frame" /
- *    "+38 events since D14 · scrub to detach"
+ * (map-c-skyrim.dc.html:235-241). Lane 16: reads the real `liveDock` store
+ * (`src/stores/liveDock.ts`) directly instead of a fixture-driven `live`
+ * prop — same store `LiveDockIndicator.vue` (global chrome) already
+ * consumes. Only the *docked* form of `statusText` is frozen verbatim by
+ * the work packet ("LIVE — docked · following newest frame · +N events ·
+ * scrub to detach"); the store's own doc comment records that the
+ * detached form is a reasonable, non-frozen read of the same fields.
  *
- * NOTE: tokens.css's dock-docked/dock-detached variable names are inverted
- * relative to the mockup (there the *docked* state carries the red
- * treatment), so this component uses the mockup's values directly.
+ * `TimelineBar.vue` is responsible for mirroring `stores/mapData.ts`'s
+ * docked/tailing state into this store (mapData.ts is this lane's
+ * do-not-touch boundary, so it can't wire itself); this component just
+ * renders whatever the store currently says.
  */
-import type { LIVE_STATES } from "../../fixtures/whiterunMock";
+import { useLiveDockStore } from "../../stores/liveDock";
 
-defineProps<{
-  docked: boolean;
-  live: (typeof LIVE_STATES)[keyof typeof LIVE_STATES];
-}>();
+const liveDock = useLiveDockStore();
 </script>
 
 <template>
   <div
     class="live-dock"
-    :class="{ 'live-dock--docked': docked }"
-    :data-docked="docked"
+    :class="{ 'live-dock--docked': liveDock.docked }"
+    :data-docked="liveDock.docked"
     data-testid="live-dock-pill"
   >
     <div class="live-dock__row">
       <span class="live-dock__dot" />
-      <span class="live-dock__line1">{{ live.line1 }}</span>
+      <span class="live-dock__text">{{ liveDock.statusText }}</span>
     </div>
-    <a href="#" class="live-dock__line2" @click.prevent>{{ live.line2 }}</a>
   </div>
 </template>
 
@@ -65,20 +62,13 @@ defineProps<{
   animation: cpulse 1.4s infinite;
 }
 
-.live-dock__line1 {
+.live-dock__text {
   color: var(--c-text-dim);
   font-size: 10px;
   white-space: nowrap;
 }
 
-.live-dock--docked .live-dock__line1 {
+.live-dock--docked .live-dock__text {
   color: #ffb3ad;
-}
-
-.live-dock__line2 {
-  display: block;
-  font-size: var(--fs-micro);
-  color: var(--c-text-faint);
-  white-space: nowrap;
 }
 </style>

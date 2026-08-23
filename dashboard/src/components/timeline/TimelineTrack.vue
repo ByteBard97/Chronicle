@@ -1,35 +1,68 @@
 <script setup lang="ts">
 /**
  * TimelineTrack — the timeline bar itself (map-c-skyrim.dc.html:220-234):
- * baseline, the D8–D9 heat-stripe cluster, day ticks D1–D15, typed event
- * markers with title tooltips, and the playhead with its tick-label chip.
- * Positions come pre-computed from the fixture (buildEvents / DAY_TICKS);
- * the LIVE state (position, color, chip label) comes from LIVE_STATES.
+ * baseline, the heat-stripe cluster (or individual markers when sparse),
+ * day ticks, typed event markers with title tooltips, and the playhead
+ * with its tick-label chip.
+ *
+ * Props boundary (lane 16 keeps this intact, per the packet): the parent
+ * (`TimelineBar.vue`) computes every percent and derives the markers/
+ * days/heat-stripe result via `src/derived/timelineMarkers.ts` — this
+ * component only renders what it's given. It does not read any store or
+ * derived module itself except `MARKER_TYPE_REGISTRY`, which is static
+ * per-type color/legend metadata, not per-record derivation.
+ *
+ * Markers are real clickable buttons now (lane 16; previously
+ * `@click.prevent` no-ops, same pattern lane 14 fixed on `NpcMarker.vue`):
+ * clicking one emits `marker-click` with the marker's tick so the parent
+ * can write `urlState.t` ('replace' mode).
  */
 import { computed } from "vue";
-import type { TimelineEvent, LIVE_STATES } from "../../fixtures/whiterunMock";
+import { MARKER_TYPE_REGISTRY, type DayTick, type HeatStripe, type TimelineMarker } from "../../derived/timelineMarkers";
 
 const props = defineProps<{
-  events: TimelineEvent[];
-  days: { pos: number; n: number }[];
-  live: (typeof LIVE_STATES)[keyof typeof LIVE_STATES];
+  days: DayTick[];
+  heat: HeatStripe;
+  playheadPos: number;
+  playheadLabel: string;
   docked: boolean;
 }>();
 
-/** playhead glow (map-c-skyrim.dc.html:296 — not part of LIVE_STATES) */
-const phGlow = computed(() =>
-  props.docked ? "rgba(224,82,82,.6)" : "rgba(232,226,212,.5)",
-);
+const emit = defineEmits<{ (e: "marker-click", tick: number): void }>();
+
+function colorFor(type: TimelineMarker["type"]): string {
+  return MARKER_TYPE_REGISTRY.find((m) => m.type === type)?.color ?? "var(--c-text-faint)";
+}
+
+/** playhead glow (map-c-skyrim.dc.html:296 — not part of any store) */
+const phGlow = computed(() => (props.docked ? "rgba(224,82,82,.6)" : "rgba(232,226,212,.5)"));
+const phColor = computed(() => (props.docked ? "#ff8a80" : "#e8e2d4"));
 </script>
 
 <template>
   <div class="track">
     <div class="track__baseline" />
-    <div
-      class="track__heat"
-      title="187 events D8–D9 · heat"
-      data-testid="heat-stripe"
-    />
+    <template v-if="heat.dense">
+      <div
+        v-for="(b, i) in heat.buckets"
+        :key="i"
+        class="track__heat"
+        :style="{ left: b.pos + '%' }"
+        :title="`${b.count} events`"
+        data-testid="heat-stripe"
+      />
+    </template>
+    <template v-else>
+      <button
+        v-for="m in heat.markers"
+        :key="`${m.tick}-${m.type}-${m.label}`"
+        type="button"
+        class="track__event"
+        :style="{ left: m.pos + '%', background: colorFor(m.type) }"
+        :title="m.label"
+        @click="emit('marker-click', m.tick)"
+      />
+    </template>
     <div
       v-for="d in days"
       :key="d.n"
@@ -39,30 +72,21 @@ const phGlow = computed(() =>
       <div class="track__tick-mark" />
       <div class="track__tick-label">D{{ d.n }}</div>
     </div>
-    <a
-      v-for="e in events"
-      :key="e.label"
-      href="#"
-      class="track__event"
-      :style="{ left: e.pos + '%', background: e.color }"
-      :title="e.label"
-      @click.prevent
-    />
     <div
       class="track__playhead"
       data-testid="playhead"
       :style="{
-        left: live.phPos + '%',
-        background: live.phColor,
+        left: playheadPos + '%',
+        background: phColor,
         boxShadow: '0 0 6px ' + phGlow,
       }"
     />
     <div
       class="track__chip"
       data-testid="playhead-chip"
-      :style="{ left: live.phPos + '%', background: live.phColor }"
+      :style="{ left: playheadPos + '%', background: phColor }"
     >
-      {{ live.phLabel }}
+      {{ playheadLabel }}
     </div>
   </div>
 </template>
@@ -86,16 +110,11 @@ const phGlow = computed(() =>
 
 .track__heat {
   position: absolute;
-  left: 51%;
-  width: 8.5%;
+  width: 3px;
   bottom: 13px;
   height: 6px;
-  background: linear-gradient(
-    90deg,
-    rgba(255, 82, 51, 0.25),
-    rgba(255, 82, 51, 0.85),
-    rgba(255, 82, 51, 0.3)
-  );
+  transform: translateX(-50%);
+  background: rgba(255, 82, 51, 0.65);
   border-radius: 2px;
 }
 
@@ -119,6 +138,10 @@ const phGlow = computed(() =>
 }
 
 .track__event {
+  appearance: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   position: absolute;
   bottom: 15px;
   width: 3px;
@@ -134,6 +157,10 @@ const phGlow = computed(() =>
   top: 0;
   width: 2px;
   transform: translateX(-50%);
+  /* Full-height decorative line only -- must never steal clicks from a
+     marker button that shares its tick (e.g. this run's t=0, where the
+     crime/death markers sit at the same position as the initial playhead). */
+  pointer-events: none;
 }
 
 .track__chip {
@@ -146,5 +173,6 @@ const phGlow = computed(() =>
   padding: 1px 6px;
   border-radius: 2px;
   white-space: nowrap;
+  pointer-events: none;
 }
 </style>

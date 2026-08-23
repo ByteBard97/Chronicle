@@ -1,37 +1,53 @@
 <script setup lang="ts">
 /**
  * TimelineLegend — the bottom legend line of the timeline strip
- * (map-c-skyrim.dc.html:243-253): "MARKERS —" followed by the six typed
- * event colors, and the right-aligned cluster summary. The typed count
- * reflects the rendered event set (10 observer / 8 story).
+ * (map-c-skyrim.dc.html:243-253): "MARKERS —" followed by the typed event
+ * colors, and the right-aligned typed-marker count.
+ *
+ * Lane 16: the legend items are the type filter's UI (view-local state
+ * lives in `TimelineBar.vue`; this component is a controlled list —
+ * `activeTypes` in, `toggle-type` out). Reconciled against the pinned
+ * taxonomy (`MARKER_TYPE_REGISTRY`, ui-spec §2:59): the previous 6-entry
+ * hardcoded list (`claim born, mutation, grudge, death, carrier,
+ * threshold`) is replaced by the registry's 8 entries — `supersession` was
+ * previously absent entirely; `death` (real, from `npc_died`) is folded
+ * into `events` alongside `crime_witnessed` rather than kept as its own
+ * type, since schema v1 has no standalone "death" trace/event category
+ * distinct from the canonical events stream; `role vacancy` and `carrier
+ * arrival` render as inactive-looking (dimmed, titled) entries with no
+ * producer, per the packet's "active-but-empty legend entry, not an
+ * error" instruction.
  */
-defineProps<{ eventCount: number }>();
+import { MARKER_TYPE_REGISTRY, type MarkerType } from "../../derived/timelineMarkers";
 
-const MARKER_LEGEND = [
-  { name: "claim born", color: "var(--ev-claim-born)" },
-  { name: "mutation", color: "var(--ev-mutation)" },
-  { name: "grudge", color: "var(--ev-grudge)" },
-  { name: "death", color: "var(--ev-death)" },
-  { name: "carrier", color: "var(--ev-carrier)" },
-  { name: "threshold", color: "var(--ev-threshold)" },
-];
+defineProps<{
+  eventCount: number;
+  activeTypes: Set<MarkerType>;
+}>();
+
+const emit = defineEmits<{ (e: "toggle-type", type: MarkerType): void }>();
 </script>
 
 <template>
   <div class="timeline-legend">
     <span class="timeline-legend__title">MARKERS</span>
     <a
-      v-for="m in MARKER_LEGEND"
-      :key="m.name"
+      v-for="m in MARKER_TYPE_REGISTRY"
+      :key="m.type"
       href="#"
       class="timeline-legend__item"
+      :class="{
+        'timeline-legend__item--inactive': !activeTypes.has(m.type),
+        'timeline-legend__item--empty': !m.hasProducer,
+      }"
       :style="{ color: m.color }"
-      @click.prevent
-      >▮ {{ m.name }}</a
+      :title="m.hasProducer ? undefined : 'no producer in schema v1 yet'"
+      @click.prevent="emit('toggle-type', m.type)"
+      >▮ {{ m.legendName }}</a
     >
     <span class="timeline-legend__spacer" />
     <span class="timeline-legend__summary"
-      >{{ eventCount }} typed · cluster D8–D9 heat (187 evt)</span
+      >{{ eventCount }} typed marker{{ eventCount === 1 ? "" : "s" }}</span
     >
   </div>
 </template>
@@ -59,6 +75,16 @@ const MARKER_LEGEND = [
 .timeline-legend__item {
   flex: none;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.timeline-legend__item--inactive {
+  opacity: 0.35;
+}
+
+.timeline-legend__item--empty {
+  font-style: italic;
+  opacity: 0.55;
 }
 
 .timeline-legend__spacer {
