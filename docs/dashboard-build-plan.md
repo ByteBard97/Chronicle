@@ -141,7 +141,9 @@ The sim learns to write the log the spec froze.
   stream + keyframe offsets) written incrementally with **atomic
   write-temp-rename** (a torn index mid-run would wedge the reader until a
   rescan; rename costs nothing), keyframes every K ticks (default one
-  game-day), newline framing with torn-tail-safe reads, run registered in
+  game-day), newline framing with torn-tail-safe reads, **flush per tick**
+  (liveness contract: LIVE-tail latency is polling cadence, not buffer
+  length — without it the LIVE dock silently lags), run registered in
   `runs/index.json`.
 - Driver shaped for **start-from-keyframe + injected events** from the
   beginning — cheap now, and it's what the deferred fork milestone (§3)
