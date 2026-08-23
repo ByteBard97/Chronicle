@@ -1,5 +1,25 @@
 # Reviews — overseer protocol and log
 
+## Governance (owner-settled 2026-08-23)
+
+**The owner has assigned a managing agent.** The primary planning agent
+(the Kimi session lineage that produced `HANDOFF-2026-08-23-1325.md`,
+Track B) is the project's planner/coordinator/reviewer. Its job:
+
+- Plan what happens next and write lane packets.
+- Portion work out to other agents (lane workers).
+- Review delivered work against packet acceptance criteria, run the
+  battery itself, integrate, and commit.
+
+It is **not** a bulk code-editing role. All other sessions (Kimi, Claude,
+or otherwise) are lane workers: check this board before starting, claim
+lanes here first, stay inside packet file boundaries, and do not edit
+this status table or assume the coordinator role. This supersedes the
+"no managing agent" note in `HANDOFF-2026-08-23-1323.md` — that session
+never received the assignment. The collisions of 2026-08-22/23 (ADR-0009
+clobber, lane 8/9 numbering, mid-flight table edits) trace to that
+ambiguity and are considered closed by this ruling.
+
 The overseer agent (planner/reviewer) evaluates lane deliverables against
 their packet's acceptance criteria before anything is committed. One
 subdirectory per review round: `reviews/<date>-<lane>/` containing the
@@ -42,4 +62,7 @@ agent's report, the overseer's findings, and the verdict
 | 7 — design system + M1 styling | delivered, commit `b080dd2` | accepted — independently re-run alongside lane 6 (same suite, above); self-fixed one bug (`--marker-halo` -> `--c-marker-halo`) before landing |
 | 8 — map conversion + visual parity | delivered (commits `28b81d6`…`dbdd1e2`; Kimi ran out of session usage partway through the follow-on Tier-2/mutation work, picked up and closed out in `da6785b`) | accepted — `make check` green (133 pytest + 1 xfail, ruff clean, dashboard build/132 vitest/check-range 206). One real integration bug found and fixed: `npm run visual-diff` was screenshotting the Vue app's root route ("/", Shell.vue's M1 chrome) against the M3 map mockup instead of `/map` (MapScreen.vue) — inflated the diff to 25.05%; pointed at the right route it's 4.84%, mostly font-rendering noise against a static HTML mockup. Map region itself is visually faithful |
 | 9 — M1 agent-debug CLI + pytest deep links | delivered, commit `f8e68f9` (packet renumbered from a collided "lane 8" — `docs/work-packets/lane-9-m1-cli-and-deep-links.md`); the `EVENT_TYPES` bug it found was fixed in `575ca10` | accepted — `InjectionConsole.vue` now offers the three real Tier-0 event kinds and its CLI invocation matches `inject`'s flags exactly. pytest and ruff green |
+| 10 — map/timeline component tests + coverage pass | delivered (packet `a50a64c`; tests `555b8e1` + coverage guards `cc9f2ab`/`a8e8c30`) | accepted — 175 pytest + 1 xfail, ruff clean, 132 vitest green (from `make check` battery, handoff 13:25); board row added post-hoc by the planning agent |
+| 11 — M2 encounter-feed view | delivered, commit `3ef4745` | accepted — coordinator independently re-ran the battery: 237/237 vitest, build clean, check-range 206 dev+preview; zero new deps; file boundaries respected (two honest extras flagged in the report: `ViewSwitcher.vue` and a `view=` router guard fixing a real packet defect — the worked deep link would have silently rendered Shell). 2 pytest failures in the tree at review time are lane 12 mid-flight, not this lane (zero Python touched) |
+| 12 — T2.3 conflicting-variant resolution | delivered + dispositions applied (overseer review in `reviews/2026-08-23-lane-12/`) | accepted — coordinator re-ran the battery: 183 passed / 0 failed / 0 xfailed, ruff clean; marker-only T0.4 edit verified byte-for-byte; re-hearing carve-out + two in-seam guard rails reviewed and accepted; schema §4:120/§4:117 amended by the coordinator with dated notes; T2.2 resolution-churn finding logged to the owner-review backlog |
 | design — M3 mockups | converged and frozen: token sheet delivered + vendored (`dashboard/design/`, c7f3d44) | Markarth label collision fix noted for the M3 build |
