@@ -17,9 +17,12 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 10 | [lane-10-map-timeline-component-tests.md](lane-10-map-timeline-component-tests.md) | lane 8 (landed) | medium-large (test) |
 | 11 | [lane-11-m2-encounter-feed.md](lane-11-m2-encounter-feed.md) | lanes 5, 6, 9 (landed) | medium-large (code) |
 | 12 | [lane-12-t2-3-variant-resolution.md](lane-12-t2-3-variant-resolution.md) | lane 4 + Tier 2 mutation machinery (landed) | medium-large (code) |
+| 13 | [lane-13-t2-6-7-carriers.md](lane-13-t2-6-7-carriers.md) | lane 12 + death-awareness (landed) | medium (fixtures + tests) |
+| 14 | [lane-14-map-real-data.md](lane-14-map-real-data.md) | lanes 6, 8, 11 (landed) | large (code) |
+| 15 | [lane-15-dashboard-hygiene.md](lane-15-dashboard-hygiene.md) | lanes 8, 10, 11 (landed) | small (code) |
+| 16 | [lane-16-timeline-real-data.md](lane-16-timeline-real-data.md) | lane 14 (in flight) | medium-large (code) |
 
-**Start now, in parallel:** lanes 1, 2, 3, 5. **Start after 1–3 land:** lane 4.
-**Current wave:** lanes 11 (dashboard, Track B) and 12 (sim, Track A) in parallel — disjoint trees.
+**Current wave:** lanes 13 (Track A), 14 (Track B), 15 (Track B) — 13 disjoint from 14/15; 14 and 15 coordinate via their file boundaries (15 owns SatelliteNode/RunPicker/streamReader; 14 owns the map data path).
 
 Soft dependency not shown in the table: Lane 2's roll-record payload cites
 Lane 1's `roll_key` vocabulary (members and order are ADR-0009's to decide).
