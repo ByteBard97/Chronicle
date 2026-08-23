@@ -48,15 +48,17 @@ RETELL_VERBATIM_DECAY = 0.7
 RETELL_GIST_DECAY = 0.95
 WITNESS_CONFIDENCE = 0.95
 
-# Time-decay half-lives, in gamets units (rule 6). Verbatim strength decays
-# faster than gist strength -- fuzzy-trace theory's central claim, per
-# docs/architecture.md's bounded-memory item -- so a rehearsed-but-fading
-# memory keeps its gist ("something bad happened to the Jarl") long after
-# the exact wording is gone. Placeholder magnitudes, same tunable-not-derived
-# status as the retell constants above.
-CONFIDENCE_DECAY_HALF_LIFE = 500.0
-VERBATIM_DECAY_HALF_LIFE = 200.0
-GIST_DECAY_HALF_LIFE = 2000.0
+# Time-decay half-lives, in gamets units (rule 6). docs/decisions/0010-tick-
+# quantum.md pins the unit: 1 gamets = 1 tick = 1 game-hour, 24 gamets = 1
+# game-day. Verbatim strength decays faster than gist strength -- fuzzy-trace
+# theory's central claim, per docs/architecture.md's bounded-memory item --
+# so a rehearsed-but-fading memory keeps its gist ("something bad happened to
+# the Jarl") long after the exact wording is gone. Still placeholder
+# magnitudes, same tunable-not-derived status as the retell constants above
+# (0010 rebaselines their units, not their epistemic status).
+CONFIDENCE_DECAY_HALF_LIFE = 168.0  # ticks: ~7 game-days (24*7), rule 6.
+VERBATIM_DECAY_HALF_LIFE = 72.0  # ticks: ~3 game-days (24*3), fastest of the three, rule 5.
+GIST_DECAY_HALF_LIFE = 1440.0  # ticks: ~60 game-days (24*60), slowest, rule 5's central claim.
 
 # Rumor stage machine thresholds (rule 16), same tunable-not-derived status
 # as the decay half-lives above. RUMOR_DORMANT_AFTER is gamets elapsed since
@@ -64,8 +66,12 @@ GIST_DECAY_HALF_LIFE = 2000.0
 # RUMOR_FORGOTTEN_GIST_THRESHOLD is the gist_strength floor below which the
 # story is functionally gone even though the record itself is never deleted
 # (event-sourcing discipline: state is derived, not destroyed).
-RUMOR_DORMANT_AFTER = 5000.0
-RUMOR_FORGOTTEN_GIST_THRESHOLD = 0.05
+# ~45 quiet game-days (24*45), per docs/decisions/0010-tick-quantum.md: sits
+# between the scenario-ladder's T0.2 anchor (30 quiet days must read as "not
+# dormant yet") and its T2.5 anchor (90 quiet days must have reached dormant
+# well before the window closes).
+RUMOR_DORMANT_AFTER = 1080.0  # ticks: ~45 quiet game-days (24*45), rule 16.
+RUMOR_FORGOTTEN_GIST_THRESHOLD = 0.05  # dimensionless gist-strength floor, rule 16; not a time constant.
 
 
 def _decay(value: float, elapsed: float, half_life: float) -> float:
