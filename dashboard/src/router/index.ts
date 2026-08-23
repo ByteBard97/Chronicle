@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import Shell from "../views/Shell.vue";
 import MapScreen from "../views/MapScreen.vue";
 import FeedScreen from "../views/FeedScreen.vue";
+import VariantTreeScreen from "../views/VariantTreeScreen.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -9,6 +10,7 @@ export const router = createRouter({
     { path: "/", name: "shell", component: Shell },
     { path: "/map", name: "map", component: MapScreen },
     { path: "/feed", name: "feed", component: FeedScreen },
+    { path: "/tree", name: "tree", component: VariantTreeScreen },
   ],
 });
 
@@ -31,6 +33,7 @@ const VIEW_PATHS: Record<string, string> = {
   shell: "/",
   map: "/map",
   feed: "/feed",
+  tree: "/tree",
 };
 
 router.beforeEach((to) => {
