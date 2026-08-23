@@ -36,7 +36,7 @@ agent's report, the overseer's findings, and the verdict
 | 1 — keyed-randomness ADR | delivered + overseer-aligned to schema (`roll_key` members, purpose strings) | accepted — flipped to `status: accepted` |
 | 2 — frame-log schema | delivered (v1, 226 lines) | accepted — field names verified against code; tier discipline correct |
 | 3 — tick quantum | delivered (ADR-0010 + claims.py rebaseline, commit 5b168e7) | accepted — overseer re-verified: 52 pytest green, ruff clean, unit+derivation+rule comments present |
-| 4 — M0 substrate | dispatched | — |
+| 4 — M0 substrate | delivered (driver/framelog/rng + keyed schedule rework) | accepted — overseer verified: 75 pytest green, ruff clean, no scenario assertion changes, reconstruction + index-rebuild proofs present; findings need coordinator decisions (social-mutation trace gap, `_rumor_sources` keyframe gap, keyframe seq ambiguity) |
 | 5 — M1 scaffold | delivered + verified (npm ci/build clean, 27 vitest green, check-range 206 on both servers) | accepted |
 | 6 — M1 reader + chrome | dispatched (coordination note added: Lane 7 owns `SalienceSwitch` markup) | — |
 | 7 — design system + M1 styling | dispatched (design vendored at `dashboard/design/`) | — |

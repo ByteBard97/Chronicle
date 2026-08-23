@@ -19,13 +19,22 @@ v0.1 (spec §3).
 
 import pytest
 
-from chronicle.claims import ClaimStore, decay
-from chronicle.events import CrimeWitnessed, EventLog, NPCDied
+from chronicle.claims import decay
+from chronicle.driver import Driver
+from chronicle.events import CrimeWitnessed, NPCDied
 
 
 def test_jarl_death_belief_forms_spreads_and_stays_evidence_traceable():
-    log = EventLog()
-    log.append(
+    # The scenario runs through the driver (chronicle/driver.py): it owns the
+    # stores and writes the frame log as derivations happen. Assertions below
+    # are unchanged from the pre-driver version of this test.
+    driver = Driver(
+        run_id="scenario-jarl-death-belief-cascade",
+        seed_id="jarl-death",
+        save_uuid="whiterun-save-1",
+        generation=0,
+    )
+    driver.inject_event(
         NPCDied(
             tick=100,
             save_uuid="whiterun-save-1",
@@ -37,9 +46,10 @@ def test_jarl_death_belief_forms_spreads_and_stays_evidence_traceable():
             cause="assassination",
             killer_id=None,
             location_id="dragonsreach",
-        )
+        ),
+        origin={"kind": "scenario", "detail": "test_jarl_death_belief_cascade"},
     )
-    log.append(
+    driver.inject_event(
         CrimeWitnessed(
             tick=100,
             save_uuid="whiterun-save-1",
@@ -51,13 +61,14 @@ def test_jarl_death_belief_forms_spreads_and_stays_evidence_traceable():
             perpetrator_id="unknown",
             crime_type="murder",
             location_id="dragonsreach",
-        )
+        ),
+        origin={"kind": "scenario", "detail": "test_jarl_death_belief_cascade"},
     )
-    death_event, crime_event = log.lineage("whiterun-save-1", 0)
+    death_event, crime_event = driver.event_log.lineage("whiterun-save-1", 0)
     death_key = (death_event.save_uuid, death_event.generation, death_event.seq)
     crime_key = (crime_event.save_uuid, crime_event.generation, crime_event.seq)
 
-    store = ClaimStore()
+    store = driver  # witness/retell/corroborate go through the driver so the frame log records them
 
     # Proventus witnessed the crime itself -- rule 14: this seeds suspicion
     # (an "unknown" perpetrator slot), not a named-culprit belief.
@@ -182,3 +193,4 @@ def test_jarl_death_belief_forms_spreads_and_stays_evidence_traceable():
     decayed_ysolda_belief = decay(store.beliefs_of("ysolda")[0], at_gamets=much_later)
     assert decayed_ysolda_belief.confidence < ysolda_belief.confidence
     assert store.beliefs_of("ysolda")[0].confidence == ysolda_belief.confidence  # store unchanged
+    driver.close()

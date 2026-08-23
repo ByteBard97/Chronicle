@@ -19,33 +19,43 @@ schedules.
 
 import pytest
 
-from chronicle.claims import ClaimStore
-from chronicle.events import CrimeWitnessed, EventLog, NPCDied
+from chronicle.driver import Driver
+from chronicle.events import CrimeWitnessed, NPCDied
 from chronicle.fixtures.whiterun_relationships import seed_whiterun
-from chronicle.social import SocialStateStore, form_grudge
+from chronicle.social import form_grudge
 
 
 def test_grudge_and_reputation_form_only_where_a_relationship_exists():
-    log = EventLog()
-    log.append(
+    # The scenario runs through the driver (chronicle/driver.py): it owns the
+    # stores and writes the frame log as derivations happen. Assertions below
+    # are unchanged from the pre-driver version of this test.
+    driver = Driver(
+        run_id="scenario-jarl-death-social-cascade",
+        seed_id="jarl-death",
+        save_uuid="whiterun-save-1",
+        generation=0,
+    )
+    driver.inject_event(
         NPCDied(
             tick=100, save_uuid="whiterun-save-1", generation=0, seq=1,
             gamets=1000.0, wall_ts=50_000.0, npc_id="jarl_balgruuf",
             cause="assassination", killer_id=None, location_id="dragonsreach",
-        )
+        ),
+        origin={"kind": "scenario", "detail": "test_jarl_death_social_cascade"},
     )
-    log.append(
+    driver.inject_event(
         CrimeWitnessed(
             tick=100, save_uuid="whiterun-save-1", generation=0, seq=2,
             gamets=1000.0, wall_ts=50_001.0, witness_id="irileth",
             perpetrator_id="unknown", crime_type="murder", location_id="dragonsreach",
-        )
+        ),
+        origin={"kind": "scenario", "detail": "test_jarl_death_social_cascade"},
     )
-    death_event, _ = log.lineage("whiterun-save-1", 0)
+    death_event, _ = driver.event_log.lineage("whiterun-save-1", 0)
     death_key = (death_event.save_uuid, death_event.generation, death_event.seq)
 
-    claims = ClaimStore()
-    social = SocialStateStore()
+    claims = driver  # witness/retell go through the driver so the frame log records them
+    social = driver.social
     seed_whiterun(social, gamets=0.0)
 
     # Irileth witnessed the death herself -- high-confidence belief, and she
@@ -129,3 +139,4 @@ def test_grudge_and_reputation_form_only_where_a_relationship_exists():
     assert irileth_view.direct_count == 1
     assert hulda_view.witness_count == 1
     assert irileth_view != hulda_view
+    driver.close()
