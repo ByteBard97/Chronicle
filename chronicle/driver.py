@@ -53,7 +53,16 @@ from chronicle.schedule import (
     npcs_present_at,
     sample_encounters,
 )
-from chronicle.social import SocialStateStore
+from chronicle.social import (
+    Grudge,
+    Obligation,
+    Relationship,
+    Reputation,
+    SocialStateStore,
+    form_grudge,
+    form_relationship,
+    issue_obligation,
+)
 
 
 class Driver:
@@ -203,6 +212,135 @@ class Driver:
             },
         )
         return updated, evidence
+
+    # -- derivations (scripted), layer 4: social mutations -------------------
+    # The same wrapper contract as witness/retell/corroborate, for the
+    # social store: thin store-mutation wrappers that also emit schema §4's
+    # five social trace records, so layer-4 state reconstructs from the log
+    # at arbitrary T, not just at keyframe granularity. Trace tick is
+    # int(gamets), same clock discipline as the claims wrappers.
+
+    def form_relationship(self, **kwargs: object) -> Relationship:
+        """Scripted relationship formation; emits a relationship_formed trace record (schema §4)."""
+        relationship = self.social.add_relationship(form_relationship(**kwargs))  # type: ignore[arg-type]
+        self.writer.write_trace(
+            tick=int(relationship.formed_at),
+            payload={
+                "record_type": "relationship_formed",
+                "id": relationship.id,
+                "from_id": relationship.from_id,
+                "to_id": relationship.to_id,
+                "basis": relationship.basis,
+                "basis_id": relationship.basis_id,
+                "strength": relationship.strength,
+                "formed_at": relationship.formed_at,
+            },
+        )
+        return relationship
+
+    def form_grudge(self, **kwargs: object) -> Grudge:
+        """Scripted grudge formation (rule 8's gate runs inside social.form_grudge); emits grudge_formed (schema §4).
+
+        Takes the caller-looked-up relationship_to_victim exactly like
+        social.form_grudge() does -- the lookup discipline is part of the
+        rule, not something this wrapper can do for the caller.
+        """
+        grudge = self.social.add_grudge(form_grudge(**kwargs))  # type: ignore[arg-type]
+        self.writer.write_trace(
+            tick=int(grudge.last_rehearsed),
+            payload={
+                "record_type": "grudge_formed",
+                "id": grudge.id,
+                "holder_id": grudge.holder_id,
+                "target_id": grudge.target_id,
+                "source_belief_id": grudge.source_belief_id,
+                "grievance_type": grudge.grievance_type,
+                "severity": grudge.severity,
+                "emotional_strength": grudge.emotional_strength,
+                "evidentiary_strength": grudge.evidentiary_strength,
+                "last_rehearsed": grudge.last_rehearsed,
+                "forgiveness_threshold": grudge.forgiveness_threshold,
+            },
+        )
+        return grudge
+
+    def issue_obligation(self, **kwargs: object) -> Obligation:
+        """Scripted obligation issuance; emits an obligation_issued trace record with the full Obligation fields (schema §4)."""
+        obligation = self.social.add_obligation(issue_obligation(**kwargs))  # type: ignore[arg-type]
+        self.writer.write_trace(
+            tick=int(obligation.created_at),
+            payload={
+                "record_type": "obligation_issued",
+                "id": obligation.id,
+                "issuer_id": obligation.issuer_id,
+                "debtor_id": obligation.debtor_id,
+                "beneficiary_id": obligation.beneficiary_id,
+                "action": obligation.action,
+                "condition": obligation.condition,
+                "deadline": obligation.deadline,
+                "status": obligation.status,
+                "witnesses": list(obligation.witnesses),
+                "sanctions": obligation.sanctions,
+                "excuse": obligation.excuse,
+                "created_at": obligation.created_at,
+                "fulfilled_at": obligation.fulfilled_at,
+                "violated_at": obligation.violated_at,
+            },
+        )
+        return obligation
+
+    def fulfill_obligation(self, obligation_id: str, *, gamets: float) -> Obligation:
+        """Scripted obligation fulfillment; emits an obligation_resolved trace record (schema §4)."""
+        obligation = self.social.fulfill_obligation(obligation_id, gamets=gamets)
+        self.writer.write_trace(
+            tick=int(gamets),
+            payload={
+                "record_type": "obligation_resolved",
+                "obligation_id": obligation.id,
+                "status": "fulfilled",
+                "gamets": gamets,
+                "excuse": None,
+            },
+        )
+        return obligation
+
+    def violate_obligation(self, obligation_id: str, *, gamets: float, excuse: str | None = None) -> Obligation:
+        """Scripted obligation violation; emits an obligation_resolved trace record (schema §4)."""
+        obligation = self.social.violate_obligation(obligation_id, gamets=gamets, excuse=excuse)
+        self.writer.write_trace(
+            tick=int(gamets),
+            payload={
+                "record_type": "obligation_resolved",
+                "obligation_id": obligation.id,
+                "status": "violated",
+                "gamets": gamets,
+                "excuse": excuse,
+            },
+        )
+        return obligation
+
+    def update_reputation(self, **kwargs: object) -> Reputation:
+        """Scripted reputation update (rule 10); emits a reputation_updated trace record -- inputs plus resulting values (schema §4)."""
+        reputation = self.social.update_reputation(**kwargs)  # type: ignore[arg-type]
+        self.writer.write_trace(
+            tick=int(reputation.last_updated),
+            payload={
+                "record_type": "reputation_updated",
+                "observer_id": reputation.observer_id,
+                "subject_id": reputation.subject_id,
+                "context": reputation.context,
+                "kind": kwargs["kind"],
+                "positive": kwargs["positive"],
+                "alpha": reputation.alpha,
+                "beta": reputation.beta,
+                "direct_count": reputation.direct_count,
+                "witness_count": reputation.witness_count,
+                "certified_count": reputation.certified_count,
+                "uncertainty": reputation.uncertainty,
+                "last_updated": reputation.last_updated,
+            },
+        )
+        return reputation
 
     # -- the tick loop ---------------------------------------------------------
 

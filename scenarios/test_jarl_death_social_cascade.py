@@ -21,7 +21,7 @@ import pytest
 
 from chronicle.driver import Driver
 from chronicle.events import CrimeWitnessed, NPCDied
-from chronicle.fixtures.whiterun_relationships import seed_whiterun
+from chronicle.fixtures.whiterun_relationships import seed_whiterun_via_driver
 from chronicle.social import form_grudge
 
 
@@ -56,7 +56,10 @@ def test_grudge_and_reputation_form_only_where_a_relationship_exists():
 
     claims = driver  # witness/retell go through the driver so the frame log records them
     social = driver.social
-    seed_whiterun(social, gamets=0.0)
+    # Seeding and every social derivation below go through the driver's
+    # wrappers, so they land in the frame log as relationship_formed /
+    # grudge_formed / reputation_updated trace records (schema §4).
+    seed_whiterun_via_driver(driver, gamets=0.0)
 
     # Irileth witnessed the death herself -- high-confidence belief, and she
     # has a shared_employer relationship to jarl_balgruuf from the fixture.
@@ -83,18 +86,16 @@ def test_grudge_and_reputation_form_only_where_a_relationship_exists():
     # -- Grudge formation (rule 8): Irileth qualifies, Hulda does not. -----
 
     irileth_relationship = social.any_relationship("irileth", "jarl_balgruuf")
-    irileth_grudge = social.add_grudge(
-        form_grudge(
-            id="grudge-irileth-thalmor",
-            holder_id="irileth",
-            victim_id="jarl_balgruuf",
-            target_id="the_thalmor",
-            grievance_type="murder_of_ally",
-            source_belief_id=irileth_belief.id,
-            evidentiary_strength=irileth_belief.confidence,
-            relationship_to_victim=irileth_relationship,
-            gamets=1000.0,
-        )
+    irileth_grudge = driver.form_grudge(
+        id="grudge-irileth-thalmor",
+        holder_id="irileth",
+        victim_id="jarl_balgruuf",
+        target_id="the_thalmor",
+        grievance_type="murder_of_ally",
+        source_belief_id=irileth_belief.id,
+        evidentiary_strength=irileth_belief.confidence,
+        relationship_to_victim=irileth_relationship,
+        gamets=1000.0,
     )
     assert irileth_grudge.holder_id == "irileth"
     assert irileth_grudge.target_id == "the_thalmor"
@@ -118,11 +119,11 @@ def test_grudge_and_reputation_form_only_where_a_relationship_exists():
 
     # -- Reputation (rule 10): observer-local, not a shared global score. --
 
-    social.update_reputation(
+    driver.update_reputation(
         observer_id="irileth", subject_id="the_thalmor", context="violence",
         kind="witnessed", positive=False, gamets=1000.0,
     )
-    social.update_reputation(
+    driver.update_reputation(
         observer_id="hulda", subject_id="the_thalmor", context="violence",
         kind="reported", positive=False, gamets=1050.0,
     )

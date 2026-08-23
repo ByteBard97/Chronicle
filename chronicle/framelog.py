@@ -244,6 +244,15 @@ def serialize_state(
             for e in claims._evidence_by_belief[belief.id]
         ],
         "rumor_states": [_rumor_json(r) for r in sorted(claims._rumors.values(), key=lambda r: (r.npc_id, r.claim_id, r.variant_id or ""))],
+        # The distinct-source exposure sets behind rumor_states' counts
+        # (schema §5's rumor_sources key): serialized directly so rule 7's
+        # distinct-source counting survives a keyframe boundary exactly.
+        "rumor_sources": [
+            {"npc_id": npc_id, "claim_id": claim_id, "variant_id": variant_id, "source_ids": sorted(source_ids)}
+            for (npc_id, claim_id, variant_id), source_ids in sorted(
+                claims._rumor_sources.items(), key=lambda item: (item[0][0], item[0][1], item[0][2] or "")
+            )
+        ],
         "relationships": [_relationship_json(r) for r in sorted(social._relationships.values(), key=lambda r: r.id)],
         "grudges": [_grudge_json(g) for g in sorted(social._grudges.values(), key=lambda g: g.id)],
         "obligations": [_obligation_json(o) for o in sorted(social._obligations.values(), key=lambda o: o.id)],
@@ -289,16 +298,24 @@ def load_state(claims: ClaimStore, social: SocialStateStore, state: Mapping[str,
     for record in state.get("rumor_states", ()):
         rumor = RumorState(**record)
         claims._rumors[(rumor.npc_id, rumor.claim_id, rumor.variant_id)] = rumor
-    # _rumor_sources is not in the keyframe schema (§5) -- it is rebuilt
-    # here from each belief's original grounding evidence (index 0, the
-    # same record chain_for() walks): witnessed beliefs are self-sourced,
-    # reported beliefs carry their teller. Exact at M0, where every
-    # (holder, claim, variant) has exactly one grounding source; if a
-    # future tier adds multi-source re-hearing across a keyframe boundary
-    # this needs a schema addition.
-    for belief in claims._beliefs.values():
-        grounding = claims._evidence_by_belief[belief.id][0]
-        claims._rumor_sources.setdefault((belief.holder_id, belief.claim_id, belief.variant_id), set()).add(grounding.source_id)
+    # _rumor_sources rides in the keyframe as "rumor_sources" (schema §5's
+    # v1 completeness addition). When absent (pre-amendment v1 logs, §7's
+    # skip-and-continue rule in reverse), fall back to rebuilding it from
+    # each belief's original grounding evidence (index 0, the same record
+    # chain_for() walks): witnessed beliefs are self-sourced, reported
+    # beliefs carry their teller. Exact for any state the current claims.py
+    # can produce -- every hearing creates a belief grounded in that
+    # hearing's source -- but the keyframe key makes that exactness
+    # structural rather than a derivation coincidence.
+    rumor_sources = state.get("rumor_sources")
+    if rumor_sources is not None:
+        for record in rumor_sources:
+            key = (record["npc_id"], record["claim_id"], record["variant_id"])
+            claims._rumor_sources[key] = set(record["source_ids"])
+    else:
+        for belief in claims._beliefs.values():
+            grounding = claims._evidence_by_belief[belief.id][0]
+            claims._rumor_sources.setdefault((belief.holder_id, belief.claim_id, belief.variant_id), set()).add(grounding.source_id)
     for record in state.get("relationships", ()):
         social.add_relationship(Relationship(**record))
     for record in state.get("grudges", ()):
@@ -387,9 +404,11 @@ class FrameLogWriter:
         self._seqs: dict[str, int] = {}
         # The events-stream seq namespace is shared between canonical events
         # (whose envelope seq IS Event.seq, schema §2) and keyframes (which
-        # have no Event.seq); keyframes take seqs above the highest event
-        # seq seen so the two never collide.
-        self._event_seq_high_water = 0
+        # have no Event.seq of their own): a keyframe carries the highest
+        # canonical-event seq written so far and does NOT consume a seq
+        # number, so a canonical event appended after a keyframe never
+        # collides with it. -1 until the first canonical event.
+        self._event_seq_high_water = -1
         self._tick_offsets: dict[str, dict[str, int]] = {EVENTS_STREAM: {}, TRACE_STREAM: {}}
         self._keyframe_offsets: list[dict[str, int]] = []
         self._tick_min: int | None = None
@@ -440,9 +459,15 @@ class FrameLogWriter:
         self._append(TRACE_STREAM, tick=tick, seq=seq, payload=payload)
 
     def write_keyframe(self, *, tick: int, state: Mapping[str, Any]) -> None:
-        """Append a keyframe record to the events stream (schema §5) and record its offset in the index."""
+        """Append a keyframe record to the events stream (schema §5) and record its offset in the index.
+
+        The keyframe's seq is the highest canonical-event seq written so
+        far (-1 if none yet) -- it does not consume a seq number, so a
+        canonical event appended after this keyframe never collides with
+        it; the stream's seq is monotonic non-decreasing, file order the
+        true order (schema §2).
+        """
         self._keyframe_offsets.append({"tick": tick, "offset": self._offsets[EVENTS_STREAM]})
-        self._event_seq_high_water += 1
         self._append(
             EVENTS_STREAM,
             tick=tick,
@@ -665,6 +690,64 @@ class FrameLogReader:
                     source_belief=claims.chain_for(payload["source_belief_id"])[0][0],
                     evidence_id=payload["evidence_id"],
                     gamets=float(record["tick"]),
+                )
+            elif record_type == "relationship_formed":
+                # The payload carries the full Relationship fields except
+                # last_updated, which equals formed_at at formation (schema
+                # §4) -- form_relationship() sets both to the same gamets.
+                social.add_relationship(
+                    Relationship(
+                        id=payload["id"],
+                        from_id=payload["from_id"],
+                        to_id=payload["to_id"],
+                        basis=payload["basis"],
+                        basis_id=payload["basis_id"],
+                        strength=payload["strength"],
+                        formed_at=payload["formed_at"],
+                        last_updated=payload["formed_at"],
+                    )
+                )
+            elif record_type == "grudge_formed":
+                # The payload carries the full Grudge fields (schema §4) --
+                # the severity/emotional-strength derivation already ran
+                # live inside social.form_grudge(), and the record is its
+                # output, not its inputs (there is no victim_id to re-run
+                # the rule-8 lookup against).
+                social.add_grudge(
+                    Grudge(
+                        id=payload["id"],
+                        holder_id=payload["holder_id"],
+                        target_id=payload["target_id"],
+                        source_belief_id=payload["source_belief_id"],
+                        grievance_type=payload["grievance_type"],
+                        severity=payload["severity"],
+                        emotional_strength=payload["emotional_strength"],
+                        evidentiary_strength=payload["evidentiary_strength"],
+                        last_rehearsed=payload["last_rehearsed"],
+                        forgiveness_threshold=payload["forgiveness_threshold"],
+                    )
+                )
+            elif record_type == "obligation_issued":
+                fields = {k: v for k, v in payload.items() if k != "record_type"}
+                social.add_obligation(Obligation(**{**fields, "witnesses": tuple(payload["witnesses"])}))
+            elif record_type == "obligation_resolved":
+                # Re-executed through the store's resolve paths, so replay
+                # enforces the same resolve-once discipline as the live run.
+                if payload["status"] == "fulfilled":
+                    social.fulfill_obligation(payload["obligation_id"], gamets=payload["gamets"])
+                else:
+                    social.violate_obligation(payload["obligation_id"], gamets=payload["gamets"], excuse=payload["excuse"])
+            elif record_type == "reputation_updated":
+                # Re-executed from the recorded inputs (schema §4); the
+                # payload's resulting alpha/beta/counts let a reader
+                # cross-check the reconstruction without re-deriving it.
+                social.update_reputation(
+                    observer_id=payload["observer_id"],
+                    subject_id=payload["subject_id"],
+                    context=payload["context"],
+                    kind=payload["kind"],
+                    positive=payload["positive"],
+                    gamets=payload["last_updated"],
                 )
             # encounter_rolled / nothing_salient carry no store mutation;
             # unknown record types are skipped (schema §7).

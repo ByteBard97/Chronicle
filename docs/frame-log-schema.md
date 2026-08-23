@@ -60,10 +60,15 @@ writer. `runs/` is gitignored; the path is overridable via the
 | `payload` | object | per §3–§6 |
 
 `seq` discipline: for canonical-event records, `seq` **is** the `Event.seq`
-of the wrapped event (monotonic per branch, per `events.py` — claims
-reference events by `(save_uuid, generation, seq)`, so the envelope and the
-claim layer must agree). For trace records, `seq` is monotonic within the
-`trace.jsonl` file, independent of event seqs.
+of the wrapped event (strictly increasing per branch, per `events.py` —
+claims reference events by `(save_uuid, generation, seq)`, so the envelope
+and the claim layer must agree). Keyframe records (§5, also on the events
+stream) carry the highest canonical-event `seq` written so far on this
+branch (`-1` if none yet) and **do not consume seq numbers**, so a
+canonical event appended after a keyframe never collides with the
+keyframe's `seq`. The events stream's `seq` is therefore monotonic
+non-decreasing, and file order is the true order. For trace records, `seq`
+is monotonic within the `trace.jsonl` file, independent of event seqs.
 
 ## 3. Events stream payloads (`stream: "events"`)
 
@@ -116,6 +121,16 @@ embed `roll_key` — **members and order owned by ADR-0009**: `seed_id`,
 | `transmission_declined` | 3 — **reserved** | `claim_id`, `teller_id`, `hearer_id`, `location_id`, `rule` (string), `roll_key` \| null. Defined now so the encounter feed renders four outcome states from day one; produced when the tell-decision policy lands |
 | `rule_evaluated` | 3 | `rule` (string), `inputs` (object — the accumulator values and entity refs the rule read), `fired` (boolean), `result` (object \| null — what firing produced: event refs, state ids). `fired: false` rows carry current accumulator values: a counter stuck at 3-of-4 is visible, not silent |
 | `threshold_crossed` | 3 | `rule` (string), `accumulator` (object), `threshold` (number), `produced` (object — refs to what the escalation emitted, e.g. an `escalation_warning` event key) |
+| `relationship_formed` | 3 | `id`, `from_id`, `to_id`, `basis`, `basis_id` (string \| null), `strength` (number, [0,1]), `formed_at` (gamets) — the full Relationship fields at formation (`last_updated` is `formed_at` at formation, so it is not repeated) |
+| `grudge_formed` | 3 | `id`, `holder_id`, `target_id`, `source_belief_id`, `grievance_type` (strings), `severity`, `emotional_strength`, `evidentiary_strength`, `forgiveness_threshold` (numbers, [0,1]), `last_rehearsed` (gamets) — the full Grudge fields |
+| `obligation_issued` | 3 | the full Obligation fields: `id`, `issuer_id`, `debtor_id`, `action` (strings), `beneficiary_id`, `condition`, `sanctions`, `excuse` (strings \| null), `deadline`, `fulfilled_at`, `violated_at` (gamets \| null), `status` (string), `witnesses` (list of strings), `created_at` (gamets) |
+| `obligation_resolved` | 3 | `obligation_id` (string), `status` (`"fulfilled"` \| `"violated"`), `gamets` (number — resolution time), `excuse` (string \| null) |
+| `reputation_updated` | 3 | the update's inputs `observer_id`, `subject_id`, `context`, `kind` (`"witnessed"` \| `"corroborated"` \| `"reported"`), `positive` (boolean), plus the resulting record values `alpha`, `beta` (numbers), `direct_count`, `witness_count`, `certified_count` (ints), `uncertainty` (number, [0,1]), `last_updated` (gamets) — inputs-plus-result, the same spirit as `belief_corroborated`'s `confidence_before`/`confidence_after` |
+
+Producer-tier note for the five social records: the ladder places this
+machinery at Tier 3, but the v0.1 store constructors already exist and the
+social-cascade scenario exercises them, so the records are defined in v1
+(not reserved) — arbitrary-T reconstruction of layer 4 depends on them.
 
 ## 5. The keyframe record
 
@@ -136,6 +151,7 @@ Payload shape — a full derived-state snapshot as of `tick`:
     "beliefs":       [ "BeliefInstance records: id, holder_id, claim_id, variant_id, confidence, verbatim_strength, gist_strength, first_learned, last_rehearsed" ],
     "evidence":      [ "Evidence records: id, belief_id, evidence_type, source_id, predecessor_belief_id, gamets, strength" ],
     "rumor_states":  [ "RumorState records: npc_id, claim_id, variant_id, stage, first_heard, last_heard, last_told, exposure_count, distinct_source_count" ],
+    "rumor_sources": [ "{npc_id, claim_id, variant_id, source_ids} records — ClaimStore._rumor_sources serialized: the set of source_ids that have already contributed to that (holder, claim, variant)'s exposure count (rule 7's distinct-source counting), source_ids a sorted list of strings" ],
     "relationships": [ "Relationship records: id, from_id, to_id, basis, basis_id, strength, formed_at, last_updated" ],
     "grudges":       [ "Grudge records: id, holder_id, target_id, source_belief_id, grievance_type, severity, emotional_strength, evidentiary_strength, last_rehearsed, forgiveness_threshold" ],
     "obligations":   [ "Obligation records: id, issuer_id, debtor_id, beneficiary_id, action, condition, deadline, status, witnesses, sanctions, excuse, created_at, fulfilled_at, violated_at" ],
@@ -156,7 +172,10 @@ rumor stages, reputation means, aggregate/collective views.
 Additive-per-tier extensions (never breaking): rule-registry accumulator
 state (Tier 3), schedule-override state (Tier 4a), pairwise encounter
 weights (Tier 4b), roles (Tier 5). Each arrives as a new top-level key
-under `state`.
+under `state`. `rumor_sources` above is a v1 completeness addition in the
+same additive spirit: not a new tier's machinery, but the exact
+serialization of distinct-source bookkeeping that readers previously had
+to re-derive from grounding evidence.
 
 ## 6. The registry and the sidecar index
 
@@ -212,11 +231,13 @@ write-temp-rename.
   is part of ADR-0009's contract; changing it is a schema break.
 - **Keyframe `seq` discipline:** the `events` stream's `seq` namespace is
   shared between canonical events (whose envelope `seq` IS `Event.seq`)
-  and keyframes (which have no `Event.seq` of their own). Keyframes take
-  `seq` values above the highest `Event.seq` seen so far in the run —
-  guaranteeing no collision without needing a second counter. (Settled by
-  Lane 4's implementation; formalized here per this document's own
-  additive-only-evolution rule.)
+  and keyframes (which have no `Event.seq` of their own). Keyframes carry
+  the highest canonical-event `seq` written so far on the branch (`-1` if
+  none yet) and do not consume seq numbers — a canonical event appended
+  after a keyframe never collides (§2). (Supersedes Lane 4's M0
+  high-water-increment scheme, which let a keyframe consume a seq a later
+  canonical event could also take; pre-fix v1 logs remain readable —
+  readers never rely on keyframe seqs.)
 
 ## 8. Notes for the implementer (Lane 4)
 
@@ -234,30 +255,18 @@ write-temp-rename.
 
 ## 9. Known gaps (routed from Lane 4's delivery, 2026-08-22)
 
-Two gaps Lane 4 hit and worked around for M0's actual scope, not yet
-reflected elsewhere in this document. Neither is a bug against anything
-this document currently requires; both are here so the next tier that
-touches this ground doesn't have to rediscover them.
+Both gaps Lane 4 reported at M0 are now **closed** (2026-08-23 amendment,
+directed by the coordinator); the entries remain here as history.
 
-- **No trace-stream record type yet for social-layer (`social.py`)
-  mutations.** §4's record types cover claims/rumor propagation only —
-  there is no `grudge_formed` / `obligation_fulfilled` /
-  `relationship_formed` / `reputation_updated` trace record. This is
-  consistent with scope: nothing in `chronicle/driver.py`'s tick loop
-  currently drives `social.py` mutations autonomously (grudges/obligations
-  are hand-authored in fixtures, not simulated per-tick yet). But it means
-  that once a future tier *does* wire social mutations into the driver,
-  those changes will only become visible at the next keyframe — no
-  tick-accurate record of *when* a grudge formed between keyframes. Add
-  record types to §4 at that point; this is an additive change, not a
-  break.
-- **`ClaimStore._rumor_sources` is not a keyframe key.** §5's
-  `rumor_states` array captures `RumorState` but not the internal
-  distinct-source exposure-counting set `_rumor_sources` uses to decide
-  `is_new_source` on each hearing. Lane 4's reader reconstructs it exactly
-  from each belief's grounding evidence (`_evidence_by_belief[id][0]`) —
-  exact at M0 because every `(holder, claim, variant)` currently has
-  exactly one grounding source. If a future tier lets a belief accumulate
-  re-hearings from a second source *and* that boundary can fall between
-  two keyframes, this reconstruction stops being exact and `state` needs
-  an additive `rumor_sources` key.
+- ~~**No trace-stream record type yet for social-layer (`social.py`)
+  mutations.**~~ Closed: §4 now defines `relationship_formed`,
+  `grudge_formed`, `obligation_issued`, `obligation_resolved`, and
+  `reputation_updated`, the driver emits them from scripted wrappers, and
+  the reader replays them — layer-4 state reconstructs at arbitrary T,
+  not just at keyframe granularity.
+- ~~**`ClaimStore._rumor_sources` is not a keyframe key.**~~ Closed: §5's
+  `rumor_sources` key serializes the distinct-source exposure sets
+  directly, so `distinct_source_count` stays exact when a holder re-hears
+  from multiple sources across a keyframe boundary. Readers keep the old
+  grounding-evidence derivation as a fallback for pre-amendment v1 logs
+  (§7).
