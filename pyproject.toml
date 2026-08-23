@@ -15,6 +15,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["chronicle/tests", "scenarios"]
 
+[tool.ruff]
+extend-exclude = ["tools/"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

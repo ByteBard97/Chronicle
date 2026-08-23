@@ -33,9 +33,9 @@ agent's report, the overseer's findings, and the verdict
 
 | Lane | State | Review |
 |------|-------|--------|
-| 1 — keyed-randomness ADR | delivered + overseer-aligned to schema (`roll_key` members, purpose strings) | accepted, pending owner flip to `status: accepted` |
+| 1 — keyed-randomness ADR | delivered + overseer-aligned to schema (`roll_key` members, purpose strings) | accepted — flipped to `status: accepted` |
 | 2 — frame-log schema | delivered (v1, 226 lines) | accepted — field names verified against code; tier discipline correct |
-| 3 — tick quantum | **open** — schema cites ADR-0010 forward, file not yet delivered | — |
+| 3 — tick quantum | delivered (ADR-0010 + claims.py rebaseline, commit 5b168e7) | accepted — overseer re-verified: 52 pytest green, ruff clean, unit+derivation+rule comments present |
 | 4 — M0 substrate | **unblocked** (1–2 landed; 3 parallel-safe) | — |
 | 5 — M1 scaffold | delivered + verified (npm ci/build clean, 27 vitest green, check-range 206 on both servers) | accepted |
 | 6 — M1 reader + chrome | packet ready | — |
