@@ -2,21 +2,102 @@
 /**
  * MapScreen — the full approved-mockup page (design/map-c-skyrim.dc.html):
  * 44px top chrome strip + MapView (map well + inspector) + the 98px
- * timeline footer. This is the composition root lane 8's visual-diff
- * harness screenshots for parity against the mockup.
+ * timeline footer.
  *
- * Data is the mock fixture (src/fixtures/whiterunMock.ts) via the child
- * components; Lane 6's reader wires real per-tick state at M3.
+ * Lane 14: wires real per-tick state from `stores/mapData.ts` in place of
+ * the mock fixture (TimelineBar stays fixture-driven this lane, per the
+ * packet's scope line). Mirrors `FeedScreen.vue`'s idiom: `useUrlState()`,
+ * `useSelectionUrlSync()` installed once, RunPicker retrofitted to
+ * `v-model`, real chrome (run id / seed / branch replaced by what the
+ * loaded run's registry entry + reconstructed claim actually carry).
+ *
+ * The `[run, t]` watch is combined into one handler (not two independent
+ * watchers), per `frameLog.ts`'s documented ordering hazard: loading the
+ * run must finish before deciding what the current tick means, or a
+ * docked-tick decision can race the run load and silently no-op forever.
  */
+import { computed, watch } from "vue";
+import { useRoute } from "vue-router";
 import RunPicker from "../components/RunPicker.vue";
 import SalienceSwitch from "../components/SalienceSwitch.vue";
 import ViewSwitcher from "../components/ViewSwitcher.vue";
 import NpcInspector from "../components/NpcInspector.vue";
+import PanelGlass from "../components/PanelGlass.vue";
 import MapView from "./MapView.vue";
 import TimelineBar from "../components/timeline/TimelineBar.vue";
 import { useSalienceStore } from "../stores/salience";
+import { useUrlState } from "../state/urlState";
+import { useSelectionUrlSync } from "../state/useSelectionUrlSync";
+import { useSelectionStore } from "../stores/selection";
+import { useMapDataStore } from "../stores/mapData";
+import { deriveMapMarkers, claimStageBreakdown, enumerateCast, firstClaimId } from "../derived/mapMarkers";
+import mapJson from "../../map/whiterun_map.json";
 
 const salience = useSalienceStore();
+const route = useRoute();
+const urlState = useUrlState();
+const selection = useSelectionStore();
+const mapData = useMapDataStore();
+
+useSelectionUrlSync();
+
+// Single combined [run, t] watcher (frameLog.ts:20-27's documented hazard):
+// loading the run always finishes before a tick decision is made against it.
+watch(
+  [urlState.run, urlState.t],
+  async ([runId, t], oldValue) => {
+    const oldRunId = oldValue?.[0];
+    if (runId !== oldRunId || oldValue === undefined) {
+      await mapData.load(runId);
+    }
+    if (t === null) {
+      await mapData.dockToLatest();
+    } else {
+      await mapData.setTick(t);
+    }
+  },
+  { immediate: true },
+);
+
+const atTick = computed(() => mapData.socialState.tick);
+const cast = computed(() => enumerateCast(mapData.socialState, mapData.traceRecords, mapData.eventRecords));
+// Internal claim id used to derive markers/breakdown; "" is a safe no-op
+// input to those pure functions when no run/claim is loaded yet.
+const activeClaimId = computed(() => firstClaimId(mapData.socialState) ?? "");
+const hasLoadedRun = computed(() => mapData.status === "loaded");
+
+const markers = computed(() =>
+  deriveMapMarkers({
+    state: mapData.socialState,
+    traceRecords: mapData.traceRecords,
+    eventRecords: mapData.eventRecords,
+    mapJson,
+    claimId: activeClaimId.value,
+    atTick: atTick.value,
+    isSelected: (id) => selection.isSelected(id),
+  }),
+);
+
+const breakdown = computed(() => claimStageBreakdown(mapData.socialState, cast.value, activeClaimId.value, atTick.value));
+
+// Props threaded down to MapView/StageLegend: `undefined` (not "") when no
+// run is loaded, so `withDefaults` falls back to StageLegend's own
+// fixture-backed defaults instead of rendering a blank "" STAGE / 0/0 --
+// `withDefaults` only substitutes on `undefined`, never on a falsy-but-set
+// value like "".
+const claimIdProp = computed(() => (hasLoadedRun.value ? activeClaimId.value : undefined));
+const coverageProp = computed(() => (hasLoadedRun.value ? breakdown.value.coverage : undefined));
+const countsProp = computed(() => (hasLoadedRun.value ? breakdown.value.counts : undefined));
+
+// Schema v1 has no carrier records at all (the mock's Markarth/Ri'saad
+// story has no real counterpart) -- always hidden once real data is wired.
+const hasCarrier = computed(() => false);
+
+function onSelect(id: string) {
+  selection.select(id);
+}
+
+const selectedId = computed(() => selection.selectedIds[0] ?? null);
 </script>
 
 <template>
@@ -24,9 +105,9 @@ const salience = useSalienceStore();
     <header class="map-screen__chrome">
       <div class="map-screen__wordmark">CHRONICLE</div>
       <div class="map-screen__runmeta">
-        <RunPicker />
-        <span class="map-screen__meta">branch a3f2c9.g0</span>
-        <span class="map-screen__meta">seed 1181</span>
+        <RunPicker v-model="urlState.run.value" />
+        <span v-if="urlState.run.value" class="map-screen__meta">t {{ atTick }}</span>
+        <span v-if="activeClaimId" class="map-screen__meta">{{ activeClaimId }}</span>
       </div>
       <div class="map-screen__spacer" />
       <SalienceSwitch
@@ -34,13 +115,28 @@ const salience = useSalienceStore();
         @update:mode="salience.setLevel($event)"
       />
       <ViewSwitcher current="map" />
-      <span class="map-screen__url">?run=t6-jarl-01&amp;t=31442&amp;sel=fralia&amp;lens=C-114 ⧉</span>
+      <span class="map-screen__url">{{ route.fullPath }}</span>
     </header>
 
     <div class="map-screen__body">
-      <MapView>
+      <MapView
+        :markers="markers"
+        :claim-id="claimIdProp"
+        :coverage="coverageProp"
+        :counts="countsProp"
+        :has-carrier="hasCarrier"
+        @select="onSelect"
+      >
         <template #inspector>
-          <NpcInspector :salience="salience.level" />
+          <PanelGlass v-if="selectedId === null" tone="inspector" class="map-screen__inspector-empty">
+            click a marker to select an NPC
+          </PanelGlass>
+          <NpcInspector
+            v-else
+            :npc-name="selectedId"
+            :as-of-tick="atTick ?? undefined"
+            :salience="salience.level"
+          />
         </template>
       </MapView>
     </div>
@@ -107,5 +203,11 @@ const salience = useSalienceStore();
   flex: 1;
   min-height: 0;
   display: flex;
+}
+
+.map-screen__inspector-empty {
+  margin: 8px;
+  color: var(--c-text-faint);
+  font-size: var(--fs-secondary);
 }
 </style>

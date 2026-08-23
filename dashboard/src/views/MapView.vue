@@ -16,6 +16,16 @@
  * salience comes from the global salience store (story switches the
  * satellite sub-line to its story variant; observer/developer render
  * the observer strings — the mockup only defines observer/story).
+ *
+ * Lane 14: `markers`/`claimId`/`coverage`/`counts` are new optional props
+ * threaded straight through to MarkerLayer/StageLegend (unset -> their own
+ * fixture-backed defaults, so MapView.test.ts's default-mount assertions
+ * keep passing unedited). `hasCarrier` (default true, matching today's
+ * always-on mock render) hides RouteOverlay/SatelliteNode/CarrierMarker
+ * when a run has no carrier state (schema v1 has none yet) — per the
+ * packet, at the MapView mount level, never inside SatelliteNode.vue
+ * itself (lane 15's file). A `select` emitted by a marker click is
+ * forwarded up to MapScreen, which owns the selection store.
  */
 import { computed, ref } from "vue";
 import { useSalienceStore } from "../stores/salience";
@@ -31,6 +41,21 @@ import LayerToggles from "../components/map/LayerToggles.vue";
 import StageLegend from "../components/map/StageLegend.vue";
 import GlyphLegend from "../components/map/GlyphLegend.vue";
 import ZoomControls from "../components/map/ZoomControls.vue";
+import type { DerivedMarker } from "../derived/mapMarkers";
+import type { RumorStage } from "../fixtures/whiterunMock";
+
+const props = withDefaults(
+  defineProps<{
+    markers?: DerivedMarker[];
+    claimId?: string;
+    coverage?: string;
+    counts?: Record<RumorStage, number>;
+    hasCarrier?: boolean;
+  }>(),
+  { markers: undefined, claimId: undefined, coverage: undefined, counts: undefined, hasCarrier: true },
+);
+
+const emit = defineEmits<{ select: [id: string] }>();
 
 const salience = useSalienceStore();
 const isStory = computed(() => salience.level === "story");
@@ -53,11 +78,16 @@ const stainLens = ref(true);
   <div class="map-view">
     <div class="map-view__well">
       <MapBackdrop>
-        <RouteOverlay v-if="showRoutes" />
-        <SatelliteNode :sub-line="satelliteSub" />
-        <CarrierMarker />
+        <RouteOverlay v-if="showRoutes && props.hasCarrier" />
+        <SatelliteNode v-if="props.hasCarrier" :sub-line="satelliteSub" />
+        <CarrierMarker v-if="props.hasCarrier" />
         <LocationLabels v-if="showLabels" />
-        <MarkerLayer :stain-lens="stainLens" :show-glyphs="showGlyphs" />
+        <MarkerLayer
+          :markers="props.markers"
+          :stain-lens="stainLens"
+          :show-glyphs="showGlyphs"
+          @select="emit('select', $event)"
+        />
       </MapBackdrop>
 
       <div class="map-view__left">
@@ -73,7 +103,7 @@ const stainLens = ref(true);
       <ZoomControls />
 
       <PanelGlass class="map-view__legend" tone="soft" :padded="false">
-        <StageLegend />
+        <StageLegend :claim-id="props.claimId" :coverage="props.coverage" :counts="props.counts" />
         <GlyphLegend />
       </PanelGlass>
     </div>

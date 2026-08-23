@@ -8,12 +8,26 @@
  *
  * Dynamic geometry (position, stage colors, glyph color) is data-driven
  * so it stays as inline style, exactly like the mockup.
+ *
+ * Lane 14: the `@click.prevent` no-op now also emits `select` with the
+ * marker's npc id (when known) — MarkerLayer forwards it to
+ * `useSelectionStore().select(id)`. `id` is optional (not part of the
+ * fixture-era `MapMarker` shape NpcMarker.test.ts still constructs) so
+ * that test keeps typechecking and passing unedited.
  */
 import type { MapMarker } from "../../fixtures/whiterunMock";
 
-defineProps<{
-  marker: MapMarker;
+type Marker = MapMarker & { id?: string };
+
+const props = defineProps<{
+  marker: Marker;
 }>();
+
+const emit = defineEmits<{ select: [id: string] }>();
+
+function onDotClick() {
+  if (props.marker.id) emit("select", props.marker.id);
+}
 </script>
 
 <template>
@@ -32,7 +46,7 @@ defineProps<{
         background: marker.fill,
         borderColor: marker.ring,
       }"
-      @click.prevent
+      @click.prevent="onDotClick"
     />
     <div
       v-if="marker.glyph"
