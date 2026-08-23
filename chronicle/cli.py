@@ -365,9 +365,13 @@ def trace_command(args: argparse.Namespace) -> int:
     print(f"\n-- supersessions involving this claim's variants ({len(supersessions)}) --")
     for record in supersessions:
         payload = record["payload"]
+        # Null variant ids name the claim's original telling (the amended
+        # schema §4:120 idiom) -- render that, not Python's None.
+        loser = payload["loser_variant_id"] or "(original telling)"
+        winner = payload["winner_variant_id"] or "(original telling)"
         print(
             f"  tick {record['tick']}: {payload['holder_id']} -- "
-            f"{payload['loser_variant_id']} superseded by {payload['winner_variant_id']} "
+            f"{loser} superseded by {winner} "
             f"via {payload['resolution_rule']} (confidence_dent={payload['confidence_dent']})"
         )
 

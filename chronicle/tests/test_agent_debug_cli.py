@@ -139,6 +139,73 @@ def test_trace_unknown_claim_exits_nonzero(run_dir, capsys):
     assert "no claim" in captured.err
 
 
+def test_trace_supersession_renders_a_null_variant_id_as_the_original_telling(tmp_path, monkeypatch, capsys):
+    """A repelled challenge's winner is the un-varianted original telling --
+    null in the supersession record (amended schema §4:120). trace renders
+    that as ``(original telling)``, not Python's None (lane-12 finding 6)."""
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=_RUN,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=tuple(
+            ScheduleBlock(npc_id=npc, location_id="bannered_mare", start_tick=0, end_tick=50)
+            for npc in ("proventus", "hulda")
+        ),
+        encounter_probability=1.0,
+        runs_dir=tmp_path,
+    )
+    driver.inject_event(
+        NPCDied(
+            tick=0, save_uuid=_SAVE_UUID, generation=0, seq=1,
+            gamets=0.0, wall_ts=0.0, npc_id="jarl_balgruuf",
+            cause="assassination", killer_id=None, location_id="bannered_mare",
+        ),
+        origin={"kind": "scenario", "detail": "test_agent_debug_cli"},
+    )
+    driver.witness(
+        claim_id="claim-jarl-death",
+        belief_id="belief-proventus-death",
+        evidence_id="evidence-proventus-death",
+        kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "bannered_mare"},
+        canonical_event_key=EventKey(_SAVE_UUID, 0, 1),
+        witness_id="proventus",
+        gamets=0.0,
+    )
+    # A scripted mutated retelling, then the eyewitness repels the gossip's
+    # challenge: winner_variant_id is None (the original telling stands).
+    driver.retell(
+        claim=driver.claim("claim-jarl-death"),
+        parent_variant=None,
+        variant_id="variant-gossip",
+        belief_id="belief-hulda-death",
+        evidence_id="evidence-hulda-variant-gossip",
+        teller_id="proventus",
+        teller_belief=driver.belief_of("proventus", "claim-jarl-death"),
+        hearer_id="hulda",
+        gamets=0.0,
+        mutate_slot="perpetrator",
+        mutated_value="the Thalmor",
+    )
+    driver.resolve(
+        claim=driver.claim("claim-jarl-death"),
+        holder_id="proventus",
+        teller_id="hulda",
+        teller_belief=driver.belief_of("hulda", "claim-jarl-death"),
+        evidence_id="evidence-proventus-challenged",
+        gamets=2.0,
+    )
+    driver.close()
+
+    rc = main(["trace", _RUN, "claim-jarl-death"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "variant-gossip superseded by (original telling)" in out
+    assert "None" not in out
+
+
 # ---------------------------------------------------------------------------
 # feed
 # ---------------------------------------------------------------------------
