@@ -1,4 +1,12 @@
-# Lane 8 — M1 completion: agent-debug CLI + pytest deep links
+# Lane 9 — M1 completion: agent-debug CLI + pytest deep links
+
+**Renumbered from Lane 8** (2026-08-23): a second, independently-dispatched
+initiative claimed "Lane 8" for map conversion + visual parity
+(`docs/work-packets/lane-8-map-conversion.md`, foundation commit
+`28b81d6`) at essentially the same time this packet was written. This
+packet and its delivered commit (`f8e68f9`, originally titled "lane 8" in
+its own commit message) are the same body of work — renumbered here to
+resolve the collision, not a re-scoping.
 
 **Status:** Ready to start immediately. Depends only on Lane 4 (landed,
 commit `15cb866`) — you build entirely on `chronicle/framelog.py`'s reader.

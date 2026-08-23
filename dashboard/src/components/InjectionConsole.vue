@@ -16,12 +16,14 @@ import { computed, reactive } from "vue";
 import PanelGlass from "./PanelGlass.vue";
 import Chip from "./Chip.vue";
 
-const EVENT_TYPES = [
-  "claim_born",
-  "mutation",
-  "grudge_formed",
-  "threshold_crossed",
-] as const;
+// The three Tier-0 canonical event kinds chronicle/events.py actually
+// defines (docs/frame-log-schema.md §3) -- not design-tokens.md's
+// timeline-legend labels ("claim born", "mutation", "grudge", "threshold"),
+// which name a display color-coding for a later widget, not injectable
+// event types. Reserved kinds (escalation_warning, schedule_rewrite,
+// role_lapse) aren't offered here: writers must not emit them before their
+// tier (schema §3).
+const EVENT_TYPES = ["npc_died", "crime_witnessed", "rumor_heard"] as const;
 
 const form = reactive({
   eventType: EVENT_TYPES[0] as (typeof EVENT_TYPES)[number],
@@ -45,7 +47,7 @@ const payloadJson = computed(() => {
 const eventJson = computed(() =>
   JSON.stringify(
     {
-      type: form.eventType,
+      event_type: form.eventType,
       run_id: form.runId,
       at_tick: form.atTick,
       actor: form.actor || null,
