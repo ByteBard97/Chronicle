@@ -5,18 +5,34 @@
  * style belief cards with the three strength bars, provenance block,
  * and derived-state honesty for dormant/forgotten beliefs.
  *
- * Scope for this lane: the shell + the Beliefs tab, skinned to the
- * approved mockup (map-c-skyrim.dc.html:120-203) with static,
- * schema-typed fixture data — Lane 6's reader wires the real per-tick
- * belief list at integration. Relationships/Schedule/History render
- * their stable tab chrome with a "not wired yet" placeholder so the
- * tab strip itself (D20: inspectors accumulate, bulk-close) is real.
+ * Lane 28: the Beliefs tab is real data now — `npcName` (still named for
+ * the prop's original fixture shape; both host screens already feed it
+ * the selected NPC's real id) selects `state.beliefs` values (from
+ * `stores/mapData.ts`'s shared `socialState`) held by that id, resolved
+ * via `derived/inspectorBeliefs.ts` (claim text, stage, decayed
+ * strengths, a summary provenance fact — see that module's header for
+ * the reconstruct.ts rumor-rekeying finding it works around).
+ * Relationships/Schedule/History still render their stable tab chrome
+ * with a "not wired yet" placeholder (later packets) so the tab strip
+ * itself (D20: inspectors accumulate, bulk-close) is real.
+ *
+ * As-of-T: strengths/stage are always computed from
+ * `mapData.socialState.tick` (the store's actual reconstructed tick),
+ * never from the `asOfTick` prop — `asOfTick` is display-only (the
+ * header's "as-of t=" line) and falls back to the store's tick when the
+ * host doesn't pass one. See this lane's report: FeedScreen doesn't yet
+ * load `mapData` itself (only MapScreen/VariantTreeScreen do), a
+ * pre-existing gap outside this component's boundary.
  */
 import { computed, ref } from "vue";
 import PanelGlass from "./PanelGlass.vue";
 import BeliefCard from "./BeliefCard.vue";
 import StrengthBar from "./StrengthBar.vue";
 import type { SalienceLevel } from "../stores/salience";
+import { useMapDataStore } from "../stores/mapData";
+import { beliefsForNpc } from "../derived/inspectorBeliefs";
+import type { RumorStage } from "../derived/rumorStage";
+import { GIST_DECAY_HALF_LIFE } from "../derived/constants";
 
 export type InspectorTab = "beliefs" | "relationships" | "schedule" | "history";
 
@@ -29,9 +45,6 @@ const props = withDefaults(
     pinnedCount?: number;
   }>(),
   {
-    npcName: "Fralia Gray-Mane",
-    location: "market",
-    asOfTick: 31442,
     salience: "observer",
     pinnedCount: 1,
   },
@@ -47,70 +60,30 @@ const watching = ref<"watch" | "follow">("watch");
 // has no traced visual state of its own in the approved mockup either).
 const isStory = computed(() => props.salience === "story");
 
-// Static fixture, shape-matched to the approved mockup
-// (map-c-skyrim.dc.html:145-197). Real data arrives via Lane 6's
-// reader at integration; nothing here is generated (no Date.now, no
-// random ids) so the component stays screenshot-stable.
-interface BeliefFixture {
-  claimId: string;
-  stage: "repeated" | "dormant";
-  variantLabel?: string;
-  text: string;
-  confidence?: number;
-  verbatim?: number;
-  gist?: number;
-  verbatimSpark?: string;
-  gistSpark?: string;
-  toldBy?: string;
-  toldByLocation?: string;
-  toldByTick?: number;
-  witness?: string;
-  witnessTick?: number;
-  unchangedRelays?: number;
-  mutator?: string;
-  mutatorNewValue?: string;
-  mutationTick?: number;
-  hops?: number;
-  mutations?: number;
-  derivedLastRehearsed?: number;
-  derivedHalfLife?: number;
-  derivedStrength?: number;
+const mapData = useMapDataStore();
+const atTick = computed(() => mapData.socialState.tick);
+const displayTick = computed(() => props.asOfTick ?? atTick.value);
+
+const beliefs = computed(() =>
+  props.npcName === undefined ? [] : beliefsForNpc(mapData.socialState, props.npcName, atTick.value),
+);
+
+const STAGE_META: Record<RumorStage, { label: string; tone: "muted" | "stage-repeated" | "stage-dormant" }> = {
+  unheard: { label: "UNHEARD", tone: "muted" },
+  heard: { label: "HEARD", tone: "muted" },
+  repeated: { label: "REPEATED", tone: "stage-repeated" },
+  dormant: { label: "DORMANT", tone: "stage-dormant" },
+  forgotten: { label: "FORGOTTEN", tone: "muted" },
+};
+
+// The moodlet's warm/highlighted vs. quiet split (BeliefCard's `active`):
+// "currently spreading/contested" (heard/repeated) vs. a derived-state
+// stage (dormant/forgotten/unheard) that shows its derivation inputs
+// instead of live strength bars (ui-spec §3.2's "derived states show
+// their derivation" rule, D22).
+function isActiveStage(stage: RumorStage): boolean {
+  return stage === "heard" || stage === "repeated";
 }
-
-const beliefs: BeliefFixture[] = [
-  {
-    claimId: "C-114",
-    stage: "repeated",
-    variantLabel: 'v2 · "Imperial agents"',
-    text: "Jarl Balgruuf is dead — slain by Imperial agents.",
-    confidence: 0.78,
-    verbatim: 0.41,
-    gist: 0.86,
-    verbatimSpark: "0,3 12,5 24,7 34,9 42,10",
-    gistSpark: "0,9 12,6 24,4 34,3 42,3",
-    toldBy: "Hulda",
-    toldByLocation: "The Bannered Mare",
-    toldByTick: 29101,
-    witness: "Irileth",
-    witnessTick: 23301,
-    unchangedRelays: 2,
-    mutator: "Mikael",
-    mutatorNewValue: "Imperial agents",
-    mutationTick: 24613,
-    hops: 4,
-    mutations: 1,
-  },
-  {
-    claimId: "C-087",
-    stage: "dormant",
-    text: "Eorlund's steel is the finest in Skyrim.",
-    derivedLastRehearsed: 12004,
-    derivedHalfLife: 8640,
-    derivedStrength: 0.22,
-  },
-];
-
-const totalBeliefs = 14;
 </script>
 
 <script lang="ts">
@@ -127,7 +100,7 @@ export const INSPECTOR_TABS: readonly InspectorTab[] = [
     <div class="npc-inspector__header">
       <div class="npc-inspector__title-row">
         <div class="npc-inspector__name">{{ npcName }}</div>
-        <a href="#" class="npc-inspector__location">{{ location }}</a>
+        <a v-if="location" href="#" class="npc-inspector__location">{{ location }}</a>
         <div class="npc-inspector__spacer" />
         <div class="npc-inspector__watch">
           <button
@@ -151,7 +124,7 @@ export const INSPECTOR_TABS: readonly InspectorTab[] = [
         <a href="#" title="close" class="npc-inspector__icon-btn">✕</a>
       </div>
       <div class="npc-inspector__meta">
-        as-of t={{ asOfTick.toLocaleString() }} · sel in url ·
+        as-of t={{ displayTick.toLocaleString() }} · sel in url ·
         <a href="#">deep-link ⧉</a>
       </div>
     </div>
@@ -179,107 +152,70 @@ export const INSPECTOR_TABS: readonly InspectorTab[] = [
 
     <div class="npc-inspector__body">
       <template v-if="activeTab === 'beliefs'">
-        <BeliefCard
-          v-for="belief in beliefs"
-          :key="belief.claimId"
-          :claim-id="belief.claimId"
-          :stage="
-            belief.stage === 'repeated'
-              ? { label: 'REPEATED', tone: 'stage-repeated' }
-              : { label: 'DORMANT', tone: 'stage-dormant' }
-          "
-          :variant-label="belief.variantLabel"
-          :text="belief.text"
-          :active="belief.stage === 'repeated'"
-        >
-          <template v-if="belief.stage === 'repeated'">
-            <StrengthBar label="confidence" tone="confidence" :value="belief.confidence ?? 0">
-              <template #value><a href="#">{{ (belief.confidence ?? 0).toFixed(2) }}</a></template>
-            </StrengthBar>
-            <StrengthBar label="verbatim" tone="verbatim" :value="belief.verbatim ?? 0">
-              <template #sparkline>
-                <svg width="42" height="12">
-                  <polyline
-                    :points="belief.verbatimSpark"
-                    fill="none"
-                    stroke="var(--bar-verbatim)"
-                    stroke-width="1.5"
-                  />
-                </svg>
-              </template>
-              <template #value><a href="#">{{ (belief.verbatim ?? 0).toFixed(2) }}</a></template>
-            </StrengthBar>
-            <StrengthBar label="gist" tone="gist" :value="belief.gist ?? 0">
-              <template #sparkline>
-                <svg width="42" height="12">
-                  <polyline
-                    :points="belief.gistSpark"
-                    fill="none"
-                    stroke="var(--bar-gist)"
-                    stroke-width="1.5"
-                  />
-                </svg>
-              </template>
-              <template #value><a href="#">{{ (belief.gist ?? 0).toFixed(2) }}</a></template>
-            </StrengthBar>
-            <!-- salience is a switch over one design, never a fork
-                 (design-tokens.md conventions) — same DAG-honest chain
-                 (D9/D10), two presentations: observer's linked
-                 provenance chain vs. story's narrative gloss
-                 (map-c-skyrim.dc.html:169-182). -->
-            <div v-if="!isStory" class="npc-inspector__provenance">
-              ◈ told-by ← <a href="#">{{ belief.toldBy }}</a> ·
-              <a href="#">t {{ belief.toldByTick?.toLocaleString() }}</a> ·
-              <a href="#">{{ belief.toldByLocation }}</a><br />
-              chain: <a href="#">{{ belief.witness }}</a> (witness,
-              <a href="#">t {{ belief.witnessTick?.toLocaleString() }}</a>) ←
-              <a href="#">{{ belief.unchangedRelays }} unchanged relays ⊕</a> ←
-              <a href="#">✱ v{{ belief.variantLabel?.match(/v(\d+)/)?.[1] ?? "2" }} mutation ({{ belief.mutator }}, t
-                {{ belief.mutationTick?.toLocaleString() }})</a
-              ><br />
-              <a href="#">provenance ▸ {{ belief.hops }} hops · {{ belief.mutations }} mutation{{
-                (belief.mutations ?? 0) === 1 ? "" : "s"
-              }}</a>
-              · <a href="#">variant tree ▸</a>
-            </div>
-            <div v-else class="npc-inspector__provenance npc-inspector__provenance--story">
-              Heard from <a href="#">{{ belief.toldBy }}</a> at
-              <a href="#">{{ belief.toldByLocation }}</a>.<br />
-              The story changed once on its way to her —
-              <a href="#">{{ belief.mutator }}</a> made the assassin
-              <em>{{ belief.mutatorNewValue }}</em
-              >.<br />
-              <a href="#">trace the telling ▸ {{ belief.hops }} hops ·
-                {{ belief.mutations }} mutation{{
-                  (belief.mutations ?? 0) === 1 ? "" : "s"
-                }}</a
-              >
-            </div>
-          </template>
-          <template v-else>
-            <!-- derived-state honesty (ui-spec §3.2, design-tokens.md
-                 conventions): dormant/forgotten show their derivation
-                 inputs, never presented as a stored fact — in both
-                 salience presentations. -->
-            <div v-if="!isStory" class="npc-inspector__derived">
-              derived: last rehearsed
-              <a href="#">t {{ belief.derivedLastRehearsed?.toLocaleString() }}</a>
-              · half-life
-              <a href="#">{{ belief.derivedHalfLife?.toLocaleString() }}</a>
-              → strength
-              <a href="#">{{ belief.derivedStrength }}</a>
-            </div>
-            <div v-else class="npc-inspector__derived npc-inspector__derived--story">
-              fading — not spoken of since tick
-              <a href="#">{{ belief.derivedLastRehearsed?.toLocaleString() }}</a>
-              · strength <a href="#">{{ belief.derivedStrength }}</a>, derived ·
-              <a href="#">why ▸</a>
-            </div>
-          </template>
-        </BeliefCard>
-        <div class="npc-inspector__footnote">
-          {{ totalBeliefs }} beliefs · showing {{ beliefs.length }} salient ·
-          <a href="#">all ▸</a>
+        <template v-if="beliefs.length > 0">
+          <BeliefCard
+            v-for="belief in beliefs"
+            :key="belief.beliefId"
+            :claim-id="belief.claimId"
+            :stage="STAGE_META[belief.stage]"
+            :variant-label="belief.variantLabel ?? undefined"
+            :text="belief.text"
+            :active="isActiveStage(belief.stage)"
+          >
+            <template v-if="isActiveStage(belief.stage)">
+              <StrengthBar label="confidence" tone="confidence" :value="belief.confidence">
+                <template #value>{{ belief.confidence.toFixed(2) }}</template>
+              </StrengthBar>
+              <StrengthBar label="verbatim" tone="verbatim" :value="belief.verbatimStrength">
+                <template #value>{{ belief.verbatimStrength.toFixed(2) }}</template>
+              </StrengthBar>
+              <StrengthBar label="gist" tone="gist" :value="belief.gistStrength">
+                <template #value>{{ belief.gistStrength.toFixed(2) }}</template>
+              </StrengthBar>
+              <!-- salience is a switch over one design, never a fork
+                   (design-tokens.md conventions) — same top-level
+                   grounding-evidence fact, two presentations. The full
+                   chain render (witness/relay/mutation hops) is lane
+                   22's drill-down, not this summary block. -->
+              <div v-if="belief.provenance && !isStory" class="npc-inspector__provenance">
+                ◈ told-by ← <a href="#">{{ belief.provenance.sourceId }}</a> ·
+                <a href="#">t {{ belief.provenance.tick.toLocaleString() }}</a> ·
+                {{ belief.provenance.evidenceType }}
+              </div>
+              <div v-else-if="belief.provenance" class="npc-inspector__provenance npc-inspector__provenance--story">
+                Heard from <a href="#">{{ belief.provenance.sourceId }}</a>
+                ({{ belief.provenance.evidenceType }}) at tick
+                {{ belief.provenance.tick.toLocaleString() }}.
+              </div>
+            </template>
+            <template v-else>
+              <!-- derived-state honesty (ui-spec §3.2, design-tokens.md
+                   conventions): dormant/forgotten/unheard show their
+                   derivation inputs, never presented as a stored fact —
+                   in both salience presentations. Gist strength/half-life
+                   are the relevant inputs: rumorStageAt's dormant/
+                   forgotten thresholds are keyed on decayed gist. -->
+              <div v-if="!isStory" class="npc-inspector__derived">
+                derived: last rehearsed
+                <a href="#">t {{ belief.lastRehearsed.toLocaleString() }}</a>
+                · half-life
+                <a href="#">{{ GIST_DECAY_HALF_LIFE.toLocaleString() }}</a>
+                → strength
+                <a href="#">{{ belief.gistStrength.toFixed(2) }}</a>
+              </div>
+              <div v-else class="npc-inspector__derived npc-inspector__derived--story">
+                fading — not spoken of since tick
+                <a href="#">{{ belief.lastRehearsed.toLocaleString() }}</a>
+                · strength <a href="#">{{ belief.gistStrength.toFixed(2) }}</a>, derived
+              </div>
+            </template>
+          </BeliefCard>
+          <div class="npc-inspector__footnote">
+            {{ beliefs.length }} belief{{ beliefs.length === 1 ? "" : "s" }}
+          </div>
+        </template>
+        <div v-else class="npc-inspector__placeholder">
+          {{ npcName ? `no beliefs held (as of t=${displayTick})` : "select an NPC" }}
         </div>
       </template>
       <div v-else class="npc-inspector__placeholder">

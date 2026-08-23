@@ -15,9 +15,7 @@
  * LIVE-detach finding (packet Task 3, "verify and note the actual
  * behavior"): this screen does NOT call `frameLog.bindToUrlState()` — the
  * feed's own `LiveTailPoller` (owned by `stores/feed.ts`) is independent
- * of `frameLog`'s reconstructed-state watcher, and wiring it here would
- * pull in an unrelated `RunReader`/sidecar-keyframe load for a view that
- * doesn't render reconstructed state at all. Consequence, verified by
+ * of `frameLog`'s reconstructed-state watcher. Consequence, verified by
  * `FeedScreen.test.ts`: a row click's `urlState.t` write does NOT, by
  * itself, detach the global `liveDock` store from LIVE when FeedScreen is
  * the only mounted view. `bindToUrlState`'s `watch` lives inside
@@ -27,6 +25,13 @@
  * still live and *would* fire on this write. That cross-view side effect
  * is a property of `frameLog.ts`'s existing design (out of this lane's
  * file boundaries), not something FeedScreen adds or relies on.
+ *
+ * `stores/mapData.ts` IS loaded here (added post lane-28): the inspector
+ * mounted below needs `SocialState` for its real Beliefs tab, the same
+ * `[run, t]` combined-watcher idiom MapScreen/VariantTreeScreen already
+ * use (frameLog.ts's documented load-before-tick ordering hazard) — this
+ * is a second, independent read of the same Pinia singleton, not a new
+ * data path.
  */
 import { computed, ref, watch } from "vue";
 import { useUrlState } from "../state/urlState";
@@ -34,6 +39,7 @@ import { useSelectionUrlSync } from "../state/useSelectionUrlSync";
 import { useSelectionStore } from "../stores/selection";
 import { useSalienceStore } from "../stores/salience";
 import { useFeedStore } from "../stores/feed";
+import { useMapDataStore } from "../stores/mapData";
 import { buildDisplayItems } from "../components/feed/feedGrouping";
 import type { FeedFilters, FeedRow } from "../log/feedReader";
 import RunPicker from "../components/RunPicker.vue";
@@ -49,6 +55,23 @@ const urlState = useUrlState();
 const selection = useSelectionStore();
 const salience = useSalienceStore();
 const feed = useFeedStore();
+const mapData = useMapDataStore();
+
+watch(
+  [urlState.run, urlState.t],
+  async ([runId, t], oldValue) => {
+    const oldRunId = oldValue?.[0];
+    if (runId !== oldRunId || oldValue === undefined) {
+      await mapData.load(runId);
+    }
+    if (t === null) {
+      await mapData.dockToLatest();
+    } else {
+      await mapData.setTick(t);
+    }
+  },
+  { immediate: true },
+);
 
 // Task 5: the store<->urlState.sel binding lives in this composable, not
 // in stores/selection.ts itself.
