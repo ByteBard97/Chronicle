@@ -50,7 +50,11 @@ per `docs/frame-log-schema.md` v1 and adds the Tier-0 global chrome. Views
    - Selection model: one global selection in Pinia, mirrored to `sel` in
      the URL.
    - Salience filter: the three defaults (developer/observer/story) as a
-     store + segmented control; lists downstream will consult it.
+     store + segmented control; lists downstream will consult it. Lane 7
+     owns the `SalienceSwitch` component's markup/class structure — build
+     the store and wire the control's behavior, but don't preempt its
+     visual structure; land it as minimal unstyled markup Lane 7 skins in
+     place, not a second competing implementation.
    - LIVE dock state: follow-newest vs. detached, per the approved design
      (`LIVE — docked · following newest frame · +N events · scrub to
      detach`).
