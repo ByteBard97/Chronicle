@@ -1,6 +1,7 @@
 import pytest
 
 from chronicle.claims import (
+    GIST_DECAY_HALF_LIFE,
     RUMOR_DORMANT_AFTER,
     RUMOR_FORGOTTEN_GIST_THRESHOLD,
     BeliefInstance,
@@ -350,7 +351,9 @@ def test_decay_erodes_confidence_and_verbatim_faster_than_gist():
         gamets=10.0,
     )
 
-    decayed = decay(belief, at_gamets=belief.last_rehearsed + 500.0)
+    # One gist half-life elapsed -- long enough that all three strengths have
+    # visibly moved, since gist is the slowest of the three to decay (rule 5).
+    decayed = decay(belief, at_gamets=belief.last_rehearsed + GIST_DECAY_HALF_LIFE)
 
     assert decayed.confidence < belief.confidence
     assert decayed.verbatim_strength < belief.verbatim_strength

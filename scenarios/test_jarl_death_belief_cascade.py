@@ -19,7 +19,7 @@ v0.1 (spec §3).
 
 import pytest
 
-from chronicle.claims import decay
+from chronicle.claims import GIST_DECAY_HALF_LIFE, decay
 from chronicle.driver import Driver
 from chronicle.events import CrimeWitnessed, NPCDied
 
@@ -185,11 +185,13 @@ def test_jarl_death_belief_forms_spreads_and_stays_evidence_traceable():
         )
 
     # A long, rehearsal-free gap later (no game running in between --
-    # nobody in Whiterun has thought about this in ~a week of gamets
-    # seconds), the story's strength has eroded rather than staying
-    # frozen at formation-time confidence (rule 6, rule 19: computed at
-    # query time, not written back into the store).
-    much_later = 1000.0 + 600_000.0
+    # nobody in Whiterun has thought about this in many gist half-lives),
+    # the story's strength has eroded rather than staying frozen at
+    # formation-time confidence (rule 6, rule 19: computed at query time,
+    # not written back into the store). ADR-0010: 1 gamets = 1 game-hour,
+    # so this is ~gist-half-life-many game-days -- deliberately far past
+    # any decay threshold, not a calibrated duration.
+    much_later = 1000.0 + 10 * GIST_DECAY_HALF_LIFE
     decayed_ysolda_belief = decay(store.beliefs_of("ysolda")[0], at_gamets=much_later)
     assert decayed_ysolda_belief.confidence < ysolda_belief.confidence
     assert store.beliefs_of("ysolda")[0].confidence == ysolda_belief.confidence  # store unchanged
