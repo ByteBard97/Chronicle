@@ -21,6 +21,7 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 14 | [lane-14-map-real-data.md](lane-14-map-real-data.md) | lanes 6, 8, 11 (landed) | large (code) |
 | 15 | [lane-15-dashboard-hygiene.md](lane-15-dashboard-hygiene.md) | lanes 8, 10, 11 (landed) | small (code) |
 | 16 | [lane-16-timeline-real-data.md](lane-16-timeline-real-data.md) | lane 14 (in flight) | medium-large (code) |
+| 17 | [lane-17-carrier-mutation-demo-run.md](lane-17-carrier-mutation-demo-run.md) | lane 13 (landed) | small-medium (producer + cli) |
 
 **Current wave:** lanes 13 (Track A), 14 (Track B), 15 (Track B) — 13 disjoint from 14/15; 14 and 15 coordinate via their file boundaries (15 owns SatelliteNode/RunPicker/streamReader; 14 owns the map data path).
 
@@ -33,7 +34,11 @@ The coordinator reviews Lane 1 before Lane 2 finalizes trace payloads.
 1. **Frozen documents** — nobody edits `docs/ui-spec.md`,
    `docs/scenario-ladder.md`, or `docs/ui-doctrines.md`. Findings about
    them go to the coordinator, who runs the review cycle.
-2. **No `git commit`** in any lane — the coordinator reviews and commits.
+2. **Commits** — local commits are fine for everyone (path-scoped,
+   explicit adds, never `-a`/`-A`); the coordinator reviews every lane,
+   post-commit where applicable, and can require fixes. **No pushing to
+   a remote without explicit owner permission.** (Owner ruling
+   2026-08-23 — see `reviews/README.md`'s governance section.)
 3. **Tests stay green** (`uv run pytest`, `uv run ruff check .`). Lanes
    that touch code must not change existing test assertions; if a test
    conflicts with your task, report it, don't edit it.
