@@ -88,4 +88,6 @@ agent's report, the overseer's findings, and the verdict
 | 22 — provenance drill-down (M3 §3.6) | packet written; dispatchable in parallel with 21 (invocation points on landed screens only) | pending dispatch |
 | 23 — Tier 3 L-D: tell-decision gate | packet written, dispatched by owner 2026-08-23 | pending delivery |
 | 24 — Tier 3 L-C: accumulation-threshold | packet written; serial after lane 23 (driver.py) | queued |
+| 25 — Tier 3 L-E: obligation violation cascade | packet written; serial after lane 24 | queued |
+| 26 — Tier 3 L-F: observer-local reputation wiring | packet written; serial after lane 25 | queued |
 | design — M3 mockups | converged and frozen: token sheet delivered + vendored (`dashboard/design/`, c7f3d44) | Markarth label collision fix noted for the M3 build |

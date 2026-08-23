@@ -29,6 +29,8 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 22 | [lane-22-provenance-drilldown.md](lane-22-provenance-drilldown.md) | lanes 6, 12, 17 (landed); lane 21 concurrent | medium-large (code) |
 | 23 | [lane-23-tell-decision.md](lane-23-tell-decision.md) | lane 19 (landed) | medium (code) |
 | 24 | [lane-24-accumulation-threshold.md](lane-24-accumulation-threshold.md) | lanes 19, 23 (serial on driver.py) | medium (code) |
+| 25 | [lane-25-obligation-violation.md](lane-25-obligation-violation.md) | lane 24 (serial) | small-medium (code) |
+| 26 | [lane-26-reputation-wiring.md](lane-26-reputation-wiring.md) | lane 25 (serial) | medium (code) |
 
 **Current wave:** lanes 13 (Track A), 14 (Track B), 15 (Track B) — 13 disjoint from 14/15; 14 and 15 coordinate via their file boundaries (15 owns SatelliteNode/RunPicker/streamReader; 14 owns the map data path).
 
