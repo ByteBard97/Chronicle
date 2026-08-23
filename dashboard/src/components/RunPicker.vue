@@ -29,7 +29,7 @@ const model = defineModel<string | null>();
     >
       <option value="">(none selected)</option>
       <option
-        v-for="run in runsStore.runs"
+        v-for="run in runsStore.pickableRuns"
         :key="run.run_id"
         :value="run.run_id"
       >
@@ -37,7 +37,7 @@ const model = defineModel<string | null>();
       </option>
     </select>
     <span v-if="runsStore.status === 'missing'" class="run-picker__note">
-      no runs/index.json yet — nothing to pick from
+      no runs/index.json yet — showing the mock-t0 dev fixture only
     </span>
     <span v-else-if="runsStore.status === 'error'" class="run-picker__note">
       failed to load runs/index.json: {{ runsStore.error }}

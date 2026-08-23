@@ -27,8 +27,17 @@ store stubs. The map, encounter feed, variant tree, and provenance drill-
 down are still later packets (Tier 1+, ui-spec §3 build order) and are not
 built here. `src/views/Shell.vue` now also hosts skinned, static-fixture
 demonstrations of the two Tier-0 views (NPC inspector, injection console)
-per the design system below — Lane 6's reader wires real per-tick data into
-them at integration; nothing here reads a run yet.
+per the design system below — those two views still read only their own
+static fixtures; Lane 6's reader wires real per-tick data into them at
+integration. Shell.vue's chrome itself, though, does now read a run: the
+tick stepper and the LIVE dock (see "Pinia stores" and "Log reader"
+below) are wired to `src/log/`'s reader, provable against the committed
+`mock-t0` fixture.
+
+(The repo-root `.gitignore` also gained a narrow `!dashboard/public/runs/`
+exception — see its comment there — so the committed mock-t0 fixture
+below isn't swallowed by the pre-existing, unanchored `runs/` ignore
+pattern.)
 
 ## Design system
 
@@ -242,6 +251,142 @@ is decided here rather than per call site.
 fetches `runs/index.json` and tolerates its absence as a `"missing"` status,
 not an error) are typed Pinia stores with no UI beyond `Shell.vue`'s
 smoke-test wiring. Views that actually use these are later packets.
+
+`src/stores/liveDock.ts` (LIVE dock state: docked/detached + the pending
+new-event count, driving the approved chrome text
+`LIVE — docked · following newest frame · +N events · scrub to detach`)
+and `src/stores/frameLog.ts` (wires `src/log/`'s reader to `urlState.run`/
+`urlState.t`: picking a run and moving the tick stepper drive
+`RunReader.stateAt(T)`, and leaving `t` at `null` docks the LIVE tail) are
+this lane's additions. `frameLog.ts`'s `bindToUrlState` watches `run` and
+`t` together in one async handler (see its docstring for why watching
+them independently is a hazard); `frameLog.test.ts` proves LIVE tailing
+end to end against the committed fixture: dock, wait for the poller to
+start, append a record to the served files, advance real time by the ~1s
+cadence, and assert the LIVE dock's new-event count moved.
+
+Both stores are in the same "typed store, minimal/no view" spirit as
+`selection.ts`/`salience.ts` above. `Shell.vue`'s `#frame-log-readout`
+element (plain claim/belief counts, no styling) is the M1 smoke-test proof
+that the wiring works end to end —
+not the NPC inspector, which is a later lane's view.
+
+## Log reader (`src/log/`)
+
+The client side of `docs/frame-log-schema.md` v1, split by concern:
+
+- `types.ts` — the schema's envelope, payload catalog, keyframe shape, and
+  the two JSON files (run registry + per-run sidecar index), typed loosely
+  (index signatures) on purpose: schema §7 requires readers to *ignore*
+  unknown record types/fields/keyframe keys, and an exact TypeScript type
+  would fight that at the type level for the same fields the runtime is
+  supposed to tolerate.
+- `jsonl.ts` — the torn-tail guard: `splitCompleteLines`/`parseJsonlLines`
+  are pure; `JsonlTailReader` is the stateful incremental reader both the
+  full-stream reader and the LIVE poller build on, so a record split across
+  two fetch boundaries is reassembled rather than dropped.
+- `rangeFetch.ts` — the one seam that touches `fetch`'s `Range` header
+  directly.
+- `registry.ts` — `fetchRunRegistry()`: tolerates a missing/malformed
+  `runs/index.json` and skips individual malformed entries (schema §7
+  applied at the registry level, not just the record level) without
+  dropping the well-formed ones. It also always merges in the mock-t0
+  fixture's registry entry (see below) from a path outside `/runs/*`, so
+  the fixture is reachable regardless of whatever the real, gitignored
+  `runs/index.json` does or doesn't contain at the time — see "Mock run
+  fixture" below for why that matters.
+- `sidecarIndex.ts` — `fetchSidecarIndex()` plus `tickAtOrBefore`/
+  `keyframeAtOrBefore`, the byte-offset lookups the sidecar index exists
+  for.
+- `streamReader.ts` — `readByteRange` (one-shot Range read + torn-tail
+  parse) and `LiveTailPoller` (repeats that from the last consumed byte on
+  a ~1s timer — ui-spec §1.3's LIVE-tailing cadence).
+- `reconstruct.ts` — state reconstruction: `fromKeyframeState` (keyframe →
+  working state) and `replayTo` (fold trace/event deltas into it,
+  dispatching per `record_type`; an unrecognized type — including a
+  fictional future `schema_version: 2` addition — is skipped, not an
+  error).
+- `runReader.ts` — `RunReader.stateAt(t)` ties it together: nearest
+  keyframe ≤ t (via the sidecar's byte offset, not a scan from 0) +
+  replayed deltas; `startLiveTail()` starts pollers on both streams.
+
+`src/derived/` mirrors the read-time derivations `docs/ui-spec.md` §1.1
+requires: `decay.ts` ports `chronicle/claims.py`'s exact formula (`value *
+0.5 ** (elapsed / half_life)`, cited at `docs/frame-log-schema.md` §8) and
+`rumorStage.ts` ports `stage_at()`'s dormant/forgotten derivation (rule
+16/19). `constants.ts` mirrors `claims.py`'s module-level tunables
+(`WITNESS_CONFIDENCE`, the retell decay factors, the three half-lives, the
+rumor-stage thresholds) — see that file's header for a real finding: the
+frame-log schema's keyframe payload doesn't carry these constants anywhere,
+so "read them from the keyframe record" (as this lane's work packet asked)
+isn't possible against the schema as written; mirroring is the fallback,
+with the drift risk that implies if the Python side ever recalibrates them.
+
+## Mock run fixture (`public/runs/mock-t0/`)
+
+The dev/test fixture until Lane 4 emits real logs, and the fixture this
+project intends to keep using in CI afterward (per the work packet). It
+exercises every Tier-0/1 record type in `docs/frame-log-schema.md` §3/§4 —
+`npc_died`, `crime_witnessed`, `rumor_heard`, `belief_formed`,
+`belief_corroborated`, `encounter_rolled` (both a positive row and the
+negative `encountered: false` row), `transmitted` (including a mutated
+retelling), `nothing_salient`, and a keyframe (with a deliberately
+unknown, Tier-5-shaped `roles` key, to exercise schema §7's "unknown
+keyframe keys" tolerance against real content, not just a synthetic test)
+— across two branches of reconstruction: replay-from-empty for `t <= 3`
+(no keyframe exists yet) and keyframe-plus-delta for `t` up to 96 (the
+keyframe sits at tick 24; one `transmitted` record follows it at tick 96).
+`src/log/reconstruct.test.ts` and `src/log/runReader.test.ts` both exercise
+it directly — the latter through the same Range-fetch code path the app
+uses, via a stub that serves the real committed files with real
+`Content-Range` semantics, not a shortcut.
+
+It lives under `public/` (not the gitignored, repo-root `runs/`) so it's
+committed and reachable via Vite's ordinary static-file serving in both
+`vite dev` and `vite preview`, at `/runs/mock-t0/*` — no changes to
+`vite-plugins/serveRuns.ts` were needed: that plugin only intercepts
+requests under `/runs/*` that resolve under `CHRONICLE_RUNS_DIR`, and falls
+through (`next()`) to Vite's normal handling — which serves `public/` —
+whenever the file isn't there.
+
+**The one wrinkle:** the *registry* for it, unlike the run's own files,
+can't simply sit at `public/runs/index.json` — that path collides with the
+real, gitignored `runs/index.json`, and `serveRuns.ts` would serve the real
+file (once one exists, e.g. after `npm run check-range` seeds its own tiny
+fixture) and never fall through to the one in `public/`, silently dropping
+mock-t0 from the registry the moment any real run appears. Its registry
+entry instead lives at `public/mock-fixtures/mock-t0.registry-entry.json`
+— outside `/runs/*` entirely — and `src/log/registry.ts`'s
+`fetchRunRegistry()` always merges it into whatever the real registry
+returns (or into an empty list, if the real one 404s). Verified both ways
+in `registry.test.ts`.
+
+`RunPicker.vue`'s dropdown reads `useRunsStore.pickableRuns`, a getter that
+appends the mock-t0 fixture (in the store's own display shape — it only
+needs to round-trip through `<option>`, not satisfy
+`fetchRunRegistry()`'s schema-accurate validation) to whatever `runs`
+loaded, without duplicating it or changing `runs`/`load()` itself — so
+`runs.test.ts`'s existing assertions on `store.runs` are untouched. mock-t0
+is therefore pickable from the actual dropdown regardless of whether a
+real `runs/index.json` exists yet, the same "never silently shadowed out"
+property `src/log/registry.ts`'s merge gives the schema-accurate reader.
+
+**Finding — two registry shapes exist on disk.** `docs/frame-log-schema.md`
+§6 defines the registry entry as `{run_id, seed_id, created_wall_ts,
+branches, tick_range: {start, end}, streams: {events, trace}, status}`.
+`src/stores/runs.ts`'s `RunRegistryEntry` (and what `scripts/check-range.mjs`
+actually writes to the real, gitignored `runs/index.json`) instead uses
+`{run_id, seed_id, created, tick_range: [start, end], streams:
+string[]}` — different field names, different `tick_range` shape, no
+`branches`/`status`. `src/log/registry.ts`'s `isValidEntry()` is written
+against the schema document, so it correctly rejects the
+`check-range.mjs`-style entry as malformed (visible in `registry.test.ts`'s
+"is still present after a real run has been registered" case, which uses
+exactly that shape for the *other* entry in the list). Not fixed here —
+`stores/runs.ts` is Lane 5's accepted code and `check-range.mjs`'s
+semantics are explicitly out of this lane's file boundary — but real, and
+worth reconciling before Lane 4's actual writer and this reader both exist
+and need to agree.
 
 ## Supply chain
 

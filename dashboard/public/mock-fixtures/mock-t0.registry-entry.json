@@ -1,0 +1,9 @@
+{
+  "run_id": "mock-t0",
+  "seed_id": "mock-t0",
+  "created_wall_ts": 1750000000,
+  "branches": [{ "save_uuid": "s0", "generation": 0 }],
+  "tick_range": { "start": 0, "end": 96 },
+  "streams": { "events": "events.jsonl", "trace": "trace.jsonl" },
+  "status": "complete"
+}

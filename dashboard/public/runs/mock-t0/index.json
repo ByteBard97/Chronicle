@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "streams": {
+    "events": {
+      "tick_offsets": {
+        "0": 0,
+        "1": 661,
+        "24": 970
+      },
+      "keyframe_offsets": [
+        {
+          "tick": 24,
+          "offset": 970
+        }
+      ]
+    },
+    "trace": {
+      "tick_offsets": {
+        "0": 0,
+        "1": 392,
+        "2": 1288,
+        "3": 1995,
+        "96": 2663
+      }
+    }
+  }
+}

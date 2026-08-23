@@ -15,3 +15,13 @@ dashboard/dist/
 # Sim run logs (chronicle/framelog.py output) -- never committed, see
 # docs/ui-spec.md's runs/ registry.
 runs/
+
+# Exception: the lane-6 mock-run fixture is a *committed* dev/CI fixture
+# (docs/work-packets/lane-6-m1-reader-chrome.md), deliberately placed
+# under dashboard/public/runs/ so Vite serves it identically to a real run
+# in both `vite dev` and `vite preview` -- see dashboard/README.md's "Mock
+# run fixture" section. Without this, the bare `runs/` pattern above (no
+# leading slash, so it matches a `runs` directory at any depth) would
+# silently swallow it too.
+!dashboard/public/runs/
+!dashboard/public/runs/**
