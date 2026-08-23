@@ -36,7 +36,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple, Self
 
@@ -58,6 +58,18 @@ from chronicle.framelog import (
 )
 from chronicle.propagate import conflicting_pair, teller_and_hearer
 from chronicle.rng import MUTATION_SLOT, MUTATION_VALUE, roll, roll_key
+from chronicle.rules import (
+    CORROBORATION,
+    ENCOUNTER_SAMPLING,
+    MUTATION_POLICY,
+    SHARED_CLAIM_INVARIANT,
+    TESTIMONY_TRANSFER,
+    VARIANT_RESOLUTION,
+    WITNESS_CREATES_BELIEF,
+    RuleContext,
+    RuleRegistry,
+    RuleResult,
+)
 from chronicle.schedule import (
     ENCOUNTER_PROBABILITY,
     ScheduleBlock,
@@ -133,6 +145,7 @@ class Driver:
         event_log: EventLog | None = None,
         claims: ClaimStore | None = None,
         social: SocialStateStore | None = None,
+        disabled_rules: Collection[str] = (),
     ) -> None:
         self.seed_id = seed_id
         self.schedule = tuple(schedule)
@@ -163,11 +176,51 @@ class Driver:
             generation=generation,
             runs_dir=runs_dir,
         )
+        # The Tier-3 rule registry (docs/scenario-ladder.md §8 consequence
+        # b; design doc R1): per-run, construction-time toggled only.
+        # Default all-on, so tiers 0-2 migrate as regression cases with no
+        # behavior change (R12). Rules 11-19 are registered disabled stubs.
+        self.rules = RuleRegistry(disabled=disabled_rules)
         # Claims the tick loop tries to propagate on encounters. Populated
         # by witness() -- every claim the driver sees formed is a story that
         # can travel. Tier 3's tell-decision policy will gate this further.
         self._propagating_claims: list[str] = []
         self._auto_ids = itertools.count(1)
+
+    # -- rule evaluation (Tier 3, design doc R3) ------------------------------
+
+    def _evaluate_rule(
+        self,
+        name: str,
+        *,
+        tick: int,
+        inputs: Mapping[str, object],
+        outcome: RuleResult,
+    ) -> RuleResult | None:
+        """Evaluate a registered rule and emit its rule_evaluated record (schema §4:122).
+
+        The ruled contract: every evaluation of an enabled rule logs, fired
+        or not, with the caller-assembled inputs (accumulator values and
+        entity refs) attached -- a counter stuck at 3-of-4 is visible, not
+        silent. A disabled rule emits nothing and returns None. Rules never
+        query stores; the caller assembles everything the row carries.
+        """
+        if not self.rules.enabled(name):
+            return None
+        result = self.rules.get(name).evaluate(
+            RuleContext(tick=tick, gamets=float(tick), inputs=inputs, outcome=outcome)
+        )
+        self.writer.write_trace(
+            tick=tick,
+            payload={
+                "record_type": "rule_evaluated",
+                "rule": name,
+                "inputs": dict(inputs),
+                "fired": result.fired,
+                "result": dict(result.result) if result.result is not None else None,
+            },
+        )
+        return result
 
     # -- canonical events ---------------------------------------------------
 
@@ -204,6 +257,11 @@ class Driver:
         and all -- and keep reconstruction exact without a schema change.
         """
         reported_slots = dict(kwargs["slots"])  # type: ignore[arg-type]
+        # Rule 4 (shared-claim invariant) context, driver-scoped: whether
+        # this witness attaches to a claim the driver has already seen
+        # formed (claims.py enforces the invariant itself at the store --
+        # R2 wraps, never refactors).
+        pre_existing = kwargs["claim_id"] in self._propagating_claims
         claim, belief, evidence = self.claims.witness(**kwargs)  # type: ignore[arg-type]
         if claim.id not in self._propagating_claims:
             self._propagating_claims.append(claim.id)
@@ -226,6 +284,19 @@ class Driver:
                     "seq": event_key.seq,
                 },
             },
+        )
+        tick = int(belief.first_learned)
+        self._evaluate_rule(
+            WITNESS_CREATES_BELIEF,
+            tick=tick,
+            inputs={"claim_id": claim.id, "witness_id": belief.holder_id, "claim_kind": claim.kind},
+            outcome=RuleResult(fired=True, result={"belief_id": belief.id, "evidence_id": evidence.id}),
+        )
+        self._evaluate_rule(
+            SHARED_CLAIM_INVARIANT,
+            tick=tick,
+            inputs={"claim_id": claim.id, "canonical_event_key": f"{event_key.save_uuid}/{event_key.generation}/{event_key.seq}"},
+            outcome=RuleResult(fired=True, result={"claim_id": claim.id, "pre_existing": pre_existing}),
         )
         return claim, belief, evidence
 
@@ -290,6 +361,19 @@ class Driver:
                 "location_id": location_id,
             },
         )
+        self._evaluate_rule(
+            TESTIMONY_TRANSFER,
+            tick=int(kwargs["gamets"]),  # type: ignore[arg-type]
+            inputs={
+                "claim_id": variant.claim_id,
+                "teller_id": teller_belief.holder_id,
+                "hearer_id": belief.holder_id,
+            },
+            outcome=RuleResult(
+                fired=True,
+                result={"variant_id": variant.id, "hearer_belief_id": belief.id, "evidence_id": evidence.id},
+            ),
+        )
         return variant, belief, evidence
 
     def corroborate(self, **kwargs: object) -> tuple[BeliefInstance, Evidence]:
@@ -309,6 +393,15 @@ class Driver:
                 "confidence_after": updated.confidence,
             },
         )
+        self._evaluate_rule(
+            CORROBORATION,
+            tick=int(evidence.gamets),
+            inputs={"belief_id": belief_id, "source_belief_id": source_belief.id},
+            outcome=RuleResult(
+                fired=True,
+                result={"confidence_before": confidence_before, "confidence_after": updated.confidence},
+            ),
+        )
         return updated, evidence
 
     def resolve(self, **kwargs: object) -> Resolution:
@@ -324,6 +417,23 @@ class Driver:
         self.writer.write_trace(
             tick=int(gamets),
             payload={"record_type": "supersession", **resolution._asdict()},
+        )
+        self._evaluate_rule(
+            VARIANT_RESOLUTION,
+            tick=int(gamets),
+            inputs={
+                "claim_id": resolution.claim_id,
+                "holder_id": resolution.holder_id,
+                "teller_id": resolution.teller_id,
+            },
+            outcome=RuleResult(
+                fired=True,
+                result={
+                    "loser_variant_id": resolution.loser_variant_id,
+                    "winner_variant_id": resolution.winner_variant_id,
+                    "resolution_rule": resolution.resolution_rule,
+                },
+            ),
         )
         return resolution
 
@@ -483,12 +593,30 @@ class Driver:
                 for location_id, npcs in present.items()
             }
             present = {location_id: npcs for location_id, npcs in present.items() if len(npcs) >= 2}
-        rolls = sample_encounters(
-            present,
-            seed_id=self.seed_id,
-            tick=tick,
-            encounter_probability=self.encounter_probability,
-        )
+        if self.rules.enabled(ENCOUNTER_SAMPLING):
+            rolls = sample_encounters(
+                present,
+                seed_id=self.seed_id,
+                tick=tick,
+                encounter_probability=self.encounter_probability,
+            )
+        else:
+            # Rule 6 toggled off (construction-time): the sweep does not
+            # run -- no rolls, no encounter_rolled rows, no propagation.
+            rolls = ()
+        if rolls:
+            # Rule 6's evaluation row: one per tick that had pairs to roll
+            # (a tick with no co-present pairs is an empty world, not a
+            # stuck counter). Per-pair outcomes stay in encounter_rolled.
+            self._evaluate_rule(
+                ENCOUNTER_SAMPLING,
+                tick=tick,
+                inputs={
+                    "pairs_rolled": len(rolls),
+                    "encountered": sum(1 for encounter_roll in rolls if encounter_roll.encountered),
+                },
+                outcome=RuleResult(fired=any(encounter_roll.encountered for encounter_roll in rolls)),
+            )
         for encounter_roll in rolls:
             self.writer.write_trace(
                 tick=tick,
@@ -559,11 +687,29 @@ class Driver:
             # Tier-2 mutation policy (ladder T2.2): encounter-driven
             # retellings may mutate one slot, decided by keyed rolls; the
             # mutation_applied record (schema §4) is the roll evidence and
-            # is emitted BEFORE the transmitted record (the effect) below.
-            mutation = self._decide_mutation(
-                tick=tick, claim=claim, parent_variant=parent_variant,
-                teller_id=teller_id, hearer_id=hearer_id,
-            )
+            # is emitted AFTER the rule_evaluated row (evaluation precedes
+            # effect) and BEFORE the transmitted record (the effect) below.
+            # Rule 7 toggled off skips the decision entirely: retellings
+            # proceed unmutated and nothing is emitted.
+            mutation = None
+            if self.rules.enabled(MUTATION_POLICY):
+                mutation = self._decide_mutation(
+                    tick=tick, claim=claim, parent_variant=parent_variant,
+                    teller_id=teller_id, hearer_id=hearer_id,
+                )
+                self._evaluate_rule(
+                    MUTATION_POLICY,
+                    tick=tick,
+                    inputs={"claim_id": claim_id, "teller_id": teller_id, "hearer_id": hearer_id},
+                    outcome=RuleResult(
+                        fired=mutation is not None,
+                        result=(
+                            {"slot": mutation.slot, "old_value": mutation.old_value, "new_value": mutation.new_value, "variant_id": variant_id}
+                            if mutation is not None
+                            else None
+                        ),
+                    ),
+                )
             if mutation is not None:
                 self.writer.write_trace(
                     tick=tick,
