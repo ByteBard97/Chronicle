@@ -187,13 +187,15 @@ a:hover {
 
   --c-surface-deepest: #0b0e12; /* LIVE dock pill text-on-red */
 
-  /* LIVE dock pill, docked vs detached (map-c-skyrim.dc.html:235,298). */
-  --dock-docked-border: var(--c-hairline);
-  --dock-docked-bg: rgba(255, 255, 255, 0.02);
-  --dock-docked-text: var(--c-text-dim);
-  --dock-detached-border: #7e3030;
-  --dock-detached-bg: rgba(224, 82, 82, 0.08);
-  --dock-detached-text: #ffb3ad;
+  /* LIVE dock pill, docked vs detached (map-c-skyrim.dc.html:235,298).
+     Docked gets the red treatment (following the live edge = the alert
+     state); detached is the quiet hairline pill. */
+  --dock-docked-border: #7e3030;
+  --dock-docked-bg: rgba(224, 82, 82, 0.08);
+  --dock-docked-text: #ffb3ad;
+  --dock-detached-border: var(--c-hairline);
+  --dock-detached-bg: rgba(255, 255, 255, 0.02);
+  --dock-detached-text: var(--c-text-dim);
 
   /* Story-salience narrative gloss text colors (map-c-skyrim.dc.html:
      177,195) — distinct per belief tone, not in the doc's text ramp. */
