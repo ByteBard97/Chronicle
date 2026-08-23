@@ -46,7 +46,13 @@ from chronicle.claims import (
     RumorState,
     Variant,
 )
-from chronicle.events import CrimeWitnessed, Event, NPCDied, RumorHeard
+from chronicle.events import (
+    CrimeWitnessed,
+    EscalationWarning,
+    Event,
+    NPCDied,
+    RumorHeard,
+)
 from chronicle.schedule import ScheduleBlock
 from chronicle.social import (
     Grudge,
@@ -349,6 +355,14 @@ def event_payload(event: Event, *, origin: Mapping[str, str] | None) -> dict[str
     elif isinstance(event, RumorHeard):
         payload["event_type"] = "rumor_heard"
         payload.update(hearer_id=event.hearer_id, source_id=event.source_id, rumor_id=event.rumor_id, content=event.content)
+    elif isinstance(event, EscalationWarning):
+        payload["event_type"] = "escalation_warning"
+        payload.update(
+            holder_id=event.holder_id,
+            grievance_kind=event.grievance_kind,
+            count=event.count,
+            threshold=event.threshold,
+        )
     else:
         raise TypeError(f"no events-stream payload mapping for {type(event).__name__} -- extend chronicle/framelog.py (schema §3)")
     return payload

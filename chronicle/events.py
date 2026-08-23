@@ -97,6 +97,22 @@ class RumorHeard(Event):
 
 
 @dataclass(frozen=True)
+class EscalationWarning(Event):
+    """A threshold rule's escalation, materialized as an event BEFORE its claim propagates (ladder T3.1).
+
+    Engine-internal (origin None): the accumulation-threshold rule (11)
+    injects this when a holder's grievance accumulator crosses its
+    threshold; the warning claim is then witnessed off this event's
+    canonical key, so no belief is ever orphaned from the log.
+    """
+
+    holder_id: str
+    grievance_kind: str
+    count: int
+    threshold: int
+
+
+@dataclass(frozen=True)
 class BranchKey:
     """Identifies one branch of a save's timeline. See ADR-0004."""
 

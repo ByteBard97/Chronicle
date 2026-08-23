@@ -20,6 +20,7 @@ from chronicle.rules import (
     ACCUMULATION_THRESHOLD,
     DORMANCY_REACTIVATION,
     ENCOUNTER_SAMPLING,
+    GRUDGE_CREATION,
     MUTATION_POLICY,
     TELL_DECISION_POLICY,
     WITNESS_CREATES_BELIEF,
@@ -89,15 +90,16 @@ def test_registry_lists_all_nineteen_ladder_rules_with_stubs_disabled():
     names = registry.names()
     assert len(names) == 19  # §8's table, all names present (O4: the registry lists 19; the budget counts 17)
     enabled = {name for name in names if registry.enabled(name)}
-    assert len(enabled) == 11  # rules 1-10 plus rule 15 (tell-decision-policy went live in lane 23)
-    # Unlanded rules are disabled stubs (R12); rule 15 was the first stub
-    # replaced by a live rule (lane 23), so the stub assertions now use
-    # rule 11 (accumulation-threshold).
+    assert len(enabled) == 12  # rules 1-10 plus 15 (lane 23) and 11 (lane 24)
+    # Unlanded rules are disabled stubs (R12); rules 15 and 11 were the
+    # first stubs replaced by live rules (lanes 23/24), so the stub
+    # assertions now use rule 12 (grudge-creation).
     assert TELL_DECISION_POLICY in names
     assert registry.enabled(TELL_DECISION_POLICY)
-    assert not registry.enabled(ACCUMULATION_THRESHOLD)
+    assert registry.enabled(ACCUMULATION_THRESHOLD)
+    assert not registry.enabled(GRUDGE_CREATION)
     with pytest.raises(NotImplementedError, match="registered stub"):
-        registry.get(ACCUMULATION_THRESHOLD).evaluate(RuleContext(tick=0, gamets=0.0, inputs={}))
+        registry.get(GRUDGE_CREATION).evaluate(RuleContext(tick=0, gamets=0.0, inputs={}))
 
 
 def test_unknown_disabled_rule_name_raises():

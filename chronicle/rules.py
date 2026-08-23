@@ -19,9 +19,9 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
     themselves (the T2.3 lesson, docs/scenario-ladder.md:60).
   - Unlanded rules register as disabled stubs from day one (R12): they
     exist by name so the registry lists all 19, but emit nothing and run
-    nothing until their tier's lane lands. Rule 15 (tell-decision-policy)
-    is the first to go live (lane 23) -- the stub set is now 11-14 and
-    16-19.
+    nothing until their tier's lane lands. Rules 11 (accumulation-
+    threshold, lane 24) and 15 (tell-decision-policy, lane 23) are live;
+    the stub set is now 12-14 and 16-19.
   - Budget (O4 ruling): 9+10 are one state machine and 4 is
     schema-not-rule -- 17/20 against the ceiling. The registry still lists
     all 19 names; the table below is the vocabulary, slugified from §8's
@@ -177,6 +177,34 @@ class DormancyReactivationRule:
         return RuleResult(fired=stage in ("dormant", "forgotten"), result={"stage": stage})
 
 
+class AccumulationThresholdRule:
+    """Rule 11, accumulation-threshold escalation (ladder T3.1; design doc R4-R6, lane 24).
+
+    The accumulator is DERIVED (R4): the driver counts the holder's beliefs
+    whose claim kind matches a registered grievance kind and whose slots
+    name the holder as victim, and hands the count in via inputs -- the rule
+    never queries stores. fires when count >= threshold and the latch is
+    clear. The latch (R5) is store-derived by the driver (the escalation
+    belief's existence); since the accumulator is monotonic (beliefs are
+    never un-learned), doctrine-3 hysteresis reduces to that latch.
+
+    fired means the escalation TRIGGERED; the R6 cascade itself (event,
+    witness, threshold_crossed record) is the driver's, evidenced by the
+    threshold_crossed record (schema §4:123), so this rule's result stays
+    None.
+    """
+
+    name = ACCUMULATION_THRESHOLD
+    tier = 3
+
+    def evaluate(self, ctx: RuleContext) -> RuleResult:
+        count = ctx.inputs["count"]
+        threshold = ctx.inputs["threshold"]
+        latched = ctx.inputs["latched"]
+        assert isinstance(count, int) and isinstance(threshold, int) and isinstance(latched, bool)
+        return RuleResult(fired=not latched and count >= threshold)
+
+
 class TellDecisionRule:
     """Rule 15, the tell-decision gate (ladder T3.4; design doc R10, lane 23).
 
@@ -223,7 +251,7 @@ def _default_rules() -> tuple[Rule, ...]:
         RecordedRule(VARIANT_RESOLUTION, 2),
         RumorStageRule(),
         DormancyReactivationRule(),
-        StubRule(ACCUMULATION_THRESHOLD, 3),
+        AccumulationThresholdRule(),
         StubRule(GRUDGE_CREATION, 3),
         StubRule(GRUDGE_DECAY, 3),
         StubRule(OBLIGATION_LIFECYCLE, 3),

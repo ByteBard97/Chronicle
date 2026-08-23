@@ -49,7 +49,7 @@ from chronicle.claims import (
     Resolution,
     Variant,
 )
-from chronicle.events import Event, EventLog, NPCDied
+from chronicle.events import EscalationWarning, Event, EventLog, NPCDied
 from chronicle.framelog import (
     DEFAULT_KEYFRAME_INTERVAL,
     FrameLogWriter,
@@ -59,6 +59,7 @@ from chronicle.framelog import (
 from chronicle.propagate import conflicting_pair, teller_and_hearer
 from chronicle.rng import MUTATION_SLOT, MUTATION_VALUE, TELL_DECISION, roll, roll_key
 from chronicle.rules import (
+    ACCUMULATION_THRESHOLD,
     CORROBORATION,
     ENCOUNTER_SAMPLING,
     MUTATION_POLICY,
@@ -102,6 +103,11 @@ MUTATION_PROBABILITY = 0.2
 # behavior is identical to pre-gate runs (the 196-test battery is the
 # regression proof); fixtures lower it per-run at construction time.
 TELL_PROBABILITY = 1.0
+
+# The warning claim's kind matches the escalation_warning event type
+# (schema §3:95): the claim is the belief-layer shadow of that event, and
+# the kind equality is what lets rule 11's latch find it (R5/R6).
+ESCALATION_WARNING_CLAIM_KIND = "escalation_warning"
 
 
 class _MutationDecision(NamedTuple):
@@ -150,6 +156,7 @@ class Driver:
         mutation_candidates: Mapping[tuple[str, str], Sequence[str]] | None = None,
         tell_probability: float = TELL_PROBABILITY,
         claim_privacy: Mapping[str, str] | None = None,
+        accumulation_thresholds: Mapping[str, tuple[str, int]] | None = None,
         keyframe_interval: int = DEFAULT_KEYFRAME_INTERVAL,
         runs_dir: Path | None = None,
         event_log: EventLog | None = None,
@@ -173,6 +180,13 @@ class Driver:
         # looks up the teller's kinship edge to that subject. Same
         # caller-supplies-context idiom as mutation_candidates above.
         self.claim_privacy = dict(claim_privacy) if claim_privacy is not None else {}
+        # Rule 11's accumulating kinds (R4): claim_kind -> (victim_slot,
+        # threshold). The victim slot names which slot holds the aggrieved
+        # party's id; the threshold is per-kind, caller-supplied (never a
+        # global). Same caller-supplies-context idiom as above.
+        self.accumulation_thresholds = dict(accumulation_thresholds) if accumulation_thresholds is not None else {}
+        self.save_uuid = save_uuid
+        self.generation = generation
         self.keyframe_interval = keyframe_interval
         self.event_log = event_log if event_log is not None else EventLog()
         # Deceased NPCs (ladder T1.2): derived from NPCDied canonical events
@@ -319,6 +333,8 @@ class Driver:
             inputs={"claim_id": claim.id, "canonical_event_key": f"{event_key.save_uuid}/{event_key.generation}/{event_key.seq}"},
             outcome=RuleResult(fired=True, result={"claim_id": claim.id, "pre_existing": pre_existing}),
         )
+        # Rule 11 evaluates exactly here, where a belief forms (R5).
+        self._evaluate_accumulation(holder_id=belief.holder_id, claim=claim, tick=tick, gamets=belief.first_learned)
         return claim, belief, evidence
 
     def retell(
@@ -342,6 +358,10 @@ class Driver:
         record the schema can't shape.
         """
         teller_belief: BeliefInstance = kwargs["teller_belief"]  # type: ignore[assignment]
+        # Rule 11's hook needs to know whether this retelling FORMS the
+        # hearer's belief -- a re-hearing (the T2.3 conflict-2 carve-out)
+        # mints nothing, so no accumulator can change.
+        hearer_already_held = self.claims.belief_of(kwargs["hearer_id"], kwargs["claim"].id) is not None  # type: ignore[union-attr, arg-type]
         result = self.claims.retell(**kwargs)  # type: ignore[arg-type]
         if isinstance(result, Resolution):
             # The store routed a scripted retell into conflict resolution
@@ -395,6 +415,14 @@ class Driver:
                 result={"variant_id": variant.id, "hearer_belief_id": belief.id, "evidence_id": evidence.id},
             ),
         )
+        if not hearer_already_held:
+            # Rule 11 evaluates exactly here, where a belief forms (R5).
+            self._evaluate_accumulation(
+                holder_id=belief.holder_id,
+                claim=self.claims.claim(variant.claim_id),
+                tick=int(kwargs["gamets"]),  # type: ignore[arg-type]
+                gamets=float(kwargs["gamets"]),  # type: ignore[arg-type]
+            )
         return variant, belief, evidence
 
     def corroborate(self, **kwargs: object) -> tuple[BeliefInstance, Evidence]:
@@ -932,6 +960,103 @@ class Driver:
                 "location_id": location_id,
                 "rule": TELL_DECISION_POLICY,
                 "roll_key": roll_key,
+            },
+        )
+
+    # -- rule 11: accumulation-threshold escalation (ladder T3.1; design R4-R6) --
+
+    def _escalation_latched(self, holder_id: str, grievance_kind: str) -> bool:
+        """The R5 latch, store-derived: the holder already holds a belief on an
+        escalation-warning claim for this grievance kind.
+
+        Store state IS log-derived (beliefs reconstruct from the trace at any
+        T), so a start-from-keyframe driver can't double-fire -- reading the
+        threshold_crossed trace record directly would miss unflushed
+        same-phase records and doesn't carry into a from-keyframe run.
+        """
+        for belief in self.claims.beliefs_of(holder_id):
+            claim = self.claims.claim(belief.claim_id)
+            if claim.kind == ESCALATION_WARNING_CLAIM_KIND and claim.slots.get("grievance_kind") == grievance_kind:
+                return True
+        return False
+
+    def _evaluate_accumulation(self, *, holder_id: str, claim: Claim, tick: int, gamets: float) -> None:
+        """Rule 11's evaluation hook: runs exactly where a matching belief forms (R5), never per-tick.
+
+        No-op unless the claim's kind is registered in the
+        construction-time accumulation_thresholds mapping. The accumulator
+        is a pure ClaimStore read (R4); the rule object decides; on firing
+        the driver runs the R6 cascade: the escalation_warning EVENT enters
+        the log first, the warning claim is witnessed off its canonical key
+        (the holder witnesses their own escalation -- no orphan beliefs, no
+        broadcast), and threshold_crossed (schema §4:123) is the artifact.
+        """
+        spec = self.accumulation_thresholds.get(claim.kind)
+        if spec is None or not self.rules.enabled(ACCUMULATION_THRESHOLD):
+            return
+        victim_slot, threshold = spec
+        # R4's derived accumulator: the holder's beliefs whose claim kind
+        # matches and whose victim slot names the holder.
+        contributing = [
+            belief
+            for belief in self.claims.beliefs_of(holder_id)
+            if (belief_claim := self.claims.claim(belief.claim_id)).kind == claim.kind
+            and belief_claim.slots.get(victim_slot) == holder_id
+        ]
+        count = len(contributing)
+        latched = self._escalation_latched(holder_id, claim.kind)
+        result = self._evaluate_rule(
+            ACCUMULATION_THRESHOLD,
+            tick=tick,
+            inputs={
+                "holder_id": holder_id,
+                "grievance_kind": claim.kind,
+                "count": count,
+                "threshold": threshold,
+                "latched": latched,
+                "belief_ids": [belief.id for belief in contributing],
+            },
+        )
+        if result is None or not result.fired:
+            return
+        # The R6 cascade. The event is engine-internal (origin None, schema
+        # §3); its seq continues the branch's monotone sequence.
+        seq = max((event.seq for event in self.event_log.lineage(self.save_uuid, self.generation)), default=0) + 1
+        n = next(self._auto_ids)
+        self.inject_event(
+            EscalationWarning(
+                tick=tick, save_uuid=self.save_uuid, generation=self.generation, seq=seq,
+                gamets=gamets, wall_ts=0.0,
+                holder_id=holder_id, grievance_kind=claim.kind, count=count, threshold=threshold,
+            )
+        )
+        warning_claim_id = f"claim-escalation-auto-{n}"
+        self.witness(
+            claim_id=warning_claim_id,
+            belief_id=f"belief-escalation-{holder_id}-auto-{n}",
+            evidence_id=f"evidence-escalation-auto-{n}",
+            kind=ESCALATION_WARNING_CLAIM_KIND,
+            slots={"grievance_kind": claim.kind, "victim": holder_id},
+            canonical_event_key=EventKey(self.save_uuid, self.generation, seq),
+            witness_id=holder_id,
+            gamets=gamets,
+        )
+        self.writer.write_trace(
+            tick=tick,
+            payload={
+                "record_type": "threshold_crossed",
+                "rule": ACCUMULATION_THRESHOLD,
+                "accumulator": {
+                    "holder_id": holder_id,
+                    "grievance_kind": claim.kind,
+                    "count": count,
+                    "belief_ids": [belief.id for belief in contributing],
+                },
+                "threshold": threshold,
+                "produced": {
+                    "event_key": {"save_uuid": self.save_uuid, "generation": self.generation, "seq": seq},
+                    "claim_id": warning_claim_id,
+                },
             },
         )
 
