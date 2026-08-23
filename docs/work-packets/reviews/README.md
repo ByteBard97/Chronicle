@@ -85,4 +85,5 @@ agent's report, the overseer's findings, and the verdict
 | 19 — Tier 3 L-A: rule-registry core | packet written, dispatched by owner 2026-08-23 | pending delivery |
 | 20 — Tier 3 L-B: grudge decay | packet written, dispatched by owner 2026-08-23 | pending delivery |
 | 21 — variant tree view (M3 §3.5) | packet written, queued behind lane 15 for the Track B worker | pending dispatch |
+| 22 — provenance drill-down (M3 §3.6) | packet written; dispatchable in parallel with 21 (invocation points on landed screens only) | pending dispatch |
 | design — M3 mockups | converged and frozen: token sheet delivered + vendored (`dashboard/design/`, c7f3d44) | Markarth label collision fix noted for the M3 build |
