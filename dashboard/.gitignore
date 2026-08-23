@@ -9,3 +9,5 @@ dist/
 # resolves the repo-root directory directly rather than via a symlink) but
 # guards against a future dev workflow re-adding one.
 /runs
+# Bethesda-derived bake -- local only, never commit
+public/assets/
