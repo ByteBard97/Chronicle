@@ -19,6 +19,7 @@ import { useSalienceStore, SALIENCE_LEVELS } from "../stores/salience";
 import { useFrameLogStore } from "../stores/frameLog";
 import RunPicker from "../components/RunPicker.vue";
 import SalienceSwitch from "../components/SalienceSwitch.vue";
+import ViewSwitcher from "../components/ViewSwitcher.vue";
 import LiveDockIndicator from "../components/LiveDockIndicator.vue";
 import PanelGlass from "../components/PanelGlass.vue";
 import NpcInspector from "../components/NpcInspector.vue";
@@ -57,6 +58,7 @@ function stepTick(delta: number) {
         :mode="salience.level"
         @update:mode="salience.setLevel"
       />
+      <ViewSwitcher current="console" />
     </PanelGlass>
 
     <div class="shell__stepper">

@@ -10,6 +10,7 @@
  */
 import RunPicker from "../components/RunPicker.vue";
 import SalienceSwitch from "../components/SalienceSwitch.vue";
+import ViewSwitcher from "../components/ViewSwitcher.vue";
 import NpcInspector from "../components/NpcInspector.vue";
 import MapView from "./MapView.vue";
 import TimelineBar from "../components/timeline/TimelineBar.vue";
@@ -32,6 +33,7 @@ const salience = useSalienceStore();
         :mode="salience.level"
         @update:mode="salience.setLevel($event)"
       />
+      <ViewSwitcher current="map" />
       <span class="map-screen__url">?run=t6-jarl-01&amp;t=31442&amp;sel=fralia&amp;lens=C-114 ⧉</span>
     </header>
 
