@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Repo-root runs/ is gitignored too (frame logs are run artifacts, not
+# source) but that isn't yet reflected in the root .gitignore — see the
+# README's Range spike section and the lane's findings list. `/runs` here
+# is a no-op today (dashboard/ has no runs/ entry, since serveRuns.ts
+# resolves the repo-root directory directly rather than via a symlink) but
+# guards against a future dev workflow re-adding one.
+/runs
