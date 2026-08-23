@@ -7,12 +7,16 @@ scanning the streams rebuilds an identical index.json.
 
 import json
 
+import pytest
+
 from chronicle.claims import ClaimStore, EventKey
 from chronicle.driver import Driver
-from chronicle.events import CrimeWitnessed, NPCDied
+from chronicle.events import CrimeWitnessed, NPCDied, RumorHeard
 from chronicle.framelog import (
     FrameLogReader,
     FrameLogWriter,
+    default_runs_dir,
+    event_payload,
     load_state,
     serialize_state,
 )
@@ -527,3 +531,58 @@ def test_canonical_event_after_a_keyframe_never_collides_on_seq(tmp_path):
     assert reader.rebuild_index() == reader.read_index()
     # Reader behavior: the post-keyframe event's derivation is visible.
     assert reader.state_at(1).claims.belief_of("hulda", "claim-proventus-death") is not None
+
+
+def test_default_runs_dir_honors_the_env_var_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path / "custom-runs"))
+    assert default_runs_dir() == tmp_path / "custom-runs"
+
+
+def test_default_runs_dir_falls_back_to_repo_runs_when_unset(monkeypatch):
+    monkeypatch.delenv("CHRONICLE_RUNS_DIR", raising=False)
+    assert default_runs_dir().name == "runs"
+
+
+def test_event_payload_maps_rumor_heard():
+    event = RumorHeard(
+        tick=5, save_uuid="save-1", generation=0, seq=1, gamets=5.0, wall_ts=0.0,
+        hearer_id="hulda", source_id="irileth", rumor_id="claim-jarl-death", content="the jarl is dead",
+    )
+    payload = event_payload(event, origin=None)
+    assert payload["event_type"] == "rumor_heard"
+    assert payload["hearer_id"] == "hulda"
+    assert payload["source_id"] == "irileth"
+    assert payload["content"] == "the jarl is dead"
+
+
+def test_event_payload_rejects_an_event_type_it_has_no_mapping_for():
+    class _UnmappedEvent:
+        gamets = 0.0
+        wall_ts = 0.0
+
+    with pytest.raises(TypeError, match="no events-stream payload mapping"):
+        event_payload(_UnmappedEvent(), origin=None)  # type: ignore[arg-type]
+
+
+def test_append_after_close_raises(tmp_path):
+    writer = FrameLogWriter(run_id="run-closed-write", seed_id="s", save_uuid="save-1", generation=0, runs_dir=tmp_path)
+    writer.close()
+    with pytest.raises(ValueError, match="writer is closed"):
+        writer.write_event(tick=0, seq=0, payload={"event_type": "npc_died"})
+
+
+def test_close_is_idempotent(tmp_path):
+    writer = FrameLogWriter(run_id="run-double-close", seed_id="s", save_uuid="save-1", generation=0, runs_dir=tmp_path)
+    writer.write_event(tick=0, seq=0, payload={"event_type": "npc_died"})
+    writer.close()
+    writer.close()  # must not raise, re-flush a closed file, or re-touch the registry entry a second time
+
+
+def test_registry_tolerates_a_corrupt_existing_index_json(tmp_path):
+    (tmp_path / "index.json").write_text("{not valid json")
+    # _register() must not propagate the JSONDecodeError -- a corrupt
+    # registry (e.g. a torn write from a crash) is replaced, not fatal.
+    writer = FrameLogWriter(run_id="run-corrupt-registry", seed_id="s", save_uuid="save-1", generation=0, runs_dir=tmp_path)
+    writer.close()
+    registry = json.loads((tmp_path / "index.json").read_text())
+    assert any(r["run_id"] == "run-corrupt-registry" for r in registry["runs"])

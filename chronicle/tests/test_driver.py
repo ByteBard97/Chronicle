@@ -304,3 +304,16 @@ def test_deaths_in_a_prepopulated_event_log_are_honored(tmp_path):
     reader = FrameLogReader(tmp_path / "run-prepopulated-death")
     rolls = [r["payload"] for r in reader.records("trace") if r["payload"]["record_type"] == "encounter_rolled"]
     assert rolls == []
+
+
+def test_driver_works_as_a_context_manager(tmp_path):
+    # Every other test calls driver.close() explicitly; nothing exercises
+    # __enter__/__exit__ itself, even though it's the documented shape
+    # (Driver's docstring shows `with Driver(...) as d:`).
+    with Driver(run_id="run-context-manager", seed_id=_SEED, save_uuid="save-1", generation=0, runs_dir=tmp_path) as driver:
+        driver.run(0, 1)
+    reader = FrameLogReader(tmp_path / "run-context-manager")
+    registry = json.loads((tmp_path / "index.json").read_text())
+    entry = next(r for r in registry["runs"] if r["run_id"] == "run-context-manager")
+    assert entry["status"] == "complete"  # __exit__ called close(), which registers completion
+    assert list(reader.records("events")) is not None  # log is readable after the with-block exits

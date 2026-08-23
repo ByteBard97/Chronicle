@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from chronicle.claims import (
@@ -611,3 +613,53 @@ def test_claimstore_retell_records_hearer_heard_and_teller_repeated():
     assert proventus_rumor is not None
     assert proventus_rumor.stage == "repeated"
     assert proventus_rumor.last_told == 1050.0
+
+
+def test_retell_rejects_a_teller_belief_with_out_of_range_confidence():
+    # BeliefInstance has no __post_init__ validation of its own -- retell()
+    # is the only thing standing between a hand-constructed, out-of-range
+    # belief and a confidence value that's meaningless downstream.
+    store = ClaimStore()
+    claim, proventus_belief, _ = store.witness(
+        claim_id="c1", belief_id="b1", evidence_id="e1", kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1), witness_id="proventus", gamets=1000.0,
+    )
+    bad_belief = replace(proventus_belief, confidence=1.5)
+    with pytest.raises(ValueError, match="confidence"):
+        store.retell(
+            claim=claim, parent_variant=None, variant_id="v1", belief_id="b2", evidence_id="e2",
+            teller_id="proventus", teller_belief=bad_belief, hearer_id="hulda", gamets=1050.0,
+        )
+
+
+def test_corroborate_rejects_a_source_belief_about_a_different_claim():
+    store = ClaimStore()
+    _claim1, belief1, _ = store.witness(
+        claim_id="c1", belief_id="b1", evidence_id="e1", kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1), witness_id="proventus", gamets=0.0,
+    )
+    _claim2, belief2, _ = store.witness(
+        claim_id="c2", belief_id="b2", evidence_id="e2", kind="crime_witnessed",
+        slots={"perpetrator": "unknown", "crime_type": "theft", "location": "market"},
+        canonical_event_key=("s1", 0, 2), witness_id="hulda", gamets=0.0,
+    )
+    with pytest.raises(ValueError, match="same claim"):
+        store.corroborate(belief_id=belief1.id, source_belief=belief2, evidence_id="e3", gamets=10.0)
+
+
+def test_corroborate_rejects_gamets_preceding_either_beliefs_last_rehearsal():
+    store = ClaimStore()
+    _claim, belief1, _ = store.witness(
+        claim_id="c1", belief_id="b1", evidence_id="e1", kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1), witness_id="proventus", gamets=100.0,
+    )
+    _claim2, belief2, _ = store.witness(
+        claim_id="c1", belief_id="b2", evidence_id="e2", kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1), witness_id="hulda", gamets=100.0,
+    )
+    with pytest.raises(ValueError, match="precede"):
+        store.corroborate(belief_id=belief1.id, source_belief=belief2, evidence_id="e3", gamets=50.0)

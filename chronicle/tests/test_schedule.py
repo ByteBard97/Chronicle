@@ -1,4 +1,11 @@
+import pytest
+
 from chronicle.schedule import ScheduleBlock, npcs_present_at, sample_encounters
+
+
+def test_schedule_block_rejects_an_end_tick_at_or_before_start_tick():
+    with pytest.raises(ValueError, match="must be after start_tick"):
+        ScheduleBlock(npc_id="hulda", location_id="bannered_mare", start_tick=10, end_tick=10)
 
 
 def test_npcs_present_at_groups_by_location_for_a_covered_tick():

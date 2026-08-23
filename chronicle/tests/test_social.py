@@ -1,7 +1,9 @@
 import pytest
 
 from chronicle.social import (
+    Reputation,
     SocialStateStore,
+    _resolve_obligation,
     form_grudge,
     form_relationship,
     issue_obligation,
@@ -232,3 +234,78 @@ def test_obligation_involving_finds_issuer_debtor_and_beneficiary():
     assert store.obligations_involving("jarl_balgruuf") == (obligation,)
     assert store.active_obligations_of("a_guard_captain") == (obligation,)
     assert store.active_obligations_of("proventus") == ()
+
+
+def test_reputation_rejects_non_positive_alpha_or_beta():
+    # A Beta distribution's parameters must be positive -- 0 or negative
+    # isn't a valid prior/posterior, regardless of how it was reached.
+    with pytest.raises(ValueError, match="alpha/beta must be positive"):
+        Reputation(
+            observer_id="hulda", subject_id="proventus", context="stewardship",
+            alpha=0.0, beta=1.0, direct_count=0, witness_count=0, certified_count=0,
+            uncertainty=0.5, last_updated=0.0,
+        )
+
+
+def test_reputation_rejects_an_uncertainty_outside_the_unit_interval():
+    with pytest.raises(ValueError, match="uncertainty"):
+        Reputation(
+            observer_id="hulda", subject_id="proventus", context="stewardship",
+            alpha=1.0, beta=1.0, direct_count=0, witness_count=0, certified_count=0,
+            uncertainty=1.5, last_updated=0.0,
+        )
+
+
+def test_update_reputation_rejects_an_unknown_kind():
+    with pytest.raises(ValueError, match="kind must be one of"):
+        update_reputation(None, observer_id="hulda", subject_id="proventus", context="stewardship", kind="hearsay", positive=True, gamets=0.0)
+
+
+def test_resolve_obligation_rejects_an_unsupported_status():
+    # Only fulfill_obligation()/violate_obligation() call this with a fixed
+    # literal ("fulfilled"/"violated") -- this guard is otherwise
+    # unreachable through the public API, but it's real code, so it gets
+    # a real test rather than staying untested dead weight.
+    obligation = issue_obligation(
+        id="obl-1", issuer_id="jarl_balgruuf", debtor_id="proventus", beneficiary_id=None,
+        action="manage the treasury", condition=None, gamets=0.0,
+    )
+    with pytest.raises(ValueError, match="unsupported resolution status"):
+        _resolve_obligation(obligation, status="cancelled", gamets=1.0)
+
+
+def test_add_grudge_rejects_a_second_grudge_for_the_same_holder_target_pair():
+    store = SocialStateStore()
+    rel = form_relationship(id="rel-1", from_id="hulda", to_id="jarl_balgruuf", basis="colocation", basis_id=None, strength=0.6, gamets=0.0)
+    grudge = form_grudge(
+        id="grudge-1", holder_id="hulda", victim_id="jarl_balgruuf", target_id="the_thalmor",
+        grievance_type="murder", source_belief_id="belief-hulda", evidentiary_strength=0.4,
+        relationship_to_victim=rel, gamets=5.0,
+    )
+    store.add_grudge(grudge)
+    second = form_grudge(
+        id="grudge-2", holder_id="hulda", victim_id="jarl_balgruuf", target_id="the_thalmor",
+        grievance_type="murder", source_belief_id="belief-hulda", evidentiary_strength=0.9,
+        relationship_to_victim=rel, gamets=6.0,
+    )
+    with pytest.raises(ValueError, match="a grudge already exists"):
+        store.add_grudge(second)
+
+
+def test_relationship_lookup_returns_none_when_no_edge_matches():
+    store = SocialStateStore()
+    store.add_relationship(
+        form_relationship(id="r1", from_id="hulda", to_id="jarl_balgruuf", basis="colocation", basis_id=None, strength=0.6, gamets=0.0)
+    )
+    assert store.relationship(from_id="hulda", to_id="jarl_balgruuf", basis="colocation") is not None
+    assert store.relationship(from_id="hulda", to_id="jarl_balgruuf", basis="kinship") is None
+    assert store.relationship(from_id="proventus", to_id="jarl_balgruuf", basis="colocation") is None
+
+
+def test_form_grudge_rejects_a_missing_relationship_to_the_victim():
+    with pytest.raises(ValueError, match="no relationship edge"):
+        form_grudge(
+            id="grudge-1", holder_id="hulda", victim_id="jarl_balgruuf", target_id="the_thalmor",
+            grievance_type="murder", source_belief_id="belief-hulda", evidentiary_strength=0.4,
+            relationship_to_victim=None, gamets=5.0,
+        )
