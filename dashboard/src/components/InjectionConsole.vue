@@ -65,6 +65,16 @@ const cliInvocation = computed(
     ` --payload '${form.payload.replace(/\n\s*/g, " ").trim()}'`,
 );
 
+// The real write path (cli.py's `_inject_write`, docstring at
+// inject_command): `chronicle inject <run_id> --event '<json>'` --
+// run_id positional, --event carries the same canonical-event JSON
+// already built above for the preview. This is the form that actually
+// appends to the run's events.jsonl; the compose form above never
+// writes (inject_command's docstring: "does not write to the run's
+// log" -- its flags are pinned to this console's composed string, a
+// distinct still-supported mode, so it stays).
+const writeInvocation = computed(() => `chronicle inject ${form.runId} --event '${eventJson.value}'`);
+
 // A forked-history warning is a display concern, not a submit action:
 // §3.1's fork semantics say appending at a historical tick < LIVE forks
 // the run. This console names that consequence; it does not perform it.
@@ -114,8 +124,16 @@ const forksHistory = computed(() => form.atTick < 31442 - 1);
     </div>
 
     <div class="injection-console__preview">
-      <div class="injection-console__preview-label">chronicle inject invocation</div>
+      <div class="injection-console__preview-label">chronicle inject invocation (compose/validate only -- does not write)</div>
       <pre class="injection-console__code injection-console__code--cli">{{ cliInvocation }}</pre>
+    </div>
+
+    <div class="injection-console__preview">
+      <div class="injection-console__preview-label">chronicle inject invocation (writes to the run's log)</div>
+      <pre class="injection-console__code injection-console__code--cli">{{ writeInvocation }}</pre>
+      <div class="injection-console__write-note">
+        writes at LIVE only -- historical-tick injection is fork territory, not yet built (§3.1)
+      </div>
     </div>
   </PanelGlass>
 </template>
@@ -203,5 +221,12 @@ const forksHistory = computed(() => form.atTick < 31442 - 1);
   color: var(--c-accent-hover);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.injection-console__write-note {
+  color: var(--c-text-faint);
+  font-size: var(--fs-micro);
+  margin-top: 3px;
+  line-height: 1.5;
 }
 </style>
