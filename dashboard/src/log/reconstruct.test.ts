@@ -48,16 +48,17 @@ describe("reconstruct: mock-t0 fixture", () => {
     expect(state.claims.get("claim-jarl-death")).toBeDefined();
     expect(state.beliefs.get("bel-1")).toMatchObject({ holder_id: "npc-guard" });
 
-    // T2: transmitted at tick 1 -- hand-computed expectation, independent of
-    // decay.ts's own Math.pow call (this recomputes the same formula
-    // directly, per docs/frame-log-schema.md §8's cited chronicle/claims.py:71).
-    const elapsedTellerDecay = 1; // teller's belief last_rehearsed=0, transmitted at tick=1
-    const decayedTellerConfidence = WITNESS_CONFIDENCE * Math.pow(0.5, elapsedTellerDecay / 168.0);
-    const decayedTellerVerbatim = 1.0 * Math.pow(0.5, elapsedTellerDecay / 72.0);
-    const decayedTellerGist = 1.0 * Math.pow(0.5, elapsedTellerDecay / 1440.0);
-    const expectedBel2Confidence = decayedTellerConfidence * RETELL_CONFIDENCE_DECAY;
-    const expectedBel2Verbatim = decayedTellerVerbatim * RETELL_VERBATIM_DECAY;
-    const expectedBel2Gist = decayedTellerGist * RETELL_GIST_DECAY;
+    // T2: transmitted at tick 1 -- hand-computed expectation. The teller's
+    // belief (bel-1) contributes its RAW, undecayed confidence/verbatim/gist
+    // here -- confirmed against `chronicle/claims.py`'s `retell()` (and
+    // `resolve()`'s adoption branch), and against every `driver.py` call
+    // site, none of which decay a belief before passing it to retell()/
+    // resolve(). `reconstruct.ts` used to decay the teller belief first
+    // (a divergence filed as a finding at lane 27, fixed at the source once
+    // the blast radius was confirmed to be exactly these two tests).
+    const expectedBel2Confidence = WITNESS_CONFIDENCE * RETELL_CONFIDENCE_DECAY;
+    const expectedBel2Verbatim = 1.0 * RETELL_VERBATIM_DECAY;
+    const expectedBel2Gist = 1.0 * RETELL_GIST_DECAY;
 
     const bel2 = state.beliefs.get("bel-2");
     expect(bel2).toBeDefined();
@@ -94,18 +95,15 @@ describe("reconstruct: mock-t0 fixture", () => {
 
     const state = replayTo(keyframeState, deltas, 96);
 
-    // Hand-computed expectation for bel-3 (npc-farmer), independent of
-    // decay.ts: teller (bel-2) last_rehearsed=24, transmitted at tick=96,
-    // elapsed=72.
-    const elapsed = 72;
-    const decayedTellerConfidence = 0.6 * Math.pow(0.5, elapsed / 168.0);
-    const decayedTellerVerbatim = 0.6 * Math.pow(0.5, elapsed / 72.0); // == 0.6 * 0.5 == 0.3 exactly
-    const decayedTellerGist = 0.9 * Math.pow(0.5, elapsed / 1440.0);
-    const expectedConfidence = decayedTellerConfidence * RETELL_CONFIDENCE_DECAY;
-    const expectedVerbatim = decayedTellerVerbatim * RETELL_VERBATIM_DECAY;
-    const expectedGist = decayedTellerGist * RETELL_GIST_DECAY;
-
-    expect(decayedTellerVerbatim).toBeCloseTo(0.3, 12); // one exact verbatim half-life -- arithmetic sanity check
+    // Hand-computed expectation for bel-3 (npc-farmer): teller (bel-2,
+    // confidence 0.6 / verbatim 0.6 / gist 0.9 per the keyframe) contributes
+    // its RAW, undecayed strengths -- see the T2 test above for why (lane-27
+    // finding, fixed at the source). Elapsed time since bel-2's last
+    // rehearsal (72 ticks) is irrelevant to this formula; it would only
+    // matter for a since-abandoned pre-decay step.
+    const expectedConfidence = 0.6 * RETELL_CONFIDENCE_DECAY;
+    const expectedVerbatim = 0.6 * RETELL_VERBATIM_DECAY;
+    const expectedGist = 0.9 * RETELL_GIST_DECAY;
 
     const bel3 = state.beliefs.get("bel-3");
     expect(bel3).toBeDefined();

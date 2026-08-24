@@ -20,15 +20,20 @@
  * `docs/work-packets/lane-27-supersession-replay.md`'s pinned instruction
  * — `chronicle/framelog.py`'s reader re-executes `claims.resolve()` fully,
  * but the amended §4:120 payload already carries everything a
- * trust-the-record reader needs. NOTE (out of scope for this lane, filed
- * as a finding): the `transmitted` case below decays `tellerBelief` via
- * `decayBelief()` before deriving the hearer's confidence, but
- * `chronicle/claims.py`'s `retell()` (and `resolve()`'s adoption branch)
- * both use the teller's *raw, undecayed* `confidence` — confirmed against
- * `driver.py`'s call sites, which never decay a belief before passing it
- * to `retell()`/`resolve()`. That's a pre-existing divergence unrelated to
- * this lane's task; fixing it would shift confidence values several
- * already-landed lanes' tests assert against, so it's left as-is here.
+ * trust-the-record reader needs.
+ *
+ * FIXED (was filed as a lane-27 finding, closed the same night the blast
+ * radius was actually measured rather than assumed): the `transmitted`
+ * case below used to decay `tellerBelief` via `decayBelief()` before
+ * deriving the hearer's confidence, but `chronicle/claims.py`'s `retell()`
+ * (and `resolve()`'s adoption branch) both use the teller's *raw,
+ * undecayed* `confidence` — confirmed against `driver.py`'s call sites,
+ * which never decay a belief before passing it to `retell()`/`resolve()`.
+ * Measuring the actual blast radius (rather than assuming it was large)
+ * found exactly two affected tests, both in this file's own
+ * `reconstruct.test.ts`, both explicitly hand-computing the buggy
+ * pre-decay formula — no other lane's test depends on this. Fixed at the
+ * source; those two tests' expectations were corrected to match.
  *
  * `schedule_rewrite` (lane 41, Tier 4a): a genuinely new pattern for this
  * module. Every case in `applyTraceRecord`'s switch matches an
@@ -519,7 +524,6 @@ export function applyTraceRecord(state: SocialState, payload: Record<string, unk
 
       const tellerBelief = state.beliefs.get(tellerBeliefId);
       if (tellerBelief === undefined) return;
-      const decayedTeller = decayBelief(tellerBelief, tick);
 
       state.variants.set(variant.variant_id, {
         id: variant.variant_id,
@@ -535,9 +539,9 @@ export function applyTraceRecord(state: SocialState, payload: Record<string, unk
         holder_id: hearerId,
         claim_id: claimId,
         variant_id: variant.variant_id,
-        confidence: decayedTeller.confidence * RETELL_CONFIDENCE_DECAY,
-        verbatim_strength: decayedTeller.verbatim_strength * RETELL_VERBATIM_DECAY,
-        gist_strength: decayedTeller.gist_strength * RETELL_GIST_DECAY,
+        confidence: tellerBelief.confidence * RETELL_CONFIDENCE_DECAY,
+        verbatim_strength: tellerBelief.verbatim_strength * RETELL_VERBATIM_DECAY,
+        gist_strength: tellerBelief.gist_strength * RETELL_GIST_DECAY,
         first_learned: tick,
         last_rehearsed: tick,
       });
@@ -548,7 +552,7 @@ export function applyTraceRecord(state: SocialState, payload: Record<string, unk
         source_id: tellerId,
         predecessor_belief_id: tellerBeliefId,
         gamets: tick,
-        strength: decayedTeller.confidence,
+        strength: tellerBelief.confidence,
       });
 
       const hearerKey = rumorKey(hearerId, claimId, variant.variant_id);
