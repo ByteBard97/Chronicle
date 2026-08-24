@@ -100,10 +100,10 @@ export interface KeyframeState {
   beliefs?: KeyframeBelief[];
   evidence?: KeyframeEvidence[];
   rumor_states?: KeyframeRumorState[];
-  relationships?: Record<string, unknown>[];
-  grudges?: Record<string, unknown>[];
-  obligations?: Record<string, unknown>[];
-  reputations?: Record<string, unknown>[];
+  relationships?: KeyframeRelationship[];
+  grudges?: KeyframeGrudge[];
+  obligations?: KeyframeObligation[];
+  reputations?: KeyframeReputation[];
   schedules?: Record<string, unknown>[];
   // Additive-per-tier keys (rule-registry accumulators, schedule overrides,
   // encounter weights, roles) land here as further optional properties as
@@ -167,6 +167,92 @@ export interface KeyframeRumorState {
   [extra: string]: unknown;
 }
 
+/**
+ * A relationship edge (chronicle/social.py's `Relationship`), per
+ * `relationship_formed` (schema §4) and keyframe `state.relationships[]`.
+ * `last_updated` is present in the keyframe's serialized form but OMITTED
+ * from the `relationship_formed` trace record at formation time (it equals
+ * `formed_at` then) -- readers default it to `formed_at` when absent.
+ */
+export interface KeyframeRelationship {
+  id: string;
+  from_id: string;
+  to_id: string;
+  basis: string;
+  basis_id: string | null;
+  strength: number;
+  formed_at: number;
+  last_updated?: number;
+  [extra: string]: unknown;
+}
+
+/**
+ * A grudge (chronicle/social.py's `Grudge`), per `grudge_formed` (schema §4)
+ * and keyframe `state.grudges[]`. `source_belief_id` may reference an
+ * Obligation id instead of a real belief id when the grievance isn't
+ * belief-grounded (lane 25) -- treat it as an opaque string, never resolve it.
+ */
+export interface KeyframeGrudge {
+  id: string;
+  holder_id: string;
+  target_id: string;
+  source_belief_id: string;
+  grievance_type: string;
+  severity: number;
+  emotional_strength: number;
+  evidentiary_strength: number;
+  last_rehearsed: number;
+  forgiveness_threshold: number;
+  [extra: string]: unknown;
+}
+
+/**
+ * An obligation (chronicle/social.py's `Obligation`), per `obligation_issued`
+ * (schema §4) and keyframe `state.obligations[]`. `obligation_resolved` is a
+ * separate, smaller trace record that transitions an existing Obligation's
+ * `status`/`fulfilled_at`/`violated_at`/`excuse` -- it is not a second
+ * Obligation object.
+ */
+export interface KeyframeObligation {
+  id: string;
+  issuer_id: string;
+  debtor_id: string;
+  beneficiary_id: string | null;
+  action: string;
+  condition: string | null;
+  deadline: number | null;
+  status: "active" | "fulfilled" | "violated" | "expired" | "excused" | string;
+  witnesses: string[];
+  sanctions: string | null;
+  excuse: string | null;
+  created_at: number;
+  fulfilled_at: number | null;
+  violated_at: number | null;
+  [extra: string]: unknown;
+}
+
+/**
+ * A reputation accumulator (chronicle/social.py's `Reputation`), per
+ * `reputation_updated` (schema §4) and keyframe `state.reputations[]`. The
+ * trace record is "inputs-plus-result" shaped (same pattern as
+ * `belief_corroborated`) -- it also carries `kind`/`positive` input-only
+ * fields describing what caused the update, which are not part of the
+ * stored accumulator shape below.
+ */
+export interface KeyframeReputation {
+  observer_id: string;
+  subject_id: string;
+  context: string;
+  alpha: number;
+  beta: number;
+  direct_count: number;
+  witness_count: number;
+  certified_count: number;
+  uncertainty: number;
+  last_updated: number;
+  [extra: string]: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // Trace stream payloads (schema §4)
 
@@ -180,7 +266,12 @@ export type TraceRecordType =
   | "supersession"
   | "transmission_declined" // reserved (Tier 3)
   | "rule_evaluated"
-  | "threshold_crossed";
+  | "threshold_crossed"
+  | "relationship_formed"
+  | "grudge_formed"
+  | "obligation_issued"
+  | "obligation_resolved"
+  | "reputation_updated";
 
 export interface TracePayload extends Payload {
   record_type: string;

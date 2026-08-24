@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { applyTraceRecord, emptySocialState, fromKeyframeState, replayTo, rumorKey, type SocialState } from "./reconstruct";
+import {
+  applyTraceRecord,
+  emptySocialState,
+  fromKeyframeState,
+  grudgeKey,
+  replayTo,
+  reputationKey,
+  rumorKey,
+  type SocialState,
+} from "./reconstruct";
 import type { FrameRecord, KeyframeBelief } from "./types";
 import {
   RETELL_CONFIDENCE_DECAY,
@@ -314,5 +323,421 @@ describe("reconstruct: schema §7 tolerance against a fictional schema_version: 
       applyTraceRecord(state, { event_type: "npc_died", gamets: 0, wall_ts: 0, origin: null }, 0),
     ).not.toThrow();
     expect(state.beliefs.size).toBe(0);
+  });
+});
+
+describe("reconstruct: layer-4 social state (lane 34)", () => {
+  it("relationship_formed inserts a relationship keyed by its own id, defaulting last_updated to formed_at when omitted", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "relationship_formed",
+        id: "rel-keeper-player",
+        from_id: "hulda",
+        to_id: "player",
+        basis: "kinship",
+        basis_id: null,
+        strength: 0.9,
+        formed_at: 0,
+        // last_updated deliberately omitted -- the trace record's real shape.
+      },
+      0,
+    );
+    expect(state.relationships.get("rel-keeper-player")).toMatchObject({
+      from_id: "hulda",
+      to_id: "player",
+      basis: "kinship",
+      strength: 0.9,
+      formed_at: 0,
+      last_updated: 0,
+    });
+  });
+
+  it("grudge_formed inserts keyed by the composite (holder_id, target_id) pair, not by id", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "grudge_formed",
+        id: "grudge-1",
+        holder_id: "adrianne",
+        target_id: "ulfberth",
+        source_belief_id: "obl-favor-2",
+        grievance_type: "obligation_violated",
+        severity: 0.8,
+        emotional_strength: 1,
+        evidentiary_strength: 0.6,
+        last_rehearsed: 2,
+        forgiveness_threshold: 0.2,
+      },
+      2,
+    );
+    const key = grudgeKey("adrianne", "ulfberth");
+    expect(state.grudges.get(key)).toMatchObject({ id: "grudge-1", holder_id: "adrianne", target_id: "ulfberth" });
+    expect(state.grudges.size).toBe(1);
+  });
+
+  it("grudge_formed applies the record's OWN last_rehearsed field rather than substituting the envelope tick (lane-27 'apply the recorded outcome' idiom)", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "grudge_formed",
+        id: "grudge-1",
+        holder_id: "a",
+        target_id: "b",
+        source_belief_id: "bel-x",
+        grievance_type: "insult",
+        severity: 0.5,
+        emotional_strength: 0.5,
+        evidentiary_strength: 0.5,
+        last_rehearsed: 7, // deliberately different from the envelope tick (12) below
+        forgiveness_threshold: 0.2,
+      },
+      12,
+    );
+    const key = grudgeKey("a", "b");
+    expect(state.grudges.get(key)?.last_rehearsed).toBe(7);
+  });
+
+  it("a second grudge_formed for the same holder/target pair (different id) overwrites by composite key -- proves upsert-by-pair semantics", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "grudge_formed",
+        id: "grudge-1",
+        holder_id: "adrianne",
+        target_id: "ulfberth",
+        source_belief_id: "obl-favor-2",
+        grievance_type: "obligation_violated",
+        severity: 0.8,
+        emotional_strength: 1,
+        evidentiary_strength: 0.6,
+        last_rehearsed: 2,
+        forgiveness_threshold: 0.2,
+      },
+      2,
+    );
+    applyTraceRecord(
+      state,
+      {
+        record_type: "grudge_formed",
+        id: "grudge-2", // different id, same pair
+        holder_id: "adrianne",
+        target_id: "ulfberth",
+        source_belief_id: "obl-favor-3",
+        grievance_type: "insult",
+        severity: 0.5,
+        emotional_strength: 0.7,
+        evidentiary_strength: 0.9,
+        last_rehearsed: 5,
+        forgiveness_threshold: 0.1,
+      },
+      5,
+    );
+    expect(state.grudges.size).toBe(1);
+    const key = grudgeKey("adrianne", "ulfberth");
+    expect(state.grudges.get(key)).toMatchObject({ id: "grudge-2", grievance_type: "insult", severity: 0.5 });
+  });
+
+  it("obligation_issued inserts with excuse null and no fulfilled_at/violated_at; obligation_resolved then transitions status (fulfilled path)", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "obligation_issued",
+        id: "obl-favor-1",
+        issuer_id: "adrianne",
+        debtor_id: "ulfberth",
+        beneficiary_id: null,
+        action: "return the borrowed steel",
+        condition: null,
+        deadline: null,
+        status: "active",
+        witnesses: [],
+        sanctions: null,
+        created_at: 0,
+      },
+      0,
+    );
+    expect(state.obligations.get("obl-favor-1")).toMatchObject({
+      status: "active",
+      excuse: null,
+      fulfilled_at: null,
+      violated_at: null,
+      witnesses: [],
+    });
+
+    applyTraceRecord(
+      state,
+      { record_type: "obligation_resolved", obligation_id: "obl-favor-1", status: "fulfilled", gamets: 1, excuse: null },
+      1,
+    );
+    expect(state.obligations.get("obl-favor-1")).toMatchObject({
+      status: "fulfilled",
+      excuse: null,
+      fulfilled_at: 1,
+      violated_at: null,
+    });
+  });
+
+  it("obligation_resolved (violated path) sets violated_at and leaves fulfilled_at null, carrying witnesses through", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "obligation_issued",
+        id: "obl-favor-2",
+        issuer_id: "adrianne",
+        debtor_id: "ulfberth",
+        beneficiary_id: null,
+        action: "forge a replacement blade",
+        condition: null,
+        deadline: null,
+        status: "active",
+        witnesses: ["proventus"],
+        sanctions: null,
+        created_at: 0,
+      },
+      0,
+    );
+    applyTraceRecord(
+      state,
+      { record_type: "obligation_resolved", obligation_id: "obl-favor-2", status: "violated", gamets: 2, excuse: null },
+      2,
+    );
+    expect(state.obligations.get("obl-favor-2")).toMatchObject({
+      status: "violated",
+      excuse: null,
+      fulfilled_at: null,
+      violated_at: 2,
+      witnesses: ["proventus"],
+    });
+  });
+
+  it("obligation_resolved omitting excuse still applies the status transition (excuse falls back to the existing value, schema §7 tolerance)", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "obligation_issued",
+        id: "obl-x",
+        issuer_id: "a",
+        debtor_id: "b",
+        beneficiary_id: null,
+        action: "do a thing",
+        condition: null,
+        deadline: null,
+        status: "active",
+        witnesses: [],
+        sanctions: null,
+        created_at: 0,
+      },
+      0,
+    );
+    applyTraceRecord(state, { record_type: "obligation_resolved", obligation_id: "obl-x", status: "fulfilled", gamets: 3 }, 3);
+    expect(state.obligations.get("obl-x")).toMatchObject({ status: "fulfilled", fulfilled_at: 3, excuse: null });
+  });
+
+  it("obligation_resolved referencing an obligation_id never seen via obligation_issued skips cleanly, no throw", () => {
+    const state = emptySocialState(0);
+    expect(() =>
+      applyTraceRecord(
+        state,
+        { record_type: "obligation_resolved", obligation_id: "obl-unknown", status: "fulfilled", gamets: 1, excuse: null },
+        1,
+      ),
+    ).not.toThrow();
+    expect(state.obligations.has("obl-unknown")).toBe(false);
+  });
+
+  it("reputation_updated inserts keyed by the composite (observer_id, subject_id, context) triple, ignoring the input-only kind/positive fields", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "reputation_updated",
+        observer_id: "proventus",
+        subject_id: "player",
+        context: "civic",
+        kind: "witnessed",
+        positive: true,
+        alpha: 2.0,
+        beta: 1.0,
+        direct_count: 1,
+        witness_count: 0,
+        certified_count: 0,
+        uncertainty: 0.5,
+        last_updated: 0,
+      },
+      0,
+    );
+    const key = reputationKey("proventus", "player", "civic");
+    expect(state.reputations.get(key)).toMatchObject({
+      observer_id: "proventus",
+      subject_id: "player",
+      context: "civic",
+      alpha: 2.0,
+      beta: 1.0,
+      direct_count: 1,
+    });
+    // kind/positive are input-only -- not required on the stored shape (harmless if present as extras).
+  });
+
+  it("a second reputation_updated for the same observer/subject/context REPLACES the accumulator rather than duplicating it", () => {
+    const state = emptySocialState(0);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "reputation_updated",
+        observer_id: "proventus",
+        subject_id: "player",
+        context: "civic",
+        alpha: 2.0,
+        beta: 1.0,
+        direct_count: 1,
+        witness_count: 0,
+        certified_count: 0,
+        uncertainty: 0.5,
+        last_updated: 0,
+      },
+      0,
+    );
+    applyTraceRecord(
+      state,
+      {
+        record_type: "reputation_updated",
+        observer_id: "proventus",
+        subject_id: "player",
+        context: "civic",
+        alpha: 2.5,
+        beta: 1.0,
+        direct_count: 2,
+        witness_count: 0,
+        certified_count: 0,
+        uncertainty: 0.4,
+        last_updated: 4,
+      },
+      4,
+    );
+    expect(state.reputations.size).toBe(1);
+    const key = reputationKey("proventus", "player", "civic");
+    expect(state.reputations.get(key)).toMatchObject({ alpha: 2.5, direct_count: 2, uncertainty: 0.4, last_updated: 4 });
+  });
+
+  it("threshold_crossed is an explicit no-op: state is byte-identical before and after", () => {
+    const state = emptySocialState(0);
+    state.grudges.set(grudgeKey("a", "b"), {
+      id: "g1",
+      holder_id: "a",
+      target_id: "b",
+      source_belief_id: "bel-x",
+      grievance_type: "theft",
+      severity: 0.5,
+      emotional_strength: 0.5,
+      evidentiary_strength: 0.5,
+      last_rehearsed: 0,
+      forgiveness_threshold: 0.2,
+    });
+    const before = JSON.stringify([...state.grudges.entries()]);
+    applyTraceRecord(
+      state,
+      {
+        record_type: "threshold_crossed",
+        rule: "accumulation-threshold",
+        accumulator: { holder_id: "belethor", grievance_kind: "theft", count: 4, belief_ids: [] },
+        threshold: 4,
+        produced: { event_key: { save_uuid: "s", generation: 0, seq: 0 }, claim_id: "claim-x" },
+      },
+      3,
+    );
+    expect(JSON.stringify([...state.grudges.entries()])).toBe(before);
+    expect(state.beliefs.size).toBe(0);
+  });
+
+  it("older-run tolerance: a keyframe with no relationships/grudges/obligations/reputations fields hydrates to four empty maps without throwing", () => {
+    const bareState = { claims: [], variants: [], beliefs: [], evidence: [], rumor_states: [] };
+    let hydrated: SocialState | undefined;
+    expect(() => {
+      hydrated = fromKeyframeState(bareState as never, 0);
+    }).not.toThrow();
+    expect(hydrated!.relationships.size).toBe(0);
+    expect(hydrated!.grudges.size).toBe(0);
+    expect(hydrated!.obligations.size).toBe(0);
+    expect(hydrated!.reputations.size).toBe(0);
+  });
+
+  it("fromKeyframeState and replayTo agree on grudge/reputation keying for identical real-shaped data", () => {
+    const keyframeState = {
+      grudges: [
+        {
+          id: "grudge-violation-auto-1",
+          holder_id: "adrianne",
+          target_id: "ulfberth",
+          source_belief_id: "obl-favor-2",
+          grievance_type: "obligation_violated",
+          severity: 0.8,
+          emotional_strength: 1,
+          evidentiary_strength: 0.6,
+          last_rehearsed: 2,
+          forgiveness_threshold: 0.2,
+        },
+      ],
+      reputations: [
+        {
+          observer_id: "proventus",
+          subject_id: "player",
+          context: "civic",
+          alpha: 2.0,
+          beta: 1.0,
+          direct_count: 1,
+          witness_count: 0,
+          certified_count: 0,
+          uncertainty: 0.5,
+          last_updated: 0,
+        },
+      ],
+    };
+    const hydrated = fromKeyframeState(keyframeState as never, 0);
+
+    const replayed = emptySocialState(0);
+    applyTraceRecord(
+      replayed,
+      {
+        record_type: "grudge_formed",
+        id: "grudge-violation-auto-1",
+        holder_id: "adrianne",
+        target_id: "ulfberth",
+        source_belief_id: "obl-favor-2",
+        grievance_type: "obligation_violated",
+        severity: 0.8,
+        emotional_strength: 1,
+        evidentiary_strength: 0.6,
+        forgiveness_threshold: 0.2,
+      },
+      2,
+    );
+    applyTraceRecord(
+      replayed,
+      {
+        record_type: "reputation_updated",
+        observer_id: "proventus",
+        subject_id: "player",
+        context: "civic",
+        alpha: 2.0,
+        beta: 1.0,
+        direct_count: 1,
+        witness_count: 0,
+        certified_count: 0,
+        uncertainty: 0.5,
+        last_updated: 0,
+      },
+      0,
+    );
+
+    expect([...hydrated.grudges.keys()]).toEqual([...replayed.grudges.keys()]);
+    expect([...hydrated.reputations.keys()]).toEqual([...replayed.reputations.keys()]);
   });
 });
