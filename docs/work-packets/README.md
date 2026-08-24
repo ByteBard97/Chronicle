@@ -63,6 +63,7 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 56 | [lane-56-variant-tree-edge-labels.md](lane-56-variant-tree-edge-labels.md) | lane 53 (M7 gate finding) | small-medium (code) |
 | 57 | [lane-57-provenance-popover.md](lane-57-provenance-popover.md) | lane 53 (M7 gate finding) | small-medium (code) |
 | 58 | [lane-58-outcome-filter-label-mismatch.md](lane-58-outcome-filter-label-mismatch.md) | lane 53 (M7 gate finding) | small (code) |
+| 59 | [lane-59-m7-gate-rerun.md](lane-59-m7-gate-rerun.md) | lanes 54-58 (all landed) | small-medium (QA, no code) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 
