@@ -1,0 +1,80 @@
+# ChronicleBridge <-> Chronicle wire contract.
+#
+# Single source of truth for the payload shape shared between the C++
+# plugin (adapters/skyrim/ChronicleBridge/, hand-written serialization
+# matching this spec -- OpenAPI-to-C++ codegen is immature/heavy for a
+# payload this small, see docs/design/chronicle-bridge-spatial-streamer.md)
+# and the Python listener (adapters/skyrim/listener/, generated Pydantic
+# model via datamodel-code-generator).
+#
+# First slice only: one endpoint, one direction, fire-and-forget. Later
+# slices (event extraction, hydration) get their own paths/schemas added
+# here, not a second contract file, so this stays the one place either
+# side needs to check for the wire format.
+openapi: 3.1.0
+info:
+  title: ChronicleBridge wire contract
+  version: 0.1.0
+  description: >
+    The v0.2 spatial-streamer slice's wire format
+    (docs/design/chronicle-bridge-spatial-streamer.md). ChronicleBridge
+    (the SKSE plugin, running natively on Windows) POSTs this outbound,
+    ~1Hz, to a listener on the Chronicle host. Outbound only -- the
+    plugin never accepts inbound connections in this slice.
+
+paths:
+  /whiterun/positions:
+    post:
+      operationId: postWhiterunPositions
+      summary: >
+        A snapshot of every actor currently outdoors in WhiterunWorld.
+        Actors that have gone indoors since the last snapshot are simply
+        absent -- no stale position, no placeholder (design doc §1).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PositionSnapshot"
+      responses:
+        "204":
+          description: Accepted. No body -- fire-and-forget, no reply needed.
+        "400":
+          description: Malformed payload (failed schema validation).
+
+components:
+  schemas:
+    PositionSnapshot:
+      type: object
+      required: [wall_ts, npcs]
+      additionalProperties: false
+      properties:
+        wall_ts:
+          type: number
+          format: double
+          description: Unix epoch seconds when the plugin sampled this snapshot.
+        npcs:
+          type: array
+          items:
+            $ref: "#/components/schemas/NpcPosition"
+    NpcPosition:
+      type: object
+      required: [id, x, y]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: >
+            The resolved Chronicle npc_id (e.g. "jarl_balgruuf") for the
+            named cast, or the generic fallback identity
+            "<plugin_name>:<local_form_id_hex>" for anyone not in the
+            hand-maintained table (design doc §3, B3) -- never a raw
+            FormID (architecture.md's FormID rule).
+        x:
+          type: number
+          format: double
+          description: WhiterunWorld raw world-space X (no transform applied).
+        y:
+          type: number
+          format: double
+          description: WhiterunWorld raw world-space Y (no transform applied).
