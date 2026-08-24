@@ -98,6 +98,7 @@ agent's report, the overseer's findings, and the verdict
 | 33 — Tier 4a design prep (schedule write-back) | delivered + worker-committed `d93c1b8` | accepted — overseer review + rulings in `reviews/2026-08-23-lane-33/`; all citations spot-verified; O1–O5 ruled (overlay design, 72-tick mourning, `schedule_rewrite` fields filled at §3:96, framelog.py explicitly in-bounds for L-G, per-household locations deferred) |
 | 36 — Tier 4a L-G: schedule write-back (rule 17) + T4a.1 | packet written, dispatched by owner 2026-08-23 | pending delivery |
 | 37 — Tier 4a L-H: T4a.2 counterfactual | packet written; serial after lane 36 | queued |
+| 38 — M5 run comparison (ui-spec §3.9) | packet written; queued behind lane 35 (Track B) | queued |
 | 27 — dashboard supersession replay (reconstruct.ts) | delivered + worker-committed `ec4c41b` | accepted — coordinator re-ran the battery: 369/369 vitest, build clean, check-range 206, 203 pytest, ruff clean; T=30 assertions correctly updated to the resolved state (T=200 untouched per the authorization); boundaries exact (3 files, all authorized) |
 | 28 — NpcInspector → real data | delivered + worker-committed `b91b1d5` | accepted — same battery; derived-module + real-run tests present; visual shell preserved. Bonus fix in scope: FeedScreen never loaded the shared store at all (inspector always empty) — fixed and live-verified by the worker |
 | design — M3 mockups | converged and frozen: token sheet delivered + vendored (`dashboard/design/`, c7f3d44) | Markarth label collision fix noted for the M3 build |

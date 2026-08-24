@@ -42,6 +42,7 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 35 | [lane-35-map-variant-lens.md](lane-35-map-variant-lens.md) | lanes 14, 21 (landed) | small-medium (code) |
 | 36 | [lane-36-schedule-write-back.md](lane-36-schedule-write-back.md) | lane 33 (design accepted) | medium-large (code) |
 | 37 | [lane-37-t4a2-counterfactual.md](lane-37-t4a2-counterfactual.md) | lane 36 (serial) | medium (test) |
+| 38 | [lane-38-run-comparison.md](lane-38-run-comparison.md) | lanes 6, 21 (landed); lane 37 (fixture, when landed) | medium-large (code) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 
