@@ -32,6 +32,13 @@
  * use (frameLog.ts's documented load-before-tick ordering hazard) — this
  * is a second, independent read of the same Pinia singleton, not a new
  * data path.
+ *
+ * Lane 22 (amended 2026-08-23): same drill-affordance-in-the-host
+ * approach as `MapScreen.vue` — `NpcInspector.vue` itself is outside this
+ * lane's file boundaries, so each inspected NPC's held beliefs (lane 28's
+ * `beliefsForNpc`, read-only) render as a small drill row directly above
+ * that NPC's `NpcInspector`, opening `ProvenancePanel` on the clicked
+ * belief id.
  */
 import { computed, ref, watch } from "vue";
 import { useUrlState } from "../state/urlState";
@@ -50,12 +57,16 @@ import NpcInspector from "../components/NpcInspector.vue";
 import LiveDockIndicator from "../components/LiveDockIndicator.vue";
 import FeedFilterBar from "../components/feed/FeedFilterBar.vue";
 import FeedTable from "../components/feed/FeedTable.vue";
+import ProvenancePanel from "../components/drilldown/ProvenancePanel.vue";
+import { useDrillPanel } from "../components/drilldown/useDrillPanel";
+import { beliefsForNpc } from "../derived/inspectorBeliefs";
 
 const urlState = useUrlState();
 const selection = useSelectionStore();
 const salience = useSalienceStore();
 const feed = useFeedStore();
 const mapData = useMapDataStore();
+const drill = useDrillPanel();
 
 watch(
   [urlState.run, urlState.t],
@@ -133,6 +144,13 @@ function onRowClick(row: FeedRow) {
 }
 
 const inspectedIds = computed(() => selection.selectedIds.slice(0, 2));
+
+const inspectedBeliefs = computed(() =>
+  inspectedIds.value.map((id) => ({
+    id,
+    beliefs: beliefsForNpc(mapData.socialState, id, mapData.socialState.tick),
+  })),
+);
 </script>
 
 <template>
@@ -175,13 +193,25 @@ const inspectedIds = computed(() => selection.selectedIds.slice(0, 2));
         <PanelGlass v-if="inspectedIds.length === 0" tone="inspector" class="feed-screen__inspector-empty">
           click a row to select both participants
         </PanelGlass>
-        <NpcInspector
-          v-for="id in inspectedIds"
-          :key="id"
-          :npc-name="id"
-          :as-of-tick="urlState.t.value ?? undefined"
-          :salience="salience.level"
-        />
+        <template v-for="entry in inspectedBeliefs" :key="entry.id">
+          <div v-if="entry.beliefs.length > 0" class="feed-screen__drill-row" aria-label="drill into a belief">
+            <span class="feed-screen__drill-label">drill</span>
+            <button
+              v-for="b in entry.beliefs"
+              :key="b.beliefId"
+              type="button"
+              class="feed-screen__drill-chip"
+              @click="drill.openDrill(b.beliefId)"
+            >
+              {{ b.claimId }}
+            </button>
+          </div>
+          <NpcInspector
+            :npc-name="entry.id"
+            :as-of-tick="urlState.t.value ?? undefined"
+            :salience="salience.level"
+          />
+        </template>
       </aside>
     </div>
 
@@ -192,6 +222,15 @@ const inspectedIds = computed(() => selection.selectedIds.slice(0, 2));
         {{ feed.filteredRows.length }} of {{ feed.rows.length }} rows
       </span>
     </footer>
+
+    <ProvenancePanel
+      :open="drill.open.value"
+      :belief-id="drill.beliefId.value"
+      :state="mapData.socialState"
+      :trace-records="mapData.traceRecords"
+      :at-tick="mapData.socialState.tick"
+      @close="drill.closeDrill"
+    />
   </div>
 </template>
 
@@ -280,6 +319,38 @@ const inspectedIds = computed(() => selection.selectedIds.slice(0, 2));
 .feed-screen__inspector-empty {
   color: var(--c-text-faint);
   font-size: var(--fs-secondary);
+}
+
+.feed-screen__drill-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.feed-screen__drill-label {
+  color: var(--c-text-faint);
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.feed-screen__drill-chip {
+  appearance: none;
+  border: 1px solid var(--c-hairline);
+  background: transparent;
+  color: var(--c-accent);
+  border-radius: var(--radius-chip);
+  font-family: var(--font-data);
+  font-size: var(--fs-chip);
+  padding: 2px 7px;
+  cursor: pointer;
+}
+
+.feed-screen__drill-chip:hover {
+  color: var(--c-accent-hover);
+  border-color: var(--c-chip-active-border);
 }
 
 .feed-screen__footer {

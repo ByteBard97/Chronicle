@@ -15,6 +15,13 @@
  * watchers), per `frameLog.ts`'s documented ordering hazard: loading the
  * run must finish before deciding what the current tick means, or a
  * docked-tick decision can race the run load and silently no-op forever.
+ *
+ * Lane 22 (amended 2026-08-23): the drill-down's invocation point for
+ * this screen's `NpcInspector` is a small drill-affordance row rendered
+ * HERE (not inside `NpcInspector.vue`, which is outside this lane's file
+ * boundaries) listing the selected NPC's held beliefs (reusing lane 28's
+ * `beliefsForNpc`, read-only) with a click per belief that opens
+ * `ProvenancePanel` on that belief id.
  */
 import { computed, watch } from "vue";
 import { useRoute } from "vue-router";
@@ -25,12 +32,15 @@ import NpcInspector from "../components/NpcInspector.vue";
 import PanelGlass from "../components/PanelGlass.vue";
 import MapView from "./MapView.vue";
 import TimelineBar from "../components/timeline/TimelineBar.vue";
+import ProvenancePanel from "../components/drilldown/ProvenancePanel.vue";
+import { useDrillPanel } from "../components/drilldown/useDrillPanel";
 import { useSalienceStore } from "../stores/salience";
 import { useUrlState } from "../state/urlState";
 import { useSelectionUrlSync } from "../state/useSelectionUrlSync";
 import { useSelectionStore } from "../stores/selection";
 import { useMapDataStore } from "../stores/mapData";
 import { deriveMapMarkers, claimStageBreakdown, enumerateCast, firstClaimId } from "../derived/mapMarkers";
+import { beliefsForNpc } from "../derived/inspectorBeliefs";
 import mapJson from "../../map/whiterun_map.json";
 
 const salience = useSalienceStore();
@@ -38,6 +48,7 @@ const route = useRoute();
 const urlState = useUrlState();
 const selection = useSelectionStore();
 const mapData = useMapDataStore();
+const drill = useDrillPanel();
 
 useSelectionUrlSync();
 
@@ -98,6 +109,10 @@ function onSelect(id: string) {
 }
 
 const selectedId = computed(() => selection.selectedIds[0] ?? null);
+
+const selectedBeliefs = computed(() =>
+  selectedId.value === null ? [] : beliefsForNpc(mapData.socialState, selectedId.value, atTick.value),
+);
 </script>
 
 <template>
@@ -131,17 +146,39 @@ const selectedId = computed(() => selection.selectedIds[0] ?? null);
           <PanelGlass v-if="selectedId === null" tone="inspector" class="map-screen__inspector-empty">
             click a marker to select an NPC
           </PanelGlass>
-          <NpcInspector
-            v-else
-            :npc-name="selectedId"
-            :as-of-tick="atTick ?? undefined"
-            :salience="salience.level"
-          />
+          <template v-else>
+            <div v-if="selectedBeliefs.length > 0" class="map-screen__drill-row" aria-label="drill into a belief">
+              <span class="map-screen__drill-label">drill</span>
+              <button
+                v-for="b in selectedBeliefs"
+                :key="b.beliefId"
+                type="button"
+                class="map-screen__drill-chip"
+                @click="drill.openDrill(b.beliefId)"
+              >
+                {{ b.claimId }}
+              </button>
+            </div>
+            <NpcInspector
+              :npc-name="selectedId"
+              :as-of-tick="atTick ?? undefined"
+              :salience="salience.level"
+            />
+          </template>
         </template>
       </MapView>
     </div>
 
     <TimelineBar />
+
+    <ProvenancePanel
+      :open="drill.open.value"
+      :belief-id="drill.beliefId.value"
+      :state="mapData.socialState"
+      :trace-records="mapData.traceRecords"
+      :at-tick="atTick"
+      @close="drill.closeDrill"
+    />
   </div>
 </template>
 
@@ -209,5 +246,37 @@ const selectedId = computed(() => selection.selectedIds[0] ?? null);
   margin: 8px;
   color: var(--c-text-faint);
   font-size: var(--fs-secondary);
+}
+
+.map-screen__drill-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 8px 0;
+}
+
+.map-screen__drill-label {
+  color: var(--c-text-faint);
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.map-screen__drill-chip {
+  appearance: none;
+  border: 1px solid var(--c-hairline);
+  background: transparent;
+  color: var(--c-accent);
+  border-radius: var(--radius-chip);
+  font-family: var(--font-data);
+  font-size: var(--fs-chip);
+  padding: 2px 7px;
+  cursor: pointer;
+}
+
+.map-screen__drill-chip:hover {
+  color: var(--c-accent-hover);
+  border-color: var(--c-chip-active-border);
 }
 </style>

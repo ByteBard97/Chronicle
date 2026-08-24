@@ -5,6 +5,13 @@
  * variant (or the canonical root, for `variantId: null`) at T, with their
  * confidence. Presentation only -- `holders` is precomputed by the screen
  * from `SocialState.beliefs`.
+ *
+ * Lane 22 (amended 2026-08-23): each row carries a real `beliefId`
+ * already (lane 21) -- a "drill" affordance per row emits it so the host
+ * screen (`VariantTreeScreen.vue`) can open the provenance drill-down
+ * panel on exactly that belief. Presentation-only here too: this
+ * component doesn't know about `ProvenancePanel` or the `panels` URL
+ * state, it just emits the id.
  */
 export interface HolderRow {
   holderId: string;
@@ -16,6 +23,8 @@ defineProps<{
   nodeLabel: string | null;
   holders: HolderRow[];
 }>();
+
+const emit = defineEmits<{ drill: [beliefId: string] }>();
 </script>
 
 <template>
@@ -28,12 +37,23 @@ defineProps<{
           <tr>
             <th>holder</th>
             <th>confidence</th>
+            <th aria-label="provenance" />
           </tr>
         </thead>
         <tbody>
           <tr v-for="h in holders" :key="h.beliefId">
             <td>{{ h.holderId }}</td>
             <td>{{ h.confidence.toFixed(2) }}</td>
+            <td>
+              <button
+                type="button"
+                class="holder-table__drill"
+                :aria-label="`drill into ${h.holderId}'s provenance`"
+                @click="emit('drill', h.beliefId)"
+              >
+                ⤷
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -79,5 +99,19 @@ defineProps<{
 .holder-table__empty {
   color: var(--c-text-faint);
   font-size: var(--fs-secondary);
+}
+
+.holder-table__drill {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--c-accent);
+  cursor: pointer;
+  font-size: var(--fs-secondary);
+  padding: 0 2px;
+}
+
+.holder-table__drill:hover {
+  color: var(--c-accent-hover);
 }
 </style>

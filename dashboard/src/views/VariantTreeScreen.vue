@@ -25,6 +25,12 @@
  * on every change (a computed, not a one-time default + stale ref) so a
  * run switch that drops the previously-selected claim id falls back to
  * the new run's first claim instead of rendering an empty tree forever.
+ *
+ * Lane 22 (amended 2026-08-23): mounts `ProvenancePanel` (panel mount
+ * only, per the amended boundary -- `HolderTable.vue` itself just emits
+ * `drill` with the clicked row's real `beliefId`, this screen owns the
+ * open/target state via `useDrillPanel()`, same as `FeedScreen.vue`/
+ * `MapScreen.vue`).
  */
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
@@ -33,6 +39,8 @@ import ViewSwitcher from "../components/ViewSwitcher.vue";
 import PanelGlass from "../components/PanelGlass.vue";
 import TreeSvg, { type RecolorMode } from "../components/tree/TreeSvg.vue";
 import HolderTable, { type HolderRow } from "../components/tree/HolderTable.vue";
+import ProvenancePanel from "../components/drilldown/ProvenancePanel.vue";
+import { useDrillPanel } from "../components/drilldown/useDrillPanel";
 import { useUrlState } from "../state/urlState";
 import { useMapDataStore } from "../stores/mapData";
 import { buildVariantTree, claimIds, firstClaimId } from "../derived/variantTree";
@@ -41,6 +49,7 @@ import { decayBelief } from "../derived/decay";
 const route = useRoute();
 const urlState = useUrlState();
 const mapData = useMapDataStore();
+const drill = useDrillPanel();
 
 // Single combined [run, t] watcher (frameLog.ts's documented ordering
 // hazard, same idiom as MapScreen.vue): loading the run always finishes
@@ -190,10 +199,19 @@ const hasLoadedRun = computed(() => mapData.status === "loaded");
       </div>
       <aside class="tree-screen__panel" aria-label="holder table panel">
         <PanelGlass tone="inspector">
-          <HolderTable :node-label="holderTableLabel" :holders="holderRows" />
+          <HolderTable :node-label="holderTableLabel" :holders="holderRows" @drill="drill.openDrill" />
         </PanelGlass>
       </aside>
     </div>
+
+    <ProvenancePanel
+      :open="drill.open.value"
+      :belief-id="drill.beliefId.value"
+      :state="mapData.socialState"
+      :trace-records="mapData.traceRecords"
+      :at-tick="atTick"
+      @close="drill.closeDrill"
+    />
   </div>
 </template>
 
