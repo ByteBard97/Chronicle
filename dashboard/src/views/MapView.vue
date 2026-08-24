@@ -27,6 +27,18 @@
  * itself (lane 15's file). A `select` emitted by a marker click is
  * forwarded up to MapScreen, which owns the selection store.
  *
+ * Lane 55 (M7 fix): `.map-view__markarth-label` is a small, always-on,
+ * static label element (not data-driven -- it does not depend on whether
+ * the loaded run has any Markarth NPCs) marking the abstracted "elsewhere:
+ * Markarth" inset region added to `dashboard/map/whiterun_map.json`
+ * (`markarth_city` / `road_whiterun_markarth`, bottom-left corner of the
+ * crop square, ~4-6% left / ~96-97% top -- see that file's `source` notes).
+ * It exists purely so the marker cluster there reads as an intentional
+ * off-map zone instead of a stray marker/bug. No new marker-building logic
+ * was needed for the markers themselves: `deriveMapMarkers` already places
+ * any NPC whose location resolves to a `mapJson.locations` entry, and the
+ * new JSON entries are enough on their own (see `derived/mapMarkers.ts`).
+ *
  * Lane 35 (ui-spec §3.5's map half): `variantId` is a new optional prop,
  * same idiom as `claimId` — `undefined` (the default) means the variant
  * lens is off and `LensPanel` keeps its own default `lensName`
@@ -104,6 +116,9 @@ const stainLens = ref(true);
         <SatelliteNode v-if="props.hasCarrier" :sub-line="satelliteSub" />
         <CarrierMarker v-if="props.hasCarrier" />
         <LocationLabels v-if="showLabels" />
+        <div v-if="showLabels" class="map-view__markarth-inset" aria-label="Markarth (off-map inset region)">
+          MARKARTH — elsewhere
+        </div>
         <MarkerLayer
           :markers="props.markers"
           :stain-lens="stainLens"
@@ -180,6 +195,28 @@ const stainLens = ref(true);
   flex-direction: column;
   gap: 5px;
   font-size: var(--fs-micro);
+}
+
+/* Lane 55: the abstracted "elsewhere: Markarth" inset label -- a small,
+ * always-on panel near the bottom-left corner of the crop square (see
+ * dashboard/map/whiterun_map.json's markarth_city/road_whiterun_markarth
+ * pixel notes), positioned above that marker cluster so the region reads
+ * as a deliberate off-map zone rather than a stray/unlabeled marker. */
+.map-view__markarth-inset {
+  position: absolute;
+  left: 5%;
+  top: 90.5%;
+  transform: translate(-50%, 0);
+  border: 1px solid var(--c-hairline);
+  border-radius: var(--radius-chip);
+  background: var(--c-panel-glass-soft);
+  padding: 2px 6px;
+  font-family: var(--font-display);
+  font-size: var(--fs-map-label);
+  letter-spacing: var(--ls-map-label);
+  color: var(--c-accent-hover);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .map-view__inspector {

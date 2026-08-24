@@ -404,6 +404,20 @@
         1433.3
       ],
       "source": "named WRLD marker REFR"
+    },
+    "markarth_city": {
+      "pixel": [
+        450.0,
+        3010.0
+      ],
+      "source": "lane-55: abstracted off-map inset, not a WhiterunWorld REFR -- no permissive Markarth 2D map/coords fixture exists (see docs/work-packets/lane-55-markarth-map-coverage.md). Placed in the bottom-left margin of the crop square (dashboard/src/fixtures/whiterunMock.ts CROP), clear of every real Whiterun building's pixel bounds, and rendered with a distinct 'MARKARTH' label (MapView.vue) so it reads as an intentional elsewhere-region, not a stray marker."
+    },
+    "road_whiterun_markarth": {
+      "pixel": [
+        520.0,
+        2960.0
+      ],
+      "source": "lane-55: the Whiterun<->Markarth transit waypoint (chronicle/fixtures/carrier_schedule.py), collapsed into the same off-map inset cluster as markarth_city rather than given its own distinct position -- a multi-tick transit through a road is lower-stakes than the destination marker for the walkthrough this lane fixes, and a second inset position immediately next to the first would only add visual noise. Offset a few px from markarth_city purely so the two markers don't fully overlap when both are placeable at the same T."
     }
   }
 }
