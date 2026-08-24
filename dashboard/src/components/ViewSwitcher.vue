@@ -21,7 +21,7 @@
  * `window.location.search` forward. `window.location` rather than
  * `useRoute()` for the same router-optionality reason above.
  */
-export type ViewName = "console" | "map" | "feed" | "tree" | "diff" | "rules";
+export type ViewName = "console" | "map" | "feed" | "tree" | "diff" | "rules" | "compare";
 
 defineProps<{ current: ViewName }>();
 
@@ -34,6 +34,7 @@ const LINKS: { to: string; view: ViewName; label: string }[] = [
   { to: "/tree", view: "tree", label: "tree" },
   { to: "/diff", view: "diff", label: "diff" },
   { to: "/rules", view: "rules", label: "rules" },
+  { to: "/compare", view: "compare", label: "compare" },
 ];
 </script>
 
