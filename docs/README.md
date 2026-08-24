@@ -58,7 +58,7 @@ the constitution docs, the dashboard spec, or `work-packets/`).
 - **`../AGENTS.md`** (repo root) — the coordinator/lane-worker model,
   frozen-document list, the battery commands, repo conventions.
 - **`work-packets/README.md`** — the packet index (one row per lane,
-  1–60 as of this writing) and worker-facing rules.
+  1–59 as of this writing) and worker-facing rules.
 - **`work-packets/lane-N-*.md`** — individual lane packets.
 - **`work-packets/reviews/README.md`** — **the board.** Lane status,
   governance rulings (including the 2026-08-24 coordinator
