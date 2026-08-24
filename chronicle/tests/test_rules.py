@@ -90,9 +90,9 @@ def test_registry_lists_all_nineteen_ladder_rules_with_stubs_disabled():
     names = registry.names()
     assert len(names) == 19  # §8's table, all names present (O4: the registry lists 19; the budget counts 17)
     enabled = {name for name in names if registry.enabled(name)}
-    assert len(enabled) == 12  # rules 1-10 plus 15 (lane 23) and 11 (lane 24)
-    # Unlanded rules are disabled stubs (R12); rules 15 and 11 were the
-    # first stubs replaced by live rules (lanes 23/24), so the stub
+    assert len(enabled) == 13  # rules 1-10 plus 15 (lane 23), 11 (lane 24), and 14 (lane 25)
+    # Unlanded rules are disabled stubs (R12); rules 15, 11, and 14 were
+    # the first stubs replaced by live rules (lanes 23/24/25), so the stub
     # assertions now use rule 12 (grudge-creation).
     assert TELL_DECISION_POLICY in names
     assert registry.enabled(TELL_DECISION_POLICY)

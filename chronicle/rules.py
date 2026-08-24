@@ -20,8 +20,9 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
   - Unlanded rules register as disabled stubs from day one (R12): they
     exist by name so the registry lists all 19, but emit nothing and run
     nothing until their tier's lane lands. Rules 11 (accumulation-
-    threshold, lane 24) and 15 (tell-decision-policy, lane 23) are live;
-    the stub set is now 12-14 and 16-19.
+    threshold, lane 24), 14 (obligation-lifecycle violation cascade,
+    lane 25), and 15 (tell-decision-policy, lane 23) are live;
+    the stub set is now 12-13 and 16-19.
   - Budget (O4 ruling): 9+10 are one state machine and 4 is
     schema-not-rule -- 17/20 against the ceiling. The registry still lists
     all 19 names; the table below is the vocabulary, slugified from §8's
@@ -116,7 +117,7 @@ class RecordedRule:
 
 @dataclass(frozen=True)
 class StubRule:
-    """A rule whose tier has not landed (11-19): registered by name, never enabled, runs nothing (R12)."""
+    """A rule whose tier has not landed: registered by name, never enabled, runs nothing (R12)."""
 
     name: str
     tier: int
@@ -239,7 +240,7 @@ class TellDecisionRule:
 
 
 def _default_rules() -> tuple[Rule, ...]:
-    """The 19 §8 rules: 1-10 enabled (wrappers/read-path), 11-19 disabled stubs."""
+    """The 19 §8 rules: 1-10 enabled (wrappers/read-path), 11/14/15 live, the rest disabled stubs."""
     return (
         RecordedRule(WITNESS_CREATES_BELIEF, 0),
         BeliefDecayRule(),
@@ -254,7 +255,7 @@ def _default_rules() -> tuple[Rule, ...]:
         AccumulationThresholdRule(),
         StubRule(GRUDGE_CREATION, 3),
         StubRule(GRUDGE_DECAY, 3),
-        StubRule(OBLIGATION_LIFECYCLE, 3),
+        RecordedRule(OBLIGATION_LIFECYCLE, 3),
         TellDecisionRule(),
         StubRule(REPUTATION_ACCUMULATION, 3),
         StubRule(SCHEDULE_WRITE_BACK, 4),

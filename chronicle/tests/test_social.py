@@ -315,6 +315,27 @@ def test_form_grudge_rejects_a_missing_relationship_to_the_victim():
         )
 
 
+def test_form_grudge_self_victim_bypasses_the_edge_gate():
+    """The ruled O3 bypass (lane 25): harm-to-self is rule 8's base case.
+
+    victim_id == holder_id with no edge is allowed -- the obligation
+    violation cascade's issuer is the wronged party -- and the emotional
+    component is 1.0 (self-regard is total; no edge exists to draw it
+    from, and no synthetic self-edge is created).
+    """
+    grudge = form_grudge(
+        id="grudge-self", holder_id="adrianne", victim_id="adrianne", target_id="ulfberth",
+        grievance_type="obligation_violated", source_belief_id="obl-favor-2", evidentiary_strength=0.6,
+        relationship_to_victim=None, gamets=10.0,
+    )
+    assert grudge.holder_id == "adrianne"
+    assert grudge.target_id == "ulfberth"
+    assert grudge.emotional_strength == 1.0
+    # severity = 0.5*emotional + 0.5*evidentiary, same formula as edged grudges.
+    assert grudge.severity == pytest.approx(0.5 * 1.0 + 0.5 * 0.6)
+
+
+
 # ---------------------------------------------------------------------------
 # grudge decay (rule 13 -- lane 20, the missing twin of belief decay)
 # ---------------------------------------------------------------------------

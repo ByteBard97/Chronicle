@@ -63,6 +63,7 @@ from chronicle.rules import (
     CORROBORATION,
     ENCOUNTER_SAMPLING,
     MUTATION_POLICY,
+    OBLIGATION_LIFECYCLE,
     SHARED_CLAIM_INVARIANT,
     TELL_DECISION_POLICY,
     TESTIMONY_TRANSFER,
@@ -577,8 +578,39 @@ class Driver:
         )
         return obligation
 
-    def violate_obligation(self, obligation_id: str, *, gamets: float, excuse: str | None = None) -> Obligation:
-        """Scripted obligation violation; emits an obligation_resolved trace record (schema §4)."""
+    def violate_obligation(
+        self,
+        obligation_id: str,
+        *,
+        gamets: float,
+        excuse: str | None = None,
+        violation_evidentiary_strength: float | None = None,
+        present_npc_ids: Collection[str] = (),
+    ) -> Obligation:
+        """Scripted obligation violation; emits obligation_resolved (schema §4), then rule 14's violation cascade.
+
+        The cascade (lane 25, design doc R8) fires only when the caller
+        supplies violation_evidentiary_strength -- the ruling's
+        "caller-supplied" severity, from the obligation's
+        sanctions/severity. Without it the wrapper is exactly the
+        pre-lane-25 behavior (the resolution record alone), so existing
+        scripted violations are untouched. With it, after the
+        obligation_resolved write:
+
+          - one grudge, issuer against debtor, grievance_type
+            "obligation_violated" -- the issuer is the wronged party, so
+            this is form_grudge's ruled O3 self-victim bypass (victim_id
+            == holder_id, no synthetic self-edge);
+          - one witnessed, negative reputation row per PRESENT observer:
+            obligation.witnesses intersected with the caller-supplied
+            co-located presence set (npcs_present_at), subject the
+            debtor, context the obligation's action;
+
+        all recorded under one rule-14 rule_evaluated row. Rule 14
+        disabled at construction suspends the cascade entirely (a
+        behavioral gate, the rule-11 idiom); the obligation_resolved
+        write itself predates the registry and always happens.
+        """
         obligation = self.social.violate_obligation(obligation_id, gamets=gamets, excuse=excuse)
         self.writer.write_trace(
             tick=int(gamets),
@@ -589,6 +621,49 @@ class Driver:
                 "gamets": gamets,
                 "excuse": excuse,
             },
+        )
+        if violation_evidentiary_strength is None or not self.rules.enabled(OBLIGATION_LIFECYCLE):
+            return obligation
+        n = next(self._auto_ids)
+        grudge = self.form_grudge(
+            id=f"grudge-violation-auto-{n}",
+            holder_id=obligation.issuer_id,
+            victim_id=obligation.issuer_id,  # O3: the issuer is the wronged party (harm-to-self)
+            target_id=obligation.debtor_id,
+            grievance_type="obligation_violated",
+            # No belief exists on the violation path; the obligation record
+            # is the grievance's source, so its id fills source_belief_id.
+            source_belief_id=obligation.id,
+            evidentiary_strength=violation_evidentiary_strength,
+            relationship_to_victim=None,
+            gamets=gamets,
+        )
+        # Witnesses intersected with caller-supplied presence, in the
+        # obligation's witness order (deterministic, fixture-meaningful).
+        observer_ids = [witness for witness in obligation.witnesses if witness in present_npc_ids]
+        for observer_id in observer_ids:
+            self.update_reputation(
+                observer_id=observer_id,
+                subject_id=obligation.debtor_id,
+                context=obligation.action,
+                kind="witnessed",
+                positive=False,
+                gamets=gamets,
+            )
+        self._evaluate_rule(
+            OBLIGATION_LIFECYCLE,
+            tick=int(gamets),
+            inputs={
+                "obligation_id": obligation.id,
+                "issuer_id": obligation.issuer_id,
+                "debtor_id": obligation.debtor_id,
+                "evidentiary_strength": violation_evidentiary_strength,
+                "present_observers": observer_ids,
+            },
+            outcome=RuleResult(
+                fired=True,
+                result={"grudge_id": grudge.id, "reputation_observer_ids": observer_ids},
+            ),
         )
         return obligation
 

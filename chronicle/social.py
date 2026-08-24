@@ -234,21 +234,31 @@ def form_grudge(
     rather than creating an unconditional grudge. This mirrors how
     claims.retell() takes an already-looked-up parent_variant: the check
     happens once, at construction, not scattered across callers.
+
+    One ruled bypass (O3, 2026-08-23, lane 25): victim_id == holder_id
+    skips the missing-edge raise. Harm-to-self is rule 8's BASE CASE, not
+    an exception -- "someone the holder cares about" starts with the
+    holder. No synthetic self-edge is created (no fake data); the bypass
+    only skips the gate, and the emotional component is 1.0 because
+    self-regard is total (there is no edge to draw it from).
     """
-    if relationship_to_victim is None:
+    if relationship_to_victim is None and victim_id != holder_id:
         raise ValueError(
             f"{holder_id!r} has no relationship edge to {victim_id!r} -- "
             "a grudge is created only when the holder has an existing relationship "
             "to the victim (docs/v0.1-spec.md rule 8), never unconditionally"
         )
-    if relationship_to_victim.from_id != holder_id or relationship_to_victim.to_id != victim_id:
+    if relationship_to_victim is not None and (
+        relationship_to_victim.from_id != holder_id or relationship_to_victim.to_id != victim_id
+    ):
         raise ValueError(
             "relationship_to_victim must run holder_id -> victim_id -- "
             f"got {relationship_to_victim.from_id!r} -> {relationship_to_victim.to_id!r}"
         )
     _require_unit_interval("evidentiary_strength", evidentiary_strength)
 
-    emotional_strength = relationship_to_victim.strength
+    # The O3 self-victim bypass has no edge to read; self-regard is total.
+    emotional_strength = relationship_to_victim.strength if relationship_to_victim is not None else 1.0
     severity = min(
         1.0,
         GRUDGE_EMOTIONAL_WEIGHT * emotional_strength + GRUDGE_EVIDENTIARY_WEIGHT * evidentiary_strength,
