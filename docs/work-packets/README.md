@@ -51,6 +51,8 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 44 | [lane-44-tier-5-design-prep.md](lane-44-tier-5-design-prep.md) | lane 43 | medium (design doc) |
 | 45 | [lane-45-north-star-fixture-design.md](lane-45-north-star-fixture-design.md) | lane 44 (design ruled) | medium-large (design doc) |
 | 46 | [lane-46-injection-console-display.md](lane-46-injection-console-display.md) | lane 9 (landed) | small (code) |
+| 47 | [lane-47-role-model-vacancy.md](lane-47-role-model-vacancy.md) | lane 44 (design ruled) | medium (code) |
+| 48 | [lane-48-succession.md](lane-48-succession.md) | lane 47 (serial) | medium (code) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 
