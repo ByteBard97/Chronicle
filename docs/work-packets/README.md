@@ -34,6 +34,12 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 27 | [lane-27-supersession-replay.md](lane-27-supersession-replay.md) | lane 21 finding (landed) | small (code) |
 | 28 | [lane-28-inspector-real-data.md](lane-28-inspector-real-data.md) | lane 14 (landed) | medium (code) |
 | 29 | [lane-29-tier-3-demo-run.md](lane-29-tier-3-demo-run.md) | lanes 19–26 (landed) | small-medium (producer) |
+| 30 | [lane-30-diff-panel.md](lane-30-diff-panel.md) | lane 29 (landed) | medium-large (code) |
+| 31 | [lane-31-rule-firing-log.md](lane-31-rule-firing-log.md) | lane 30 (serial) | medium (code) |
+| 32 | [lane-32-cli-hygiene.md](lane-32-cli-hygiene.md) | lanes 17, 29 findings | small (code) |
+| 33 | [lane-33-tier-4a-design-prep.md](lane-33-tier-4a-design-prep.md) | lane 32; Tier 3 (landed) | medium (design doc) |
+
+**Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 
 **Current wave:** lanes 13 (Track A), 14 (Track B), 15 (Track B) — 13 disjoint from 14/15; 14 and 15 coordinate via their file boundaries (15 owns SatelliteNode/RunPicker/streamReader; 14 owns the map data path).
 
