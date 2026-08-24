@@ -9,6 +9,11 @@ __pycache__/
 .claude/
 notes/skyrim-modlist-research/
 
+# Playwright MCP tool scratch (screenshots/snapshots from live-browser
+# verification sessions) -- local-only, recurs across every agent session
+# that uses the MCP browser tools for the live-verification convention.
+.playwright-mcp/
+
 # Dashboard (Vue/Vite/npm)
 dashboard/node_modules/
 dashboard/dist/
