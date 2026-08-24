@@ -104,8 +104,11 @@ when" — rendered).
    columns, collapse affordances, grayed superseded chains, span
    metadata (teller, tick, location, confidence delta). DOM/SVG per
    ui-doctrines (panels are DOM).
-3. Wire the `panels` state + the two invocation points (FeedScreen,
-   MapScreen inspectors).
+3. Wire the `panels` state + the invocation points: the real
+   `NpcInspector` (both host screens, post-lane-28) and the variant
+   tree's `HolderTable.vue` (lane 21, landed — rows already carry
+   `HolderRow { holderId, confidence, beliefId }`; attach the drill
+   click to the row's `beliefId`).
 4. Tests: derived module (above); panel component tests; host
    integration (router pattern): drill opens from a feed inspector
    belief → `panels` in the URL; deep link with the panel state lands
@@ -133,11 +136,17 @@ when" — rendered).
 **Edit:**
 - `dashboard/src/views/FeedScreen.vue`, `dashboard/src/views/MapScreen.vue`
   (invocation affordance + panel mount only)
+- `dashboard/src/components/tree/HolderTable.vue` (drill affordance per
+  row — the landed component already carries `beliefId`; amended
+  2026-08-23 per the v2 pre-dispatch review)
+- `dashboard/src/views/VariantTreeScreen.vue` (panel mount only — same
+  amendment)
 - `dashboard/src/state/urlState.ts` — **only** if the `panels` codec
   needs a drill-target shape (finding first if so)
 
 **Do not touch:**
-- tree files (lane 21, in flight — invocation there is a follow-up)
+- `src/derived/variantTree.ts` and other tree components (read/reuse —
+  findings, not edits)
 - timeline files, map components, feed components (landed)
 - `SatelliteNode.vue`, `RunPicker.vue`, `streamReader.ts` (lane 15)
 - `src/log/*`, `src/stores/frameLog.ts`, `src/stores/mapData.ts`
