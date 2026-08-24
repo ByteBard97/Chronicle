@@ -11,7 +11,13 @@ import pytest
 
 from chronicle.claims import ClaimStore, EventKey
 from chronicle.driver import Driver
-from chronicle.events import CrimeWitnessed, NPCDied, RumorHeard, StatusChanged
+from chronicle.events import (
+    CrimeWitnessed,
+    NPCDied,
+    RoleInstalled,
+    RumorHeard,
+    StatusChanged,
+)
 from chronicle.framelog import (
     FrameLogReader,
     FrameLogWriter,
@@ -20,6 +26,7 @@ from chronicle.framelog import (
     load_state,
     serialize_state,
 )
+from chronicle.roles import Duty, Role
 from chronicle.schedule import ScheduleBlock
 from chronicle.social import SocialStateStore
 
@@ -583,6 +590,94 @@ def test_status_changed_round_trips_write_and_read(tmp_path):
     assert record["payload"]["status_kind"] == "role_appointed"
     assert record["payload"]["detail"] == "steward_of_whiterun"
     assert record["payload"]["location_id"] is None
+
+
+def test_event_payload_maps_role_installed():
+    event = RoleInstalled(
+        tick=0, save_uuid="save-1", generation=0, seq=1, gamets=0.0, wall_ts=0.0,
+        role_id="steward_of_whiterun", title="Steward of Whiterun", institution_id="whiterun_court",
+        duties=(("collect_taxes", "duty_lapsed"),), holder_id="proventus",
+    )
+    payload = event_payload(event, origin=None)
+    assert payload["event_type"] == "role_installed"
+    assert payload["role_id"] == "steward_of_whiterun"
+    assert payload["institution_id"] == "whiterun_court"
+    assert payload["duties"] == [{"name": "collect_taxes", "lapse_status_kind": "duty_lapsed"}]
+    assert payload["holder_id"] == "proventus"
+
+
+def test_role_installed_round_trips_write_and_read(tmp_path):
+    event = RoleInstalled(
+        tick=0, save_uuid="save-1", generation=0, seq=1, gamets=0.0, wall_ts=0.0,
+        role_id="jarl_of_whiterun", title="Jarl of Whiterun", institution_id="whiterun_court",
+        duties=(), holder_id="jarl_balgruuf",
+    )
+    with FrameLogWriter(run_id="run-1", seed_id=_SEED, save_uuid="save-1", generation=0, runs_dir=tmp_path) as writer:
+        writer.write_event(tick=0, seq=1, payload=event_payload(event, origin=None))
+        writer.flush()
+    reader = FrameLogReader(tmp_path / "run-1")
+    (record,) = list(reader.records("events"))
+    assert record["payload"]["event_type"] == "role_installed"
+    assert record["payload"]["role_id"] == "jarl_of_whiterun"
+    assert record["payload"]["duties"] == []
+    assert record["payload"]["holder_id"] == "jarl_balgruuf"
+
+
+def test_role_roster_reconstructs_full_lifecycle_from_the_log_alone(tmp_path):
+    """Lane 51: install, vacancy (npc_died), and succession (status_changed
+    role_appointed) all replay from the log -- no keyframe involved, the
+    same discipline every other Tier-3+ record follows."""
+    driver = Driver(
+        run_id="run-roles", seed_id=_SEED, save_uuid="save-1", generation=0,
+        schedule=(
+            ScheduleBlock(npc_id="A", location_id="court", start_tick=0, end_tick=20),
+            ScheduleBlock(npc_id="B", location_id="court", start_tick=0, end_tick=20),
+        ),
+        runs_dir=tmp_path,
+    )
+    driver.install_role(
+        Role(
+            id="king_role", title="King", institution_id="the_court",
+            duties=(Duty(name="hold_court", lapse_status_kind="duty_lapsed"),),
+            holder_id="A", vacated_at=None,
+        ),
+        gamets=0.0,
+    )
+    # B's court edge is what succession (rule 19) ranks against once A dies.
+    driver.form_relationship(
+        id="rel-b-court", from_id="B", to_id="A",
+        basis="faction", basis_id="the_court", strength=0.9, gamets=0.0,
+    )
+
+    driver.writer.flush()  # scripted (pre-run) writes sit buffered until flushed
+    reader = FrameLogReader(tmp_path / "run-roles")
+
+    before_death = reader.state_at(2)
+    assert before_death.roles.holder_of("king_role") == "A"
+
+    driver.inject_event(
+        NPCDied(
+            tick=5, save_uuid="save-1", generation=0, seq=2,
+            gamets=5.0, wall_ts=0.0, npc_id="A", cause="illness", killer_id=None, location_id="court",
+        ),
+    )
+    driver.run(0, 10)
+    driver.close()
+
+    after_death = FrameLogReader(tmp_path / "run-roles").state_at(10)
+    role = after_death.roles.role("king_role")
+    assert role is not None
+    assert role.title == "King"
+    assert role.institution_id == "the_court"
+    assert role.duties == (Duty(name="hold_court", lapse_status_kind="duty_lapsed"),)
+    # Vacancy AND succession both replayed correctly: B (the only
+    # qualifying candidate) now holds the role, not left vacant.
+    assert after_death.roles.holder_of("king_role") == "B"
+
+    # And a tick reconstructed BEFORE the death still shows the original
+    # holder -- reconstruction is exact at arbitrary T, not just "final".
+    mid_run = FrameLogReader(tmp_path / "run-roles").state_at(2)
+    assert mid_run.roles.holder_of("king_role") == "A"
 
 
 def test_event_payload_rejects_an_event_type_it_has_no_mapping_for():

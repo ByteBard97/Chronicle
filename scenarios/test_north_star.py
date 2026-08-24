@@ -58,9 +58,13 @@ def _driver(run_id: str):
 
 
 def _the_assassination(driver) -> None:
+    # build_driver() installs two roles via driver.install_role() (lane 51),
+    # each an engine-internal event that consumes a branch seq -- the
+    # assassination's own seq must skip past them, not assume seq=1.
+    death_seq = max((event.seq for event in driver.event_log.lineage(_SAVE, 0)), default=0) + 1
     driver.inject_event(
         NPCDied(
-            tick=0, save_uuid=_SAVE, generation=0, seq=1,
+            tick=0, save_uuid=_SAVE, generation=0, seq=death_seq,
             gamets=0.0, wall_ts=0.0, npc_id=DECEASED,
             cause="assassination", killer_id=KILLER, location_id="dragonsreach",
         ),
@@ -76,7 +80,7 @@ def _the_assassination(driver) -> None:
                 "deceased": DECEASED, "cause": "assassination", "location": "dragonsreach",
                 "weapon": "a dagger", "killer": KILLER,
             },
-            canonical_event_key=EventKey(_SAVE, 0, 1),
+            canonical_event_key=EventKey(_SAVE, 0, death_seq),
             witness_id=witness_id,
             gamets=0.0,
         )

@@ -129,6 +129,27 @@ class StatusChanged(Event):
 
 
 @dataclass(frozen=True)
+class RoleInstalled(Event):
+    """A role's roster entry, emitted once per role at installation (schema §3:98).
+
+    The anchor readers reconstruct the role roster from without the
+    fixture: vacancy replays from `NPCDied` (design doc S3, lane 47),
+    lapse/succession from `StatusChanged` (S4/S5, lane 47/48) -- this is
+    the missing third piece, the roster itself. `duties` is a flat
+    tuple of (name, lapse_status_kind) pairs rather than importing
+    `chronicle.roles.Duty` -- this module (layer 1) doesn't depend on
+    that layer's types, the same discipline `ScheduleRewrite` follows
+    for `claims.EventKey`.
+    """
+
+    role_id: str
+    title: str
+    institution_id: str
+    duties: tuple[tuple[str, str], ...]
+    holder_id: str | None
+
+
+@dataclass(frozen=True)
 class ScheduleRewrite(Event):
     """A schedule block insertion/restoration driven by social state (ladder T4a.1).
 

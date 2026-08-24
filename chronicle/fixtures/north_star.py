@@ -127,14 +127,17 @@ def seed_relationships(driver: Driver, *, gamets: float = 0.0) -> None:
 
 
 def install_roles(driver: Driver) -> None:
-    driver.roles.install(
+    """Through driver.install_role() (lane 51), not roles.install() directly
+    -- the role_installed anchor is what lets the roster reconstruct from
+    this run's log alone, the same way vacancy/succession already do."""
+    driver.install_role(
         Role(
             id=STEWARD_ROLE, title="Steward of Whiterun", institution_id=WHITERUN_COURT,
             duties=(Duty(name="collect_taxes", lapse_status_kind="duty_lapsed"),),
             holder_id=STEWARD, vacated_at=None,
         )
     )
-    driver.roles.install(
+    driver.install_role(
         Role(
             id=JARL_ROLE, title="Jarl of Whiterun", institution_id=WHITERUN_COURT,
             duties=(Duty(name="hold_court", lapse_status_kind="duty_lapsed"),),

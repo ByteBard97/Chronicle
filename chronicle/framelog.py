@@ -33,7 +33,7 @@ import os
 import tempfile
 import time
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Self
 
@@ -51,10 +51,12 @@ from chronicle.events import (
     EscalationWarning,
     Event,
     NPCDied,
+    RoleInstalled,
     RumorHeard,
     ScheduleRewrite,
     StatusChanged,
 )
+from chronicle.roles import Duty, Role, RoleStore
 from chronicle.schedule import ScheduleBlock, effective_schedule_at
 from chronicle.social import (
     Grudge,
@@ -391,6 +393,15 @@ def event_payload(event: Event, *, origin: Mapping[str, str] | None) -> dict[str
             ),
             rule=event.rule,
         )
+    elif isinstance(event, RoleInstalled):
+        payload["event_type"] = "role_installed"
+        payload.update(
+            role_id=event.role_id,
+            title=event.title,
+            institution_id=event.institution_id,
+            duties=[{"name": name, "lapse_status_kind": kind} for name, kind in event.duties],
+            holder_id=event.holder_id,
+        )
     else:
         raise TypeError(f"no events-stream payload mapping for {type(event).__name__} -- extend chronicle/framelog.py (schema §3)")
     return payload
@@ -601,6 +612,7 @@ class ReconstructedState:
     claims: ClaimStore
     social: SocialStateStore
     schedule: tuple[ScheduleBlock, ...]
+    roles: RoleStore
 
 
 def _iter_records(path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
@@ -688,13 +700,20 @@ class FrameLogReader:
         # T, so the overlay filter below can find whichever ones are active
         # *at* T -- log-derived, exactly like every other Tier-3 record.
         overlays: list[ScheduleBlock] = []
+        # Tier 5's role roster (lane 51): role_installed anchors the roster
+        # itself; npc_died and status_changed(role_appointed) replay
+        # vacancy/succession on top of it, in file order (schema §2: file
+        # order IS seq order for the events stream), the same log-derived
+        # discipline every other Tier-3+ record in this reader follows.
+        roles_by_id: dict[str, Role] = {}
         for record in self.records(EVENTS_STREAM, upto_tick=tick):
             payload = record["payload"]
             if payload.get("record_type") == "keyframe" or "event_type" not in payload:
                 continue
             key = (record["save_uuid"], record["generation"], record["seq"])
             event_gamets[key] = payload["gamets"]
-            if payload["event_type"] == "schedule_rewrite":
+            event_type = payload["event_type"]
+            if event_type == "schedule_rewrite":
                 overlays.append(
                     ScheduleBlock(
                         npc_id=payload["npc_id"],
@@ -703,6 +722,23 @@ class FrameLogReader:
                         end_tick=payload["end_tick"],
                     )
                 )
+            elif event_type == "role_installed":
+                roles_by_id[payload["role_id"]] = Role(
+                    id=payload["role_id"],
+                    title=payload["title"],
+                    institution_id=payload["institution_id"],
+                    duties=tuple(Duty(name=d["name"], lapse_status_kind=d["lapse_status_kind"]) for d in payload["duties"]),
+                    holder_id=payload["holder_id"],
+                    vacated_at=None,
+                )
+            elif event_type == "npc_died":
+                for role_id, role in roles_by_id.items():
+                    if role.holder_id == payload["npc_id"]:
+                        roles_by_id[role_id] = replace(role, holder_id=None, vacated_at=payload["gamets"])
+            elif event_type == "status_changed" and payload["status_kind"] == "role_appointed":
+                role_id = payload["detail"]
+                if role_id in roles_by_id:
+                    roles_by_id[role_id] = replace(roles_by_id[role_id], holder_id=payload["npc_id"], vacated_at=None)
 
         for record in self.records(TRACE_STREAM, upto_tick=tick):
             if record["tick"] <= replay_after:
@@ -829,9 +865,13 @@ class FrameLogReader:
         # here is the full base (unfiltered per the keyframe fix above);
         # `overlays` is every schedule_rewrite fired by T, and
         # effective_schedule_at narrows both to what's active at T.
+        roles = RoleStore()
+        for role in roles_by_id.values():
+            roles.install(role)
         return ReconstructedState(
             tick=tick,
             claims=claims,
             social=social,
             schedule=effective_schedule_at(schedule, overlays, tick),
+            roles=roles,
         )

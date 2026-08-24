@@ -54,6 +54,7 @@ from chronicle.events import (
     Event,
     EventLog,
     NPCDied,
+    RoleInstalled,
     ScheduleRewrite,
     StatusChanged,
 )
@@ -402,6 +403,31 @@ class Driver:
             # inject_event() again for each duty's lapse event.
             self._vacate_roles_on_death(event.npc_id, tick=event.tick, gamets=event.gamets)
         return True
+
+    def install_role(self, role: Role, *, gamets: float = 0.0) -> Role:
+        """Install a role and emit its role_installed anchor (schema §3:98, lane 51).
+
+        Engine-internal (origin None), the same convention as
+        escalation_warning/schedule_rewrite: a role's existence is a
+        fact about the world's roster, not something anyone needs to
+        witness. This is the one place `self.roles.install()` should
+        be called from a live run -- calling `driver.roles.install()`
+        directly (as some earlier fixtures do) still works but leaves
+        no log trace, so the roster can't be reconstructed from that
+        run's log alone.
+        """
+        installed = self.roles.install(role)
+        seq = max((event.seq for event in self.event_log.lineage(self.save_uuid, self.generation)), default=0) + 1
+        self.inject_event(
+            RoleInstalled(
+                tick=int(gamets), save_uuid=self.save_uuid, generation=self.generation, seq=seq,
+                gamets=gamets, wall_ts=0.0,
+                role_id=role.id, title=role.title, institution_id=role.institution_id,
+                duties=tuple((duty.name, duty.lapse_status_kind) for duty in role.duties),
+                holder_id=role.holder_id,
+            )
+        )
+        return installed
 
     def _vacate_roles_on_death(self, npc_id: str, *, tick: int, gamets: float) -> None:
         """Vacate every role npc_id held, lapse its duties, then resolve succession (design doc S3/S4/S5).
