@@ -33,6 +33,7 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 26 | [lane-26-reputation-wiring.md](lane-26-reputation-wiring.md) | lane 25 (serial) | medium (code) |
 | 27 | [lane-27-supersession-replay.md](lane-27-supersession-replay.md) | lane 21 finding (landed) | small (code) |
 | 28 | [lane-28-inspector-real-data.md](lane-28-inspector-real-data.md) | lane 14 (landed) | medium (code) |
+| 29 | [lane-29-tier-3-demo-run.md](lane-29-tier-3-demo-run.md) | lanes 19–26 (landed) | small-medium (producer) |
 
 **Current wave:** lanes 13 (Track A), 14 (Track B), 15 (Track B) — 13 disjoint from 14/15; 14 and 15 coordinate via their file boundaries (15 owns SatelliteNode/RunPicker/streamReader; 14 owns the map data path).
 
