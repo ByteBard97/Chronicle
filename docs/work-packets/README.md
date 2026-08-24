@@ -58,6 +58,11 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 51 | [lane-51-role-installed.md](lane-51-role-installed.md) | lane 47 (landed) | small (code) |
 | 52 | [lane-52-role-inspector.md](lane-52-role-inspector.md) | lane 51 | medium (code) |
 | 53 | [lane-53-m7-walkthrough-gate.md](lane-53-m7-walkthrough-gate.md) | lanes 49, 52 | medium (QA, no code) |
+| 54 | [lane-54-timeline-global-chrome.md](lane-54-timeline-global-chrome.md) | lane 53 (M7 gate finding) | medium (code) |
+| 55 | [lane-55-markarth-map-coverage.md](lane-55-markarth-map-coverage.md) | lane 53 (M7 gate finding) | medium-large (code) |
+| 56 | [lane-56-variant-tree-edge-labels.md](lane-56-variant-tree-edge-labels.md) | lane 53 (M7 gate finding) | small-medium (code) |
+| 57 | [lane-57-provenance-popover.md](lane-57-provenance-popover.md) | lane 53 (M7 gate finding) | small-medium (code) |
+| 58 | [lane-58-outcome-filter-label-mismatch.md](lane-58-outcome-filter-label-mismatch.md) | lane 53 (M7 gate finding) | small (code) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 
