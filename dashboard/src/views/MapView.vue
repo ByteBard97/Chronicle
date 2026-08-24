@@ -63,12 +63,14 @@ import SatelliteNode from "../components/map/SatelliteNode.vue";
 import CarrierMarker from "../components/map/CarrierMarker.vue";
 import LocationLabels from "../components/map/LocationLabels.vue";
 import MarkerLayer from "../components/map/MarkerLayer.vue";
+import LiveMarkerLayer from "../components/map/LiveMarkerLayer.vue";
 import LensPanel from "../components/map/LensPanel.vue";
 import LayerToggles from "../components/map/LayerToggles.vue";
 import StageLegend from "../components/map/StageLegend.vue";
 import GlyphLegend from "../components/map/GlyphLegend.vue";
 import ZoomControls from "../components/map/ZoomControls.vue";
 import type { DerivedMarker } from "../derived/mapMarkers";
+import type { LiveMarker as LiveMarkerData } from "../derived/livePositions";
 import type { RumorStage } from "../fixtures/whiterunMock";
 
 const props = withDefaults(
@@ -80,8 +82,18 @@ const props = withDefaults(
     hasCarrier?: boolean;
     /** `undefined` = lens off, `null` = canonical selected, string = that variant id. */
     variantId?: string | null;
+    /** ChronicleBridge live positions (stores/livePositions.ts) -- empty/absent renders no live layer, unrelated to whether the fixture/reconstructed `markers` are set. */
+    liveMarkers?: LiveMarkerData[];
   }>(),
-  { markers: undefined, claimId: undefined, coverage: undefined, counts: undefined, hasCarrier: true, variantId: undefined },
+  {
+    markers: undefined,
+    claimId: undefined,
+    coverage: undefined,
+    counts: undefined,
+    hasCarrier: true,
+    variantId: undefined,
+    liveMarkers: () => [],
+  },
 );
 
 /** "variant: canonical" / "variant: variant-auto-1" — undefined leaves LensPanel's own default lens name in place. */
@@ -125,6 +137,7 @@ const stainLens = ref(true);
           :show-glyphs="showGlyphs"
           @select="emit('select', $event)"
         />
+        <LiveMarkerLayer v-if="props.liveMarkers.length > 0" :markers="props.liveMarkers" />
       </MapBackdrop>
 
       <div class="map-view__left">

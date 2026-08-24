@@ -44,7 +44,7 @@
  * this screen no longer owns the full viewport -- `App.vue`'s outlet pane
  * does.
  */
-import { computed, watch } from "vue";
+import { computed, onMounted, onUnmounted, watch } from "vue";
 import { useRoute } from "vue-router";
 import RunPicker from "../components/RunPicker.vue";
 import SalienceSwitch from "../components/SalienceSwitch.vue";
@@ -59,7 +59,9 @@ import { useUrlState } from "../state/urlState";
 import { useSelectionUrlSync } from "../state/useSelectionUrlSync";
 import { useSelectionStore } from "../stores/selection";
 import { useMapDataStore } from "../stores/mapData";
+import { useLivePositionsStore } from "../stores/livePositions";
 import { deriveMapMarkers, claimStageBreakdown, enumerateCast, firstClaimId } from "../derived/mapMarkers";
+import { deriveLiveMarkers } from "../derived/livePositions";
 import { beliefsForNpc } from "../derived/inspectorBeliefs";
 import mapJson from "../../map/whiterun_map.json";
 
@@ -68,9 +70,18 @@ const route = useRoute();
 const urlState = useUrlState();
 const selection = useSelectionStore();
 const mapData = useMapDataStore();
+const livePositions = useLivePositionsStore();
 const drill = useDrillPanel();
 
 useSelectionUrlSync();
+
+// ChronicleBridge live positions (docs/design/chronicle-bridge-spatial-streamer.md):
+// polls independently of the run/tick lifecycle above -- it's a real-time
+// feed with no tick of its own, so it starts/stops with this screen's
+// mount, not with the [run, t] watcher.
+onMounted(() => livePositions.start());
+onUnmounted(() => livePositions.stop());
+const liveMarkers = computed(() => deriveLiveMarkers(livePositions.snapshot));
 
 // Single combined [run, t] watcher (frameLog.ts:20-27's documented hazard):
 // loading the run always finishes before a tick decision is made against it.
@@ -170,6 +181,7 @@ const selectedBeliefs = computed(() =>
         :counts="countsProp"
         :has-carrier="hasCarrier"
         :variant-id="variantId"
+        :live-markers="liveMarkers"
         @select="onSelect"
       >
         <template #inspector>

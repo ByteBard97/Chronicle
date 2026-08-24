@@ -2,6 +2,7 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { serveRuns } from "./vite-plugins/serveRuns";
+import { serveLive } from "./vite-plugins/serveLive";
 
 // Range spike wiring (see README.md "Range spike" for the measured results
 // that led here): `vite dev`'s built-in static middleware answers 206 to a
@@ -16,7 +17,7 @@ import { serveRuns } from "./vite-plugins/serveRuns";
 // own middleware, so this is the one path exercised by both servers and by
 // the standing 206 assertion (scripts/check-range.mjs).
 export default defineConfig({
-  plugins: [vue(), serveRuns()],
+  plugins: [vue(), serveRuns(), serveLive()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
