@@ -99,3 +99,21 @@ class RoleStore:
         updated = replace(role, holder_id=None, vacated_at=gamets)
         self._roles[role_id] = updated
         return updated
+
+    def succeed(self, role_id: str, npc_id: str, *, gamets: float) -> Role:
+        """Install a new holder on an existing role -- Tier 5 succession (design doc S5, lane 48).
+
+        Not in the original S1 shape (install() only covers first-time
+        registration, which raises on an existing id) -- this is the
+        one method lane 48 needed and lane 47 didn't define; flagged as
+        a finding in that lane's delivery report rather than reached
+        into as a private-attribute reach from driver.py. Mirrors
+        vacate()'s exact index bookkeeping.
+        """
+        role = self._roles[role_id]
+        if role.holder_id is not None:
+            self._roles_by_holder[role.holder_id].discard(role_id)
+        updated = replace(role, holder_id=npc_id, vacated_at=None)
+        self._roles[role_id] = updated
+        self._roles_by_holder.setdefault(npc_id, set()).add(role_id)
+        return updated

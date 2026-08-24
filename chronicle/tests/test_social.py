@@ -58,6 +58,30 @@ def test_store_rejects_duplicate_relationship_for_same_triple():
         store.add_relationship(duplicate)
 
 
+def test_relationships_to_finds_every_edge_by_basis_id_across_bases():
+    """Tier 5's succession scan (design doc S5) needs institution
+    membership regardless of which basis established it."""
+    store = SocialStateStore()
+    court_edge = form_relationship(
+        id="r1", from_id="irileth", to_id="jarl_balgruuf",
+        basis="shared_employer", basis_id="whiterun_court", strength=0.95, gamets=0.0,
+    )
+    faction_edge = form_relationship(
+        id="r2", from_id="whiterun_guard_1", to_id="jarl_balgruuf",
+        basis="faction", basis_id="whiterun_court", strength=0.3, gamets=0.0,
+    )
+    unrelated_edge = form_relationship(
+        id="r3", from_id="hulda", to_id="ysolda",
+        basis="colocation", basis_id="bannered_mare", strength=0.5, gamets=0.0,
+    )
+    store.add_relationship(court_edge)
+    store.add_relationship(faction_edge)
+    store.add_relationship(unrelated_edge)
+
+    assert set(store.relationships_to("whiterun_court")) == {court_edge, faction_edge}
+    assert store.relationships_to("no_such_institution") == ()
+
+
 def test_grudge_requires_existing_relationship_to_victim():
     with pytest.raises(ValueError):
         form_grudge(

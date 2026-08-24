@@ -23,8 +23,9 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
     threshold, lane 24), 14 (obligation-lifecycle violation cascade,
     lane 25), 15 (tell-decision-policy, lane 23), 16 (reputation-
     evidence-accumulation, lane 26), 17 (schedule-write-back, lane 36),
-    and 18 (pairwise-encounter-weighting, lane 43) are live; the stub
-    set is now 12-13 and 19.
+    18 (pairwise-encounter-weighting, lane 43), and 19
+    (role-vacancy-succession, lane 48) are live; the stub set is now
+    just 12-13.
   - Budget (O4 ruling): 9+10 are one state machine and 4 is
     schema-not-rule -- 17/20 against the ceiling. The registry still lists
     all 19 names; the table below is the vocabulary, slugified from §8's
@@ -311,8 +312,35 @@ class PairwiseEncounterWeightingRule:
         return RuleResult(fired=fired, result=result)
 
 
+class RoleVacancySuccessionRule:
+    """Rule 19, role-vacancy/succession resolution (ladder T5.2; design doc S5-S6, lane 44/48).
+
+    The last of the 19 raw rule names. ``has_candidate`` is
+    caller-assembled (the driver ranks candidates by institution-
+    relationship strength, descending, ties broken by lower npc_id --
+    never a roll, so "fixtures carry the counterfactual" holds
+    exactly); this rule only asks whether the caller found one.
+
+    fired means a successor WAS installed -- the driver's
+    installation + the role_appointed status_changed event (S4's
+    vocabulary) happen only then, the same "fired = the rule's effect"
+    convention as rules 15/17/18. Real toggle (lane-19/43/47
+    precedent for driver-owned rules): disabling this rule means roles
+    never resolve a successor and stay vacant, not merely stop logging
+    that they did.
+    """
+
+    name = ROLE_VACANCY_SUCCESSION
+    tier = 5
+
+    def evaluate(self, ctx: RuleContext) -> RuleResult:
+        has_candidate = ctx.inputs["has_candidate"]
+        assert isinstance(has_candidate, bool)
+        return RuleResult(fired=has_candidate)
+
+
 def _default_rules() -> tuple[Rule, ...]:
-    """The 19 §8 rules: 1-10 enabled (wrappers/read-path), 11/14/15/16/17/18 live, the rest disabled stubs."""
+    """All 19 §8 rules live: 1-10 (wrappers/read-path), 11/14/15/16/17/18/19 (real rules); 12-13 remain stubs."""
     return (
         RecordedRule(WITNESS_CREATES_BELIEF, 0),
         BeliefDecayRule(),
@@ -332,7 +360,7 @@ def _default_rules() -> tuple[Rule, ...]:
         RecordedRule(REPUTATION_ACCUMULATION, 3),
         ScheduleWriteBackRule(),
         PairwiseEncounterWeightingRule(),
-        StubRule(ROLE_VACANCY_SUCCESSION, 5),
+        RoleVacancySuccessionRule(),
     )
 
 

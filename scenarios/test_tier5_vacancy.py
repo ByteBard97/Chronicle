@@ -13,8 +13,10 @@ S1-S4, docs/work-packets/lane-47-role-model-vacancy.md):
     same precedent as escalation_warning/schedule_rewrite). No
     auto-witness -- propagation is ordinary, scripted like any other
     canonical event.
-  - Rule 19 stays a stub this lane -- vacancy itself produces no
-    rule_evaluated row; succession (lane 48) is what lands the rule.
+  - Rule 19 was a stub as of this lane's original writing; lane 48
+    landed it (succession) afterward -- vacancy now evaluates it on
+    every vacancy (fired:false here, no court relationships seeded in
+    this fixture) rather than producing no row at all.
   - Vacancy replays from the event log alone, not a keyframe
     dependency -- a driver resumed over a pre-populated event_log with
     the role reinstalled fresh already shows the vacancy at __init__.
@@ -112,8 +114,15 @@ def test_t5_1_death_vacates_the_role_and_lapses_every_duty():
         assert payload["npc_id"] == _PROVENTUS
         assert payload["status_kind"] == "duty_lapsed"
 
+    # Lane 48 (rule 19 real): succession now evaluates on every vacancy --
+    # this fixture seeds no court relationships, so it fires false, not
+    # absent. Mechanical update to this pre-existing assertion, flagged
+    # in lane 48's delivery report (this file is otherwise lane 47's).
     trace = _records(driver, "trace")
-    assert not [p for p in trace if p.get("record_type") == "rule_evaluated" and p["rule"] == ROLE_VACANCY_SUCCESSION]
+    succession_rows = [p for p in trace if p.get("record_type") == "rule_evaluated" and p["rule"] == ROLE_VACANCY_SUCCESSION]
+    assert len(succession_rows) == 1
+    assert succession_rows[0]["fired"] is False
+    assert succession_rows[0]["inputs"]["has_candidate"] is False
 
 
 def test_t5_1_the_lapse_propagates_through_ordinary_encounter_machinery():

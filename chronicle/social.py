@@ -467,6 +467,17 @@ class SocialStateStore:
                 return rel
         return None
 
+    def relationships_to(self, basis_id: str) -> tuple[Relationship, ...]:
+        """Every relationship edge tagged with this basis_id, any from_id/to_id/basis (Tier 5's succession scan, design doc S5).
+
+        Not scoped to a holder or a specific basis type -- institution
+        membership (e.g. "whiterun_court") can come from a "faction" or
+        a "shared_employer" edge alike; this is a bulk scan, the same
+        precedent as grudges() (lane 43, O3) for a store query that
+        genuinely has no single holder to key off.
+        """
+        return tuple(r for r in self._relationships.values() if r.basis_id == basis_id)
+
     # -- grudges ----------------------------------------------------------
 
     def add_grudge(self, grudge: Grudge) -> Grudge:

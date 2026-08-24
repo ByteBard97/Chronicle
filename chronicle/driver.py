@@ -65,7 +65,7 @@ from chronicle.framelog import (
 )
 from chronicle.propagate import conflicting_pair, teller_and_hearer
 from chronicle.rng import MUTATION_SLOT, MUTATION_VALUE, TELL_DECISION, roll, roll_key
-from chronicle.roles import RoleStore
+from chronicle.roles import Role, RoleStore
 from chronicle.rules import (
     ACCUMULATION_THRESHOLD,
     CORROBORATION,
@@ -74,6 +74,7 @@ from chronicle.rules import (
     OBLIGATION_LIFECYCLE,
     PAIRWISE_ENCOUNTER_WEIGHTING,
     REPUTATION_ACCUMULATION,
+    ROLE_VACANCY_SUCCESSION,
     SCHEDULE_WRITE_BACK,
     SHARED_CLAIM_INVARIANT,
     TELL_DECISION_POLICY,
@@ -388,17 +389,20 @@ class Driver:
             # (schema §2: events-stream seq is monotonic and file order is
             # the true order), since the cascade below recursively calls
             # inject_event() again for each duty's lapse event.
-            self._vacate_roles_on_death(event.npc_id, gamets=event.gamets)
+            self._vacate_roles_on_death(event.npc_id, tick=event.tick, gamets=event.gamets)
         return True
 
-    def _vacate_roles_on_death(self, npc_id: str, *, gamets: float) -> None:
-        """Vacate every role npc_id held and inject one status_changed lapse event per duty (design doc S3/S4).
+    def _vacate_roles_on_death(self, npc_id: str, *, tick: int, gamets: float) -> None:
+        """Vacate every role npc_id held, lapse its duties, then resolve succession (design doc S3/S4/S5).
 
-        No witnessing here -- unlike rule 11's escalation (which
-        witnesses the escalating NPC's own claim automatically), a role
-        lapse has no self-evident witness; propagation is ordinary,
-        left to whoever the scenario scripts as noticing (the same
-        caller-scripted witness() call any canonical event gets).
+        No witnessing for the lapse events -- unlike rule 11's
+        escalation (which witnesses the escalating NPC's own claim
+        automatically), a role lapse has no self-evident witness;
+        propagation is ordinary, left to whoever the scenario scripts
+        as noticing (the same caller-scripted witness() call any
+        canonical event gets). Succession, by contrast, is an
+        objective institutional fact (S3's same reasoning extended)
+        and resolves immediately, in the same cascade.
         """
         for role in self.roles.roles_held_by(npc_id):
             self.roles.vacate(role.id, gamets=gamets)
@@ -411,6 +415,63 @@ class Driver:
                         npc_id=npc_id, status_kind=duty.lapse_status_kind, detail=duty.name, location_id=None,
                     )
                 )
+            self._resolve_succession(role, tick=tick, gamets=gamets)
+
+    def _institution_strengths(self, institution_id: str) -> dict[str, float]:
+        """The best (max) relationship strength each NPC has to institution_id (design doc S5).
+
+        Not scoped to a specific basis -- a candidate's edge might be
+        "faction" or "shared_employer"; institution membership is what
+        counts, per whiterun_relationships.py's own basis_id vocabulary.
+        """
+        strengths: dict[str, float] = {}
+        for rel in self.social.relationships_to(institution_id):
+            strengths[rel.from_id] = max(strengths.get(rel.from_id, 0.0), rel.strength)
+        return strengths
+
+    def _resolve_succession(self, role: Role, *, tick: int, gamets: float) -> None:
+        """Rule 19's succession resolution: deterministic ranking, never a roll (design doc S5).
+
+        Candidates are ranked by institution-relationship strength
+        descending, ties broken by lower npc_id lexicographically; the
+        just-vacated holder can't succeed themselves (they're in
+        _deceased, which the ranking excludes). Zero qualifying
+        candidates is a real, assertable outcome -- the role simply
+        stays vacant, not an error.
+        """
+        if not self.rules.enabled(ROLE_VACANCY_SUCCESSION):
+            return
+        candidates = sorted(
+            (
+                (candidate_id, strength)
+                for candidate_id, strength in self._institution_strengths(role.institution_id).items()
+                if candidate_id not in self._deceased
+            ),
+            key=lambda pair: (-pair[1], pair[0]),
+        )
+        result = self._evaluate_rule(
+            ROLE_VACANCY_SUCCESSION,
+            tick=tick,
+            inputs={
+                "role_id": role.id,
+                "institution_id": role.institution_id,
+                "candidate_count": len(candidates),
+                "has_candidate": bool(candidates),
+                "successor_id": candidates[0][0] if candidates else None,
+            },
+        )
+        if result is None or not result.fired:
+            return
+        successor_id, _strength = candidates[0]
+        self.roles.succeed(role.id, successor_id, gamets=gamets)
+        seq = max((e.seq for e in self.event_log.lineage(self.save_uuid, self.generation)), default=0) + 1
+        self.inject_event(
+            StatusChanged(
+                tick=tick, save_uuid=self.save_uuid, generation=self.generation, seq=seq,
+                gamets=gamets, wall_ts=0.0,
+                npc_id=successor_id, status_kind="role_appointed", detail=role.id, location_id=None,
+            )
+        )
 
     # -- derivations (scripted) ----------------------------------------------
     # Thin wrappers over the store methods that ALSO emit the corresponding
