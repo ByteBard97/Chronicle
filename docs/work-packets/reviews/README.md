@@ -38,6 +38,21 @@ walk away — another session's commit will sweep them up under the wrong
 message (documented case: `0740c1b`, corrected by `c8a95a3`). Before
 committing, check `git status` for files you didn't stage.
 
+**Coordinator reassignment (owner-settled 2026-08-24, ~04:00).** The
+Kimi-lineage coordinator ran out of usage credits overnight (last board
+edit: accepting lane 51, ~02:45). Per the owner's direct instruction,
+this Claude session (the one that had been working Track A/engine lanes
+49–51 tonight, and separately verified/accepted lane 46) takes over as
+the coordinator for the remainder of the night. Same governance model
+above applies unchanged — plan, write packets, review deliveries
+against acceptance criteria, run the battery independently, rule on
+findings, update this board — it is not a bulk code-editing role for
+this session either. Lane workers already in flight (chronicle-17's
+dispatched lane-52 implementer) are unaffected; this session confirmed
+with chronicle-17 directly before doing anything, to avoid the exact
+kind of ambiguity this doc's earlier governance note was written to
+close.
+
 The overseer agent (planner/reviewer) evaluates lane deliverables against
 their packet's acceptance criteria before anything is committed. One
 subdirectory per review round: `reviews/<date>-<lane>/` containing the
