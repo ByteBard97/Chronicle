@@ -113,6 +113,22 @@ class EscalationWarning(Event):
 
 
 @dataclass(frozen=True)
+class StatusChanged(Event):
+    """A roster/status change -- Thane-hood, role appointment, faction rank (schema §3:97).
+
+    An honest anchor for claims about the world's roster, distinct from
+    "someone said something" (RumorHeard) -- the lane-23/26 precedent
+    this supersedes for new fixtures. Existing RumorHeard-anchored
+    fixtures are not migrated by this class landing (a later call).
+    """
+
+    npc_id: str
+    status_kind: str
+    detail: str
+    location_id: str | None = None
+
+
+@dataclass(frozen=True)
 class ScheduleRewrite(Event):
     """A schedule block insertion/restoration driven by social state (ladder T4a.1).
 

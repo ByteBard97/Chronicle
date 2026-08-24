@@ -53,6 +53,7 @@ from chronicle.events import (
     NPCDied,
     RumorHeard,
     ScheduleRewrite,
+    StatusChanged,
 )
 from chronicle.schedule import ScheduleBlock, effective_schedule_at
 from chronicle.social import (
@@ -368,6 +369,14 @@ def event_payload(event: Event, *, origin: Mapping[str, str] | None) -> dict[str
             grievance_kind=event.grievance_kind,
             count=event.count,
             threshold=event.threshold,
+        )
+    elif isinstance(event, StatusChanged):
+        payload["event_type"] = "status_changed"
+        payload.update(
+            npc_id=event.npc_id,
+            status_kind=event.status_kind,
+            detail=event.detail,
+            location_id=event.location_id,
         )
     elif isinstance(event, ScheduleRewrite):
         payload["event_type"] = "schedule_rewrite"

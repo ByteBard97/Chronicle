@@ -4,7 +4,7 @@ import json
 
 from chronicle.claims import EventKey
 from chronicle.driver import Driver
-from chronicle.events import CrimeWitnessed, EventLog, NPCDied
+from chronicle.events import CrimeWitnessed, EventLog, NPCDied, StatusChanged
 from chronicle.framelog import FrameLogReader
 from chronicle.schedule import ScheduleBlock
 
@@ -133,6 +133,42 @@ def test_injected_event_is_logged_with_its_origin(tmp_path):
     assert record["payload"]["origin"] == {"kind": "scenario", "detail": "test_driver"}
     assert record["payload"]["gamets"] == 0.0
     assert record["payload"]["wall_ts"] == 0.0
+
+
+def test_a_belief_can_be_witnessed_off_a_status_changed_canonical_key(tmp_path):
+    """Lane 39: StatusChanged is an honest anchor for roster/status claims
+    (schema §3:97), the T3.5-pattern anchor witness() already supports for
+    any canonical event -- here exercised directly rather than via
+    RumorHeard (the lane-23/26 precedent this supersedes for new fixtures)."""
+    driver = Driver(run_id="run-status", seed_id=_SEED, save_uuid="save-1", generation=0, runs_dir=tmp_path)
+    driver.inject_event(
+        StatusChanged(
+            tick=0, save_uuid="save-1", generation=0, seq=1,
+            gamets=0.0, wall_ts=0.0, npc_id="player",
+            status_kind="thane", detail="thane_of_whiterun", location_id="dragonsreach",
+        ),
+        origin={"kind": "scenario", "detail": "test_driver"},
+    )
+    claim, _belief, _evidence = driver.witness(
+        claim_id="claim-thanehood",
+        belief_id="belief-irileth-thane",
+        evidence_id="evidence-irileth-thane",
+        kind="status_change",
+        slots={"subject": "player", "role": "thane_of_whiterun"},
+        canonical_event_key=EventKey("save-1", 0, 1),
+        witness_id="irileth",
+        gamets=0.0,
+    )
+    driver.close()
+
+    assert claim.canonical_event_key == EventKey("save-1", 0, 1)
+    reader = FrameLogReader(tmp_path / "run-status")
+    events = list(reader.records("events"))
+    assert len(events) == 1
+    assert events[0]["payload"]["event_type"] == "status_changed"
+    belief_formed = [p["payload"] for p in reader.records("trace") if p["payload"]["record_type"] == "belief_formed"]
+    assert len(belief_formed) == 1
+    assert belief_formed[0]["canonical_event_key"] == {"save_uuid": "save-1", "generation": 0, "seq": 1}
 
 
 def test_duplicate_event_injection_is_an_idempotent_no_op(tmp_path):

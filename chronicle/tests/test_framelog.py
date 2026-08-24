@@ -11,7 +11,7 @@ import pytest
 
 from chronicle.claims import ClaimStore, EventKey
 from chronicle.driver import Driver
-from chronicle.events import CrimeWitnessed, NPCDied, RumorHeard
+from chronicle.events import CrimeWitnessed, NPCDied, RumorHeard, StatusChanged
 from chronicle.framelog import (
     FrameLogReader,
     FrameLogWriter,
@@ -553,6 +553,36 @@ def test_event_payload_maps_rumor_heard():
     assert payload["hearer_id"] == "hulda"
     assert payload["source_id"] == "irileth"
     assert payload["content"] == "the jarl is dead"
+
+
+def test_event_payload_maps_status_changed():
+    event = StatusChanged(
+        tick=5, save_uuid="save-1", generation=0, seq=1, gamets=5.0, wall_ts=0.0,
+        npc_id="player", status_kind="thane", detail="thane_of_whiterun", location_id="dragonsreach",
+    )
+    payload = event_payload(event, origin=None)
+    assert payload["event_type"] == "status_changed"
+    assert payload["npc_id"] == "player"
+    assert payload["status_kind"] == "thane"
+    assert payload["detail"] == "thane_of_whiterun"
+    assert payload["location_id"] == "dragonsreach"
+
+
+def test_status_changed_round_trips_write_and_read(tmp_path):
+    event = StatusChanged(
+        tick=2, save_uuid="save-1", generation=0, seq=1, gamets=2.0, wall_ts=0.0,
+        npc_id="player", status_kind="role_appointed", detail="steward_of_whiterun", location_id=None,
+    )
+    with FrameLogWriter(run_id="run-1", seed_id=_SEED, save_uuid="save-1", generation=0, runs_dir=tmp_path) as writer:
+        writer.write_event(tick=2, seq=1, payload=event_payload(event, origin=None))
+        writer.flush()
+    reader = FrameLogReader(tmp_path / "run-1")
+    (record,) = list(reader.records("events"))
+    assert record["payload"]["event_type"] == "status_changed"
+    assert record["payload"]["npc_id"] == "player"
+    assert record["payload"]["status_kind"] == "role_appointed"
+    assert record["payload"]["detail"] == "steward_of_whiterun"
+    assert record["payload"]["location_id"] is None
 
 
 def test_event_payload_rejects_an_event_type_it_has_no_mapping_for():
