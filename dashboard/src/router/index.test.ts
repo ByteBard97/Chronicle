@@ -37,4 +37,12 @@ describe("router: view=feed lands on /feed", () => {
     await router.push("/map?view=variant-tree");
     expect(router.currentRoute.value.path).toBe("/map");
   });
+
+  it("redirects a view=scheddiff query to /scheddiff, preserving t and filters (lane 41)", async () => {
+    await router.push('/?run=mourning-demo-01&view=scheddiff&t=50&filters={"npc":"sven"}');
+    expect(router.currentRoute.value.path).toBe("/scheddiff");
+    expect(router.currentRoute.value.query.run).toBe("mourning-demo-01");
+    expect(router.currentRoute.value.query.t).toBe("50");
+    expect(router.currentRoute.value.query.filters).toBe('{"npc":"sven"}');
+  });
 });

@@ -239,6 +239,59 @@ export interface KeyframeObligation {
  * fields describing what caused the update, which are not part of the
  * stored accumulator shape below.
  */
+/**
+ * A canonical event reference (schema §2's `EventKey` triple), as carried
+ * by `belief_formed`'s `canonical_event_key` and `schedule_rewrite`'s
+ * `trigger_event_key` (lane 41). Same shape, named per its schema field
+ * rather than given one shared exported type, matching how
+ * `KeyframeClaim.canonical_event_key` is inlined above rather than
+ * referencing a would-be `EventKey` type.
+ */
+export interface EventKeyRef {
+  save_uuid: string;
+  generation: number;
+  seq: number;
+}
+
+/**
+ * One schedule block (chronicle/schedule.py's `ScheduleBlock`): an NPC's
+ * presence at one location for the half-open tick range
+ * `[start_tick, end_tick)`. This is the run's immutable BASE schedule's
+ * element shape, per keyframe `state.schedules[]` (schema §5) --
+ * `chronicle/driver.py`'s `self.schedule`, set once at construction and
+ * never mutated (confirmed against `driver.py:213,833`'s
+ * `serialize_state(..., self.schedule, ...)` call). An overlay
+ * (`schedule_rewrite`, below) is structurally identical plus its causal
+ * fields -- `chronicle/schedule.py::effective_schedule_at`'s own
+ * docstring says as much ("an inserted mourning block is structurally
+ * identical to a base one").
+ */
+export interface KeyframeScheduleBlock {
+  npc_id: string;
+  location_id: string;
+  start_tick: number;
+  end_tick: number;
+  [extra: string]: unknown;
+}
+
+/**
+ * A `schedule_rewrite` event (schema §3:96, Tier 4a / lane 36): an
+ * events-stream record -- `payload.event_type === "schedule_rewrite"`,
+ * NOT `payload.record_type` -- that overlays one NPC's base schedule for
+ * `[start_tick, end_tick)`. Carries the causal link ui-spec §3.8 names
+ * ("causing rule and event linked"): `trigger_event_key` is the
+ * canonical event this rewrite is causally downstream of, `rule` is the
+ * firing rule's name. Restoration past `end_tick` is automatic --
+ * `chronicle/schedule.py::effective_schedule_at`'s docstring confirms no
+ * separate "restore" record type exists; a reader simply stops treating
+ * this overlay as active once `tick >= end_tick`.
+ */
+export interface KeyframeScheduleOverlay extends KeyframeScheduleBlock {
+  cause: string;
+  trigger_event_key: EventKeyRef;
+  rule: string;
+}
+
 export interface KeyframeReputation {
   observer_id: string;
   subject_id: string;

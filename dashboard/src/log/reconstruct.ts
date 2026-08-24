@@ -29,8 +29,45 @@
  * to `retell()`/`resolve()`. That's a pre-existing divergence unrelated to
  * this lane's task; fixing it would shift confidence values several
  * already-landed lanes' tests assert against, so it's left as-is here.
+ *
+ * `schedule_rewrite` (lane 41, Tier 4a): a genuinely new pattern for this
+ * module. Every case in `applyTraceRecord`'s switch matches an
+ * events/trace TRACE-stream record (`payload.record_type`);
+ * `schedule_rewrite` is instead an EVENTS-stream record (schema §3:96)
+ * identified by `payload.event_type` -- there is no `record_type` on it
+ * at all. `applyTraceRecord` therefore checks `event_type` FIRST, before
+ * the `record_type`-or-bail early return every other branch sits behind;
+ * a `case "schedule_rewrite":` added to the existing switch would never
+ * match. `SocialState.baseSchedule` is hydrated once from the keyframe
+ * (the run's immutable base schedule, `chronicle/driver.py`'s
+ * `self.schedule` -- see `types.ts`'s `KeyframeScheduleBlock` doc);
+ * `scheduleOverlays` only grows via this new branch and is never pruned
+ * -- `effectiveScheduleAt` (below) decides at query time whether a given
+ * overlay is still active for tick T, mirroring
+ * `chronicle/schedule.py::effective_schedule_at` exactly (total override
+ * per overlaid NPC, automatic restoration once
+ * `tick >= overlay.end_tick`).
+ *
+ * FINDING (out of scope for this lane, filed for the coordinator):
+ * `RunReader.deltasBetween` (log/runReader.ts) windows the events stream
+ * from the nearest keyframe's tick onward (via the sidecar's
+ * `tick_offsets`), while `chronicle/framelog.py::state_at` scans the
+ * events stream from tick 0 for `schedule_rewrite` unconditionally
+ * (framelog.py:691, `self.records(EVENTS_STREAM, upto_tick=tick)` with no
+ * keyframe-relative floor). Concretely: `runs/mourning-demo-01` has
+ * `schedule_rewrite` records at tick 0 (end_tick 72) and its first
+ * keyframe at tick 23 -- querying `stateAt(t)` for any `t` in `[23, 72)`
+ * replays deltas starting at the keyframe's byte offset and never sees
+ * the tick-0 overlay, so `SocialState.scheduleOverlays` under-populates
+ * for that range even though this module's own replay logic is correct
+ * given the records it's handed. `derived/scheduleDiff.ts` works around
+ * this by reading `mapData.eventRecords` (loaded in full from tick 0,
+ * independent of keyframe placement) rather than depending on
+ * `socialState.scheduleOverlays` alone for its overlay input -- the real
+ * fix belongs in `runReader.ts`, out of this lane's file boundary.
  */
 import type {
+  EventKeyRef,
   FrameRecord,
   KeyframeClaim,
   KeyframeBelief,
@@ -40,6 +77,8 @@ import type {
   KeyframeRelationship,
   KeyframeReputation,
   KeyframeRumorState,
+  KeyframeScheduleBlock,
+  KeyframeScheduleOverlay,
   KeyframeState,
   KeyframeVariant,
 } from "./types";
@@ -75,6 +114,24 @@ export interface SocialState {
    * -- Python's `SocialStateStore._reputations` is keyed by that same triple.
    */
   reputations: Map<string, KeyframeReputation>;
+  /**
+   * The run's immutable base schedule (chronicle/driver.py's `self.schedule`,
+   * set once at construction, never mutated). Hydrated once from a
+   * keyframe's `state.schedules[]` (`fromKeyframeState`) -- the same base
+   * schedule reappears, unchanged, in every keyframe of a run, so this is
+   * NOT re-hydrated on each replay step, only carried forward.
+   */
+  baseSchedule: KeyframeScheduleBlock[];
+  /**
+   * Every `schedule_rewrite` seen so far (events-stream, schema §3:96),
+   * appended to by `applyTraceRecord`'s `event_type` branch -- never
+   * pruned. Whether a given overlay is still "active" for some tick T is
+   * a pure function of T vs. the overlay's own `end_tick`
+   * (`effectiveScheduleAt`, below), computed at query time -- there is no
+   * separate "restore" record to react to (chronicle/schedule.py's
+   * `effective_schedule_at` docstring confirms the same).
+   */
+  scheduleOverlays: KeyframeScheduleOverlay[];
 }
 
 export function rumorKey(npcId: string, claimId: string, variantId: string | null): string {
@@ -103,7 +160,27 @@ export function emptySocialState(tick: number): SocialState {
     grudges: new Map(),
     obligations: new Map(),
     reputations: new Map(),
+    baseSchedule: [],
+    scheduleOverlays: [],
   };
+}
+
+/** Runtime-tolerant read of one keyframe `state.schedules[]` entry (schema §7: skip malformed, never throw). */
+function toScheduleBlock(raw: Record<string, unknown>): KeyframeScheduleBlock | null {
+  const npcId = raw.npc_id;
+  const locationId = raw.location_id;
+  const startTick = raw.start_tick;
+  const endTick = raw.end_tick;
+  if (
+    !isString(npcId) ||
+    !isString(locationId) ||
+    typeof startTick !== "number" ||
+    typeof endTick !== "number" ||
+    endTick <= startTick // chronicle/schedule.py's ScheduleBlock raises here; a reader skips instead.
+  ) {
+    return null;
+  }
+  return { npc_id: npcId, location_id: locationId, start_tick: startTick, end_tick: endTick };
 }
 
 /** Build the working state from a keyframe's `state` object — unknown keyframe keys are simply not read. */
@@ -119,6 +196,10 @@ export function fromKeyframeState(state: KeyframeState, tick: number): SocialSta
   for (const o of state.obligations ?? []) out.obligations.set(o.id, o);
   for (const rep of state.reputations ?? [])
     out.reputations.set(reputationKey(rep.observer_id, rep.subject_id, rep.context), rep);
+  // `schedules` is an older-run-tolerant, optional key (schema §5's
+  // additive-per-tier extension) -- a keyframe with no `schedules` field
+  // (pre-Tier-4a run) leaves `baseSchedule` empty rather than throwing.
+  out.baseSchedule = (state.schedules ?? []).map(toScheduleBlock).filter((b): b is KeyframeScheduleBlock => b !== null);
   return out;
 }
 
@@ -131,12 +212,73 @@ function isStringOrNull(v: unknown): v is string | null {
 }
 
 /**
+ * Runtime-tolerant parse of a `schedule_rewrite` event payload (schema
+ * §3:96) into a `KeyframeScheduleOverlay`, or `null` if malformed --
+ * shared by `applyTraceRecord` (below) and `derived/scheduleDiff.ts`
+ * (which reads `mapData.eventRecords` directly rather than
+ * `SocialState.scheduleOverlays` alone -- see this module's header
+ * FINDING on `runReader.ts`'s keyframe-windowed events read). Exported so
+ * both call sites share one parser rather than two independently
+ * maintained field lists.
+ */
+export function parseScheduleRewrite(payload: Record<string, unknown>): KeyframeScheduleOverlay | null {
+  if (payload.event_type !== "schedule_rewrite") return null;
+  const npcId = payload.npc_id;
+  const locationId = payload.location_id;
+  const startTick = payload.start_tick;
+  const endTick = payload.end_tick;
+  const cause = payload.cause;
+  const rule = payload.rule;
+  const triggerEventKey = payload.trigger_event_key as EventKeyRef | undefined;
+  if (
+    !isString(npcId) ||
+    !isString(locationId) ||
+    typeof startTick !== "number" ||
+    typeof endTick !== "number" ||
+    endTick <= startTick ||
+    !isString(cause) ||
+    !isString(rule) ||
+    triggerEventKey === undefined ||
+    !isString(triggerEventKey.save_uuid) ||
+    typeof triggerEventKey.generation !== "number" ||
+    typeof triggerEventKey.seq !== "number"
+  ) {
+    return null;
+  }
+  return {
+    npc_id: npcId,
+    location_id: locationId,
+    start_tick: startTick,
+    end_tick: endTick,
+    cause,
+    rule,
+    trigger_event_key: {
+      save_uuid: triggerEventKey.save_uuid,
+      generation: triggerEventKey.generation,
+      seq: triggerEventKey.seq,
+    },
+  };
+}
+
+/**
  * Mutates `state` in place applying one trace record's effect, mirroring
  * the matching `chronicle/claims.py` function. `tick` is the record's
  * envelope tick, used as the record's `gamets`/`last_rehearsed` (schema §2:
  * tick *is* gamets at the ADR-0010 quantum).
  */
 export function applyTraceRecord(state: SocialState, payload: Record<string, unknown>, tick: number): void {
+  // schedule_rewrite (lane 41, Tier 4a): an EVENTS-stream record, matched
+  // on `event_type`, not `record_type` -- checked FIRST, before the
+  // record_type-or-bail return below, or it would never match (see this
+  // module's header note). Every other events-stream payload (npc_died,
+  // crime_witnessed, ...) has no derived-state effect here and falls
+  // through to that same early return, same as before this lane.
+  if (payload.event_type === "schedule_rewrite") {
+    const overlay = parseScheduleRewrite(payload);
+    if (overlay !== null) state.scheduleOverlays.push(overlay);
+    return;
+  }
+
   const recordType = payload.record_type;
   if (!isString(recordType)) return; // an events-stream payload (event_type, no record_type) — nothing to fold in here.
 
@@ -619,10 +761,38 @@ export function replayTo(start: SocialState, records: FrameRecord[], targetTick:
     grudges: new Map(start.grudges),
     obligations: new Map(start.obligations),
     reputations: new Map(start.reputations),
+    baseSchedule: [...start.baseSchedule],
+    scheduleOverlays: [...start.scheduleOverlays],
   };
   for (const record of records) {
     if (record.tick > targetTick) continue;
     applyTraceRecord(state, record.payload, record.tick);
   }
   return state;
+}
+
+/**
+ * The schedule blocks in effect at `tick` (Tier 4a, lane 41 — dashboard
+ * mirror of `chronicle/schedule.py::effective_schedule_at`, the ONE place
+ * presence-with-overlays is computed on the Python side; this is that
+ * function's TypeScript twin, same semantics, so the two can't drift
+ * apart): base blocks covering `tick`, except any NPC with an overlay
+ * covering `tick` has ALL of their base presence at `tick` replaced by
+ * that overlay -- total override, not merge. `overlays` need not already
+ * be filtered to "seen by tick" -- callers may pass every overlay ever
+ * recorded; only `covers(tick)` matters here (an overlay recorded after
+ * `tick` cannot cover `tick` anyway, since half-open `[start_tick,
+ * end_tick)` ranges are always non-negative and `start_tick` is recorded
+ * at or after the record's own tick in every real producer, but this
+ * function does not depend on that — it only ever checks the range).
+ */
+export function effectiveScheduleAt(
+  base: readonly KeyframeScheduleBlock[],
+  overlays: readonly KeyframeScheduleOverlay[],
+  tick: number,
+): (KeyframeScheduleBlock | KeyframeScheduleOverlay)[] {
+  const covers = (b: KeyframeScheduleBlock): boolean => b.start_tick <= tick && tick < b.end_tick;
+  const activeOverlays = overlays.filter(covers);
+  const overridden = new Set(activeOverlays.map((o) => o.npc_id));
+  return [...base.filter((b) => covers(b) && !overridden.has(b.npc_id)), ...activeOverlays];
 }

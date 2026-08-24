@@ -23,11 +23,19 @@
  * host doesn't pass one. See this lane's report: FeedScreen doesn't yet
  * load `mapData` itself (only MapScreen/VariantTreeScreen do), a
  * pre-existing gap outside this component's boundary.
+ *
+ * Schedule tab (lane 41, ui-spec §3.8): real content now, via the same
+ * `ScheduleLanes.vue` the standalone `/scheddiff` route renders (the
+ * packet's "two hosts, one component" pin) -- this tab passes
+ * `mapData.socialState.baseSchedule`/`mapData.eventRecords`/`atTick`
+ * straight through and restricts it to the selected NPC (`npcIds:
+ * [npcName]`) rather than computing anything itself.
  */
 import { computed, ref } from "vue";
 import PanelGlass from "./PanelGlass.vue";
 import BeliefCard from "./BeliefCard.vue";
 import StrengthBar from "./StrengthBar.vue";
+import ScheduleLanes from "./scheddiff/ScheduleLanes.vue";
 import type { SalienceLevel } from "../stores/salience";
 import { useMapDataStore } from "../stores/mapData";
 import { beliefsForNpc } from "../derived/inspectorBeliefs";
@@ -67,6 +75,8 @@ const displayTick = computed(() => props.asOfTick ?? atTick.value);
 const beliefs = computed(() =>
   props.npcName === undefined ? [] : beliefsForNpc(mapData.socialState, props.npcName, atTick.value),
 );
+
+const scheduleNpcIds = computed(() => (props.npcName === undefined ? [] : [props.npcName]));
 
 const STAGE_META: Record<RumorStage, { label: string; tone: "muted" | "stage-repeated" | "stage-dormant" }> = {
   unheard: { label: "UNHEARD", tone: "muted" },
@@ -217,6 +227,17 @@ export const INSPECTOR_TABS: readonly InspectorTab[] = [
         <div v-else class="npc-inspector__placeholder">
           {{ npcName ? `no beliefs held (as of t=${displayTick})` : "select an NPC" }}
         </div>
+      </template>
+      <template v-else-if="activeTab === 'schedule'">
+        <ScheduleLanes
+          v-if="npcName !== undefined"
+          :base-schedule="mapData.socialState.baseSchedule"
+          :event-records="mapData.eventRecords"
+          :tick="atTick"
+          :run-id="mapData.runId"
+          :npc-ids="scheduleNpcIds"
+        />
+        <div v-else class="npc-inspector__placeholder">select an NPC</div>
       </template>
       <div v-else class="npc-inspector__placeholder">
         {{ activeTab }} — not wired yet (Lane 6 reader, later packet)

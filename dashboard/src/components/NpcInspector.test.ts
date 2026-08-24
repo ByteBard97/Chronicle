@@ -4,7 +4,7 @@ import { mount } from "@vue/test-utils";
 import NpcInspector, { INSPECTOR_TABS } from "./NpcInspector.vue";
 import { useMapDataStore } from "../stores/mapData";
 import { emptySocialState, type SocialState } from "../log/reconstruct";
-import type { KeyframeBelief, KeyframeClaim, KeyframeRumorState, KeyframeVariant } from "../log/types";
+import type { FrameRecord, KeyframeBelief, KeyframeClaim, KeyframeRumorState, KeyframeVariant } from "../log/types";
 
 /**
  * Lane 28 rewrite (the packet's one authorized rewrite class): the
@@ -193,5 +193,70 @@ describe("NpcInspector", () => {
   it("omits the location link entirely when the host doesn't pass one (not derivable from SocialState)", () => {
     const wrapper = mount(NpcInspector, { props: { npcName: "npc-a" } });
     expect(wrapper.find(".npc-inspector__location").exists()).toBe(false);
+  });
+
+  describe("Schedule tab (lane 41)", () => {
+    function rewriteRecord(npcId: string, startTick: number, endTick: number): FrameRecord {
+      return {
+        schema_version: 1,
+        seed_id: "s",
+        save_uuid: "s",
+        generation: 0,
+        tick: 0,
+        stream: "events",
+        seq: 1,
+        payload: {
+          event_type: "schedule_rewrite",
+          gamets: 0,
+          wall_ts: 0,
+          origin: null,
+          npc_id: npcId,
+          location_id: "temple_of_kynareth",
+          start_tick: startTick,
+          end_tick: endTick,
+          cause: "mourning",
+          rule: "schedule-write-back",
+          trigger_event_key: { save_uuid: "s", generation: 0, seq: 0 },
+        },
+      };
+    }
+
+    function setScheduleData(baseSchedule: SocialState["baseSchedule"], eventRecords: FrameRecord[]) {
+      const mapData = useMapDataStore();
+      mapData.socialState = { ...emptySocialState(10), baseSchedule };
+      mapData.eventRecords = eventRecords;
+    }
+
+    it("shows 'select an NPC' when no npcName is passed", async () => {
+      const wrapper = mount(NpcInspector);
+      await wrapper.findAll(".npc-inspector__tab")[2].trigger("click");
+      expect(wrapper.find(".npc-inspector__placeholder").text()).toBe("select an NPC");
+    });
+
+    it("renders the selected NPC's before/after lanes, with the causal link visible for an active overlay", async () => {
+      setScheduleData(
+        [{ npc_id: "sven", location_id: "sven_house", start_tick: 0, end_tick: 100 }],
+        [rewriteRecord("sven", 0, 20)],
+      );
+      const wrapper = mount(NpcInspector, { props: { npcName: "sven" } });
+      await wrapper.findAll(".npc-inspector__tab")[2].trigger("click");
+      expect(wrapper.text()).toContain("temple_of_kynareth");
+      expect(wrapper.text()).toContain("sven_house");
+      expect(wrapper.text()).toContain("mourning");
+      const link = wrapper.find(".schedule-block-bar__event-link");
+      expect(link.exists()).toBe(true);
+      expect(link.text()).toContain("schedule-write-back");
+    });
+
+    it("shows the NPC's base blocks, no overlay, once past end_tick (restoration)", async () => {
+      setScheduleData(
+        [{ npc_id: "sven", location_id: "sven_house", start_tick: 0, end_tick: 100 }],
+        [rewriteRecord("sven", 0, 5)], // tick=10 > end_tick=5, already expired
+      );
+      const wrapper = mount(NpcInspector, { props: { npcName: "sven" } });
+      await wrapper.findAll(".npc-inspector__tab")[2].trigger("click");
+      expect(wrapper.text()).toContain("sven_house");
+      expect(wrapper.find(".schedule-block-bar__event-link").exists()).toBe(false);
+    });
   });
 });

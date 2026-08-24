@@ -6,6 +6,7 @@ import VariantTreeScreen from "../views/VariantTreeScreen.vue";
 import DiffScreen from "../views/DiffScreen.vue";
 import RuleLogScreen from "../views/RuleLogScreen.vue";
 import CompareScreen from "../views/CompareScreen.vue";
+import SchedDiffScreen from "../views/SchedDiffScreen.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -17,6 +18,7 @@ export const router = createRouter({
     { path: "/diff", name: "diff", component: DiffScreen },
     { path: "/rules", name: "rules", component: RuleLogScreen },
     { path: "/compare", name: "compare", component: CompareScreen },
+    { path: "/scheddiff", name: "scheddiff", component: SchedDiffScreen },
   ],
 });
 
@@ -43,6 +45,7 @@ const VIEW_PATHS: Record<string, string> = {
   diff: "/diff",
   rules: "/rules",
   compare: "/compare",
+  scheddiff: "/scheddiff",
 };
 
 router.beforeEach((to) => {
