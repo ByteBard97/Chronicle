@@ -55,6 +55,7 @@ from chronicle.events import (
     EventLog,
     NPCDied,
     ScheduleRewrite,
+    StatusChanged,
 )
 from chronicle.framelog import (
     DEFAULT_KEYFRAME_INTERVAL,
@@ -64,6 +65,7 @@ from chronicle.framelog import (
 )
 from chronicle.propagate import conflicting_pair, teller_and_hearer
 from chronicle.rng import MUTATION_SLOT, MUTATION_VALUE, TELL_DECISION, roll, roll_key
+from chronicle.roles import RoleStore
 from chronicle.rules import (
     ACCUMULATION_THRESHOLD,
     CORROBORATION,
@@ -207,6 +209,7 @@ class Driver:
         event_log: EventLog | None = None,
         claims: ClaimStore | None = None,
         social: SocialStateStore | None = None,
+        roles: RoleStore | None = None,
         disabled_rules: Collection[str] = (),
     ) -> None:
         self.seed_id = seed_id
@@ -268,12 +271,18 @@ class Driver:
         # Deceased NPCs (ladder T1.2): derived from NPCDied canonical events
         # -- including any already present in a pre-populated event_log, so
         # the start-from-keyframe path cannot resurrect the dead. inject_event
-        # adds to this set as further deaths arrive.
-        self._deceased: set[str] = {
-            event.npc_id
+        # adds to this set as further deaths arrive. Their death gamets is
+        # kept alongside (Tier 5, S3) so a pre-populated roles store's
+        # already-installed roles can be vacated at the right timestamp
+        # without re-injecting the lapse events that would already be in
+        # such a log -- the same "replay derives state, never re-cascades"
+        # discipline _schedule_overlays follows below.
+        _deaths: dict[str, float] = {
+            event.npc_id: event.gamets
             for event in self.event_log.lineage(save_uuid, generation)
             if isinstance(event, NPCDied)
         }
+        self._deceased: set[str] = set(_deaths)
         # Rule 17's overlays (design doc T1): derived from schedule_rewrite
         # canonical events, same start-from-keyframe-safe pattern as
         # _deceased above -- a pre-populated event_log's rewrites are
@@ -290,6 +299,17 @@ class Driver:
         ]
         self.claims = claims if claims is not None else ClaimStore()
         self.social = social if social is not None else SocialStateStore()
+        self.roles = roles if roles is not None else RoleStore()
+        # Tier 5's vacancy (design doc S3): objective, derived state -- a
+        # pre-populated roles store's roles are vacated here to match
+        # _deaths, exactly once, with no lapse-event re-injection (those
+        # already exist in a pre-populated log if this death happened
+        # before). Only mutates roles that are still held by someone dead;
+        # a role already vacated (e.g. by a prior resolve/succession) is
+        # left alone.
+        for npc_id, death_gamets in _deaths.items():
+            for role in self.roles.roles_held_by(npc_id):
+                self.roles.vacate(role.id, gamets=death_gamets)
         self.writer = FrameLogWriter(
             run_id=run_id,
             seed_id=seed_id,
@@ -360,10 +380,37 @@ class Driver:
         """
         if not self.event_log.append(event):
             return False
+        self.writer.write_event(tick=event.tick, seq=event.seq, payload=event_payload(event, origin=origin))
         if isinstance(event, NPCDied):
             self._deceased.add(event.npc_id)
-        self.writer.write_event(tick=event.tick, seq=event.seq, payload=event_payload(event, origin=origin))
+            # Tier 5's vacancy cascade (design doc S3/S4): objective, not
+            # belief-gated -- the death's own write above must land first
+            # (schema §2: events-stream seq is monotonic and file order is
+            # the true order), since the cascade below recursively calls
+            # inject_event() again for each duty's lapse event.
+            self._vacate_roles_on_death(event.npc_id, gamets=event.gamets)
         return True
+
+    def _vacate_roles_on_death(self, npc_id: str, *, gamets: float) -> None:
+        """Vacate every role npc_id held and inject one status_changed lapse event per duty (design doc S3/S4).
+
+        No witnessing here -- unlike rule 11's escalation (which
+        witnesses the escalating NPC's own claim automatically), a role
+        lapse has no self-evident witness; propagation is ordinary,
+        left to whoever the scenario scripts as noticing (the same
+        caller-scripted witness() call any canonical event gets).
+        """
+        for role in self.roles.roles_held_by(npc_id):
+            self.roles.vacate(role.id, gamets=gamets)
+            for duty in role.duties:
+                seq = max((e.seq for e in self.event_log.lineage(self.save_uuid, self.generation)), default=0) + 1
+                self.inject_event(
+                    StatusChanged(
+                        tick=int(gamets), save_uuid=self.save_uuid, generation=self.generation, seq=seq,
+                        gamets=gamets, wall_ts=0.0,
+                        npc_id=npc_id, status_kind=duty.lapse_status_kind, detail=duty.name, location_id=None,
+                    )
+                )
 
     # -- derivations (scripted) ----------------------------------------------
     # Thin wrappers over the store methods that ALSO emit the corresponding
