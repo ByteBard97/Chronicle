@@ -84,6 +84,11 @@ encounter retell → `"reported"`, corroboration → `"corroborated"`.
   events consume branch seqs — hand-numbered fixture seqs must skip
   past them; scripted pre-run writes aren't visible to
   `FrameLogReader` until a flush.
+- **Pre-authorized mechanical edits (lane-25 precedent):** registering
+  rule 16 replacing its stub requires the `test_rules.py` enabled-count
+  migration (13 → 14) — authorized, same class as lanes 23/24/25.
+  New unit tests go in the idiom-correct home (`test_social.py` /
+  `test_rules.py`) even though the packet doesn't list them by name.
 - **Local commits OK** (path-scoped, explicit adds); never push.
 - Existing test assertions immutable; conflicts are findings.
 - Report format: delivered, acceptance per criterion with command
