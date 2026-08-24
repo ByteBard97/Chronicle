@@ -1,5 +1,7 @@
 #include "Config.h"
 
+#include <Windows.h>
+
 #include <filesystem>
 
 namespace ChronicleBridge {
