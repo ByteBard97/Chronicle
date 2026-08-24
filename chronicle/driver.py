@@ -196,6 +196,7 @@ class Driver:
         encounter_probability: float = ENCOUNTER_PROBABILITY,
         mutation_probability: float = MUTATION_PROBABILITY,
         mutation_candidates: Mapping[tuple[str, str], Sequence[str]] | None = None,
+        allegiance_candidates: Mapping[tuple[str, str, str], str] | None = None,
         tell_probability: float = TELL_PROBABILITY,
         claim_privacy: Mapping[str, str] | None = None,
         accumulation_thresholds: Mapping[str, tuple[str, int]] | None = None,
@@ -222,6 +223,16 @@ class Driver:
             if mutation_candidates is not None
             else {}
         )
+        # T2.4's motivated-mutation hook (design doc north-star-fixture.md
+        # N4): claim_kind, slot, faction basis_id -> the single
+        # deterministic substitution value. A teller whose "faction"
+        # relationship's basis_id has an entry here skips the uniform-
+        # random mutation.value roll entirely -- "substitution direction
+        # matches allegiance," per the ladder's own T2.4 assertion text.
+        # No mapping registered means zero behavior change (migration-safe
+        # by construction, same as every other caller-supplies-context
+        # mapping in this codebase).
+        self.allegiance_candidates = dict(allegiance_candidates) if allegiance_candidates is not None else {}
         self.tell_probability = tell_probability
         # The tell-decision gate's privacy classification (rule 15 stage 1):
         # claim_kind -> the slot naming the claim's subject. Presence in the
@@ -1215,6 +1226,31 @@ class Driver:
         slot = slots[min(int(gate / self.mutation_probability * len(slots)), len(slots) - 1)]
         base_slots = parent_variant.slots if parent_variant is not None else claim.slots
         old_value = base_slots[slot]
+        slot_key = roll_key(
+            seed_id=self.seed_id, purpose=MUTATION_SLOT, tick=tick,
+            site=site, participants=participants, draw=0,
+        )
+        # T2.4's hook: a faction-aligned teller substitutes deterministically
+        # -- no mutation.value roll at all, the same "caller-assembled
+        # context, no roll" idiom rule 15's motive stage uses. The social
+        # lookup happens HERE, in the driver, never inside a claims
+        # operation (the T2.3 lesson). Falls through to the uniform-random
+        # path below for an unmapped teller or a mapped-but-no-op value.
+        faction_edge = next((r for r in self.social.relationships_from(teller_id) if r.basis == "faction"), None)
+        if faction_edge is not None:
+            allegiance_value = self.allegiance_candidates.get((claim.kind, slot, faction_edge.basis_id))
+            if allegiance_value is not None and allegiance_value != old_value:
+                mutation_id = "mut-" + hashlib.sha256(
+                    json.dumps({**slot_key, "allegiance_value": allegiance_value}, sort_keys=True).encode("utf-8")
+                ).hexdigest()[:12]
+                return _MutationDecision(
+                    slot=slot,
+                    old_value=old_value,
+                    new_value=allegiance_value,
+                    mutation_id=mutation_id,
+                    slot_roll_key=slot_key,
+                    slot_roll_value=gate,
+                )
         candidates = [c for c in self.mutation_candidates.get((claim.kind, slot), ()) if c != old_value]
         if not candidates:
             return None
@@ -1236,10 +1272,7 @@ class Driver:
             old_value=old_value,
             new_value=new_value,
             mutation_id=mutation_id,
-            slot_roll_key=roll_key(
-                seed_id=self.seed_id, purpose=MUTATION_SLOT, tick=tick,
-                site=site, participants=participants, draw=0,
-            ),
+            slot_roll_key=slot_key,
             slot_roll_value=gate,
         )
 
