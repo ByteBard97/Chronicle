@@ -83,6 +83,29 @@ def test_sample_encounters_is_not_a_certainty_or_a_global_broadcast():
     assert [(r.location_id, r.npc_a, r.npc_b) for r in encounters if r.encountered] == [("bannered_mare", "hulda", "proventus")]
 
 
+def test_sample_encounters_pair_thresholds_overrides_only_the_named_pair():
+    # Tier 4b (design doc W1): a pair present in pair_thresholds compares
+    # against that value instead of encounter_probability; the roll's
+    # value is unaffected either way, only what it's compared against.
+    present = {"bannered_mare": ("hulda", "proventus", "ysolda")}
+    baseline = sample_encounters(present, seed_id="seed-a", tick=1, encounter_probability=1.0)
+    overridden = sample_encounters(
+        present, seed_id="seed-a", tick=1, encounter_probability=1.0,
+        pair_thresholds={frozenset(("hulda", "proventus")): 0.0},
+    )
+    by_pair_baseline = {(r.npc_a, r.npc_b): r for r in baseline}
+    by_pair_overridden = {(r.npc_a, r.npc_b): r for r in overridden}
+    # The named pair: threshold overridden, never encounters (roll value
+    # in [0,1) is never < 0.0); its own roll value is untouched.
+    named = by_pair_overridden[("hulda", "proventus")]
+    assert named.threshold == 0.0
+    assert named.encountered is False
+    assert named.value == by_pair_baseline[("hulda", "proventus")].value
+    # Every other pair: untouched, byte-identical to the no-override run.
+    for key in (("hulda", "ysolda"), ("proventus", "ysolda")):
+        assert by_pair_overridden[key] == by_pair_baseline[key]
+
+
 def test_sample_encounters_orders_pairs_deterministically_within_a_location():
     present = {"bannered_mare": ("ysolda", "hulda")}
     encounters = sample_encounters(present, seed_id="seed-a", tick=1, encounter_probability=1.0)

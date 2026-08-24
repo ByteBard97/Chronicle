@@ -490,6 +490,19 @@ class SocialStateStore:
         grudge_id = self._grudge_key.get((holder_id, target_id))
         return self._grudges[grudge_id] if grudge_id is not None else None
 
+    def grudges(self) -> tuple[Grudge, ...]:
+        """Every grudge in the store, regardless of holder (Tier 4b, design doc O3).
+
+        Rule 18's avoidance gate needs to scan all grudges each tick to
+        find avoiding pairs -- unlike `grudges_of`'s holder-scoped
+        query, there's no single holder to key off. A public accessor
+        rather than a driver-side reach into `_grudges` (the
+        cli.py/`_evaluate_accumulation` precedent for reads that
+        predate this, but avoidance is a fresh per-tick sweep, not a
+        one-off lookup, and deserves a real accessor).
+        """
+        return tuple(self._grudges.values())
+
     # -- obligations --------------------------------------------------------
 
     def add_obligation(self, obligation: Obligation) -> Obligation:

@@ -142,6 +142,34 @@ def test_store_grudge_lookup_by_holder_and_target():
     assert store.grudges_of("irileth") == (grudge,)
 
 
+def test_grudges_lists_every_grudge_regardless_of_holder():
+    """Tier 4b's avoidance gate (design doc O3) needs a bulk scan --
+    grudges_of() is holder-scoped, this isn't."""
+    store = SocialStateStore()
+    assert store.grudges() == ()
+    relationship = form_relationship(
+        id="r1", from_id="irileth", to_id="jarl_balgruuf",
+        basis="shared_employer", basis_id="whiterun_court", strength=0.9, gamets=0.0,
+    )
+    other_relationship = form_relationship(
+        id="r2", from_id="proventus", to_id="jarl_balgruuf",
+        basis="shared_employer", basis_id="whiterun_court", strength=0.8, gamets=0.0,
+    )
+    first = form_grudge(
+        id="g1", holder_id="irileth", victim_id="jarl_balgruuf", target_id="the_thalmor",
+        grievance_type="murder_of_ally", source_belief_id="belief-irileth-death",
+        evidentiary_strength=0.9, relationship_to_victim=relationship, gamets=1000.0,
+    )
+    second = form_grudge(
+        id="g2", holder_id="proventus", victim_id="jarl_balgruuf", target_id="the_thalmor",
+        grievance_type="murder_of_ally", source_belief_id="belief-proventus-death",
+        evidentiary_strength=0.7, relationship_to_victim=other_relationship, gamets=1000.0,
+    )
+    store.add_grudge(first)
+    store.add_grudge(second)
+    assert set(store.grudges()) == {first, second}
+
+
 def test_reputation_is_keyed_per_observer_subject_context():
     store = SocialStateStore()
     store.update_reputation(

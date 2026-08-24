@@ -122,6 +122,7 @@ def sample_encounters(
     seed_id: str,
     tick: int,
     encounter_probability: float = ENCOUNTER_PROBABILITY,
+    pair_thresholds: Mapping[frozenset[str], float] | None = None,
 ) -> tuple[EncounterRoll, ...]:
     """Roll which co-present NPC pairs actually encounter each other this tick.
 
@@ -139,6 +140,17 @@ def sample_encounters(
     seed_id is caller-supplied (the run's statistical identity, carried by
     the frame-log envelope from record one), the same explicit-dependency
     discipline as gamets on decay()/retell() elsewhere in this codebase.
+
+    ``pair_thresholds`` is Tier 4b's avoidance seam (design doc
+    tier-4b-avoidance.md, decision W1): a per-pair threshold
+    REPLACEMENT, keyed by the unordered pair (``frozenset``, since a
+    grudge is directional but the roll's threshold is about the pair,
+    not who holds it against whom). A pair present in the mapping
+    compares its roll against that value instead of
+    ``encounter_probability``; every other pair is unaffected --
+    migration-safe by construction (no mapping, byte-identical to
+    today). The roll ``value`` itself never changes either way -- only
+    what it's compared against.
     """
     # T4a.2's roll-identity guarantee (design doc T4) depends on this loop
     # rolling each pair independently of the rest of ``present_by_location``
@@ -160,6 +172,11 @@ def sample_encounters(
                     participants=(npc_a, npc_b),
                     draw=0,
                 )
+                threshold = (
+                    pair_thresholds.get(frozenset((npc_a, npc_b)), encounter_probability)
+                    if pair_thresholds is not None
+                    else encounter_probability
+                )
                 rolls.append(
                     EncounterRoll(
                         location_id=location_id,
@@ -174,8 +191,8 @@ def sample_encounters(
                             draw=0,
                         ),
                         value=value,
-                        threshold=encounter_probability,
-                        encountered=value < encounter_probability,
+                        threshold=threshold,
+                        encountered=value < threshold,
                     )
                 )
     return tuple(rolls)

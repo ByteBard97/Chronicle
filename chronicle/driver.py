@@ -70,6 +70,7 @@ from chronicle.rules import (
     ENCOUNTER_SAMPLING,
     MUTATION_POLICY,
     OBLIGATION_LIFECYCLE,
+    PAIRWISE_ENCOUNTER_WEIGHTING,
     REPUTATION_ACCUMULATION,
     SCHEDULE_WRITE_BACK,
     SHARED_CLAIM_INVARIANT,
@@ -96,6 +97,8 @@ from chronicle.social import (
     SocialStateStore,
     form_grudge,
     form_relationship,
+    grudge_at,
+    grudge_cooled,
     issue_obligation,
 )
 
@@ -120,6 +123,25 @@ TELL_PROBABILITY = 1.0
 # requirement (observable, non-trivial duration) is load-bearing, not this
 # number (design doc O2, coordinator-ruled 2026-08-23).
 MOURNING_DURATION_TICKS = 72
+
+# Tier-4b pairwise encounter weighting (ladder T4b.1, rule 18; design doc
+# W1): the threshold an avoiding pair's roll compares against, replacing
+# encounter_probability for that pair only. Zero is deliberate, not a
+# placeholder magnitude to be tuned later -- `encountered = value <
+# threshold` with threshold 0.0 is never true regardless of the roll's
+# value (rng.roll's range is [0, 1)), which is what makes T4b.1's
+# "encounters... cease" an exact guarantee rather than a probabilistic
+# approximation (design doc O1, coordinator-ruled 2026-08-23).
+AVOIDANCE_PROBABILITY = 0.0
+
+# The decayed grudge severity (social.grudge_at) at or above which a pair
+# avoids each other. Placeholder magnitude, strictly above
+# forgiveness_threshold's default (0.2, social.py) so a grudge passes
+# through three stages as it decays: avoiding, cooling (still live, no
+# longer gating), forgiven (social.grudge_cooled) -- the ordering is
+# load-bearing, not this number (design doc O2, coordinator-ruled
+# 2026-08-23).
+AVOIDANCE_GRUDGE_THRESHOLD = 0.5
 
 # The warning claim's kind matches the escalation_warning event type
 # (schema §3:95): the claim is the belief-layer shadow of that event, and
@@ -178,6 +200,8 @@ class Driver:
         mourning_triggers: Mapping[str, str] | None = None,
         mourning_location: str | None = None,
         mourning_duration_ticks: int = MOURNING_DURATION_TICKS,
+        avoidance_probability: float = AVOIDANCE_PROBABILITY,
+        avoidance_grudge_threshold: float = AVOIDANCE_GRUDGE_THRESHOLD,
         keyframe_interval: int = DEFAULT_KEYFRAME_INTERVAL,
         runs_dir: Path | None = None,
         event_log: EventLog | None = None,
@@ -229,6 +253,14 @@ class Driver:
         # past T4a.1 (O5, coordinator-ruled).
         self.mourning_location = mourning_location
         self.mourning_duration_ticks = mourning_duration_ticks
+        # Rule 18's avoidance seam (design doc W1): the threshold an
+        # avoiding pair's roll compares against, and the decayed-severity
+        # floor that makes a pair avoiding at all. Both driver-owned
+        # tunables, not caller-supplied mappings -- every pair with a
+        # qualifying grudge avoids the same way, there is no per-kind
+        # variation the way claim_privacy/accumulation_thresholds have.
+        self.avoidance_probability = avoidance_probability
+        self.avoidance_grudge_threshold = avoidance_grudge_threshold
         self.save_uuid = save_uuid
         self.generation = generation
         self.keyframe_interval = keyframe_interval
@@ -819,12 +851,18 @@ class Driver:
                 for location_id, npcs in present.items()
             }
             present = {location_id: npcs for location_id, npcs in present.items() if len(npcs) >= 2}
+        # Rule 18's override happens here (design doc W1): a real toggle,
+        # not instrumentation-only -- disabled means no grudge, however
+        # severe, ever changes a threshold.
+        grudge_severities = self._grudge_severities(tick) if self.rules.enabled(PAIRWISE_ENCOUNTER_WEIGHTING) else {}
+        avoidance_thresholds = self._avoidance_thresholds(grudge_severities, tick) if grudge_severities else {}
         if self.rules.enabled(ENCOUNTER_SAMPLING):
             rolls = sample_encounters(
                 present,
                 seed_id=self.seed_id,
                 tick=tick,
                 encounter_probability=self.encounter_probability,
+                pair_thresholds=avoidance_thresholds or None,
             )
         else:
             # Rule 6 toggled off (construction-time): the sweep does not
@@ -858,6 +896,10 @@ class Driver:
                     "encountered": encounter_roll.encountered,
                 },
             )
+            if grudge_severities:
+                self._evaluate_avoidance(
+                    tick=tick, npc_a=encounter_roll.npc_a, npc_b=encounter_roll.npc_b, grudge_severities=grudge_severities
+                )
             if not encounter_roll.encountered:
                 continue
             self._propagate_on_encounter(
@@ -1358,6 +1400,58 @@ class Driver:
                 start_tick=start_tick,
                 end_tick=end_tick,
             )
+        )
+
+    # -- rule 18: pairwise encounter weighting / avoidance (ladder T4b.1; design doc W1-W5) --
+
+    def _grudge_severities(self, tick: int) -> dict[frozenset[str], tuple[Grudge, float]]:
+        """Every pair with a grudge between them (either direction), decayed severity as of `tick` (W1/W3).
+
+        Not gated by threshold here -- whether it fires is the rule's
+        job (doctrine 3: a cooling grudge's fired:false rows stay
+        visible, not silent, the same way a stuck accumulator does).
+        Mutual grudges (both sides holding one against the other)
+        collapse to one key -- avoidance is about the pair, not the
+        direction (O4).
+        """
+        severities: dict[frozenset[str], tuple[Grudge, float]] = {}
+        for grudge in self.social.grudges():
+            key = frozenset((grudge.holder_id, grudge.target_id))
+            severities[key] = (grudge, grudge_at(grudge, float(tick)).severity)
+        return severities
+
+    def _avoidance_thresholds(self, grudge_severities: Mapping[frozenset[str], tuple[Grudge, float]], tick: int) -> dict[frozenset[str], float]:
+        """The W1 override mapping: pairs whose decayed severity clears the avoidance floor and aren't cooled."""
+        return {
+            pair: self.avoidance_probability
+            for pair, (grudge, severity) in grudge_severities.items()
+            if severity >= self.avoidance_grudge_threshold and not grudge_cooled(grudge, float(tick))
+        }
+
+    def _evaluate_avoidance(self, *, tick: int, npc_a: str, npc_b: str, grudge_severities: Mapping[frozenset[str], tuple[Grudge, float]]) -> None:
+        """Rule 18's per-roll evaluation, paired with that pair's encounter_rolled row (W2).
+
+        No-op for a pair with no grudge between them at all -- bounds
+        volume to (grudge count) x (co-present ticks), never a global
+        sweep over every rolled pair.
+        """
+        pair = frozenset((npc_a, npc_b))
+        entry = grudge_severities.get(pair)
+        if entry is None:
+            return
+        grudge, severity = entry
+        self._evaluate_rule(
+            PAIRWISE_ENCOUNTER_WEIGHTING,
+            tick=tick,
+            inputs={
+                "npc_a": npc_a,
+                "npc_b": npc_b,
+                "grudge_id": grudge.id,
+                "severity": severity,
+                "threshold": self.avoidance_grudge_threshold,
+                "base_probability": self.encounter_probability,
+                "effective_probability": self.avoidance_probability,
+            },
         )
 
     def _write_nothing_salient(

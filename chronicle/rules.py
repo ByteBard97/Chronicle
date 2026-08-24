@@ -22,8 +22,9 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
     nothing until their tier's lane lands. Rules 11 (accumulation-
     threshold, lane 24), 14 (obligation-lifecycle violation cascade,
     lane 25), 15 (tell-decision-policy, lane 23), 16 (reputation-
-    evidence-accumulation, lane 26), and 17 (schedule-write-back, lane 36)
-    are live; the stub set is now 12-13 and 18-19.
+    evidence-accumulation, lane 26), 17 (schedule-write-back, lane 36),
+    and 18 (pairwise-encounter-weighting, lane 43) are live; the stub
+    set is now 12-13 and 19.
   - Budget (O4 ruling): 9+10 are one state machine and 4 is
     schema-not-rule -- 17/20 against the ceiling. The registry still lists
     all 19 names; the table below is the vocabulary, slugified from §8's
@@ -271,8 +272,47 @@ class ScheduleWriteBackRule:
         return RuleResult(fired=kin and not already_mourning)
 
 
+class PairwiseEncounterWeightingRule:
+    """Rule 18, pairwise encounter weighting / avoidance (ladder T4b.1; design doc W1-W5, lane 40/43).
+
+    Both inputs are caller-assembled (the T2.3 lesson, restated again):
+    ``severity`` -- the pair's decayed grudge severity
+    (``social.grudge_at(...).severity``, and already gated by
+    ``not grudge_cooled(...)`` before the driver even calls this --
+    cooling isn't a separate boolean here the way rule 17's latch is,
+    because there's no one-shot event to latch on; severity decaying
+    below the threshold IS the "avoidance stops" signal, read fresh
+    every tick) -- and ``threshold``
+    (``AVOIDANCE_GRUDGE_THRESHOLD``, driver-owned).
+
+    fired means avoidance is ACTIVE for this pair this tick -- the
+    driver only overrides the pair's encounter threshold
+    (``schedule.sample_encounters``'s ``pair_thresholds``) when this
+    fires, the same "fired = the rule's effect" convention as rules
+    15/17. Real toggle (lane-19 precedent for driver-owned rules):
+    disabling this rule must suppress the override itself, since a
+    disabled "avoidance" rule that still avoided would be a silent
+    behavior change with no toggle to explain it.
+    """
+
+    name = PAIRWISE_ENCOUNTER_WEIGHTING
+    tier = 4
+
+    def evaluate(self, ctx: RuleContext) -> RuleResult:
+        severity = ctx.inputs["severity"]
+        threshold = ctx.inputs["threshold"]
+        assert isinstance(severity, float) and isinstance(threshold, float)
+        fired = severity >= threshold
+        result = (
+            {"base_probability": ctx.inputs["base_probability"], "effective_probability": ctx.inputs["effective_probability"]}
+            if fired
+            else None
+        )
+        return RuleResult(fired=fired, result=result)
+
+
 def _default_rules() -> tuple[Rule, ...]:
-    """The 19 §8 rules: 1-10 enabled (wrappers/read-path), 11/14/15/16/17 live, the rest disabled stubs."""
+    """The 19 §8 rules: 1-10 enabled (wrappers/read-path), 11/14/15/16/17/18 live, the rest disabled stubs."""
     return (
         RecordedRule(WITNESS_CREATES_BELIEF, 0),
         BeliefDecayRule(),
@@ -291,7 +331,7 @@ def _default_rules() -> tuple[Rule, ...]:
         TellDecisionRule(),
         RecordedRule(REPUTATION_ACCUMULATION, 3),
         ScheduleWriteBackRule(),
-        StubRule(PAIRWISE_ENCOUNTER_WEIGHTING, 4),
+        PairwiseEncounterWeightingRule(),
         StubRule(ROLE_VACANCY_SUCCESSION, 5),
     )
 
