@@ -71,7 +71,7 @@ function update(key: keyof FeedFilters, value: string) {
         @change="update('outcome', ($event.target as HTMLSelectElement).value)"
       >
         <option value="">(any)</option>
-        <option v-for="o in OUTCOME_OPTIONS" :key="o" :value="o">{{ o.replace("_", "-") }}</option>
+        <option v-for="o in OUTCOME_OPTIONS" :key="o" :value="o">{{ o }}</option>
       </select>
     </label>
 
