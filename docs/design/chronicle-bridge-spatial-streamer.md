@@ -1,12 +1,11 @@
 # ChronicleBridge design prep — live Whiterun spatial streamer (v0.2, first slice)
 
-**Status:** design proposal for owner review. **No code to be dispatched
-from this until the Stage-0 spike (in progress, game-side) confirms the
-Proton↔Linux localhost networking path actually works** — per
-`notes/ideas.md`'s own framing, this is the highest-risk unknown in the
-whole bridge design and nothing downstream should be built ahead of it.
-Written now so there's zero lag once that answer is in hand, not as
-authorization to start building.
+**Status:** design proposal, decisions resolved this pass (2026-08-24).
+**No code to be dispatched from this until the Stage-0 spike (in
+progress, game-side) confirms outbound networking from inside the
+Proton prefix reaches the Linux host** — per `notes/ideas.md`'s own
+framing, this is the highest-risk unknown in the whole bridge design
+and nothing downstream should be built ahead of it.
 
 Sources: `docs/research/22-native-skse-plugin-prior-art.md` (the
 ChronicleBridge architecture and actor-enumeration design, filed
@@ -15,12 +14,13 @@ architecture, substrate choice, timeline branching, sync handshake);
 `docs/architecture.md` (FormID rule, SAL, hydration seam);
 `dashboard/map/whiterun_map.json` (the existing `WhiterunWorld`
 world→pixel transform); `docs/vision-v2.2.md` §5 (corrected 2026-08-24,
-commit `f28a306`); direct conversation with the owner, 2026-08-24
-(scope: ~1Hz, all NPCs outdoors in Whiterun, no coordinate once indoors
-— see memory `project_chronicle_v0.2_realtime_npc_scope`).
+commit `f28a306`); `notes/inbox/skse-http-test-harness-plan.md`
+(SKSE_HTTP's actual client/server direction); direct conversation with
+the owner, 2026-08-24 (scope: ~1Hz, all NPCs outdoors in Whiterun, no
+coordinate once indoors — see memory
+`project_chronicle_v0.2_realtime_npc_scope`).
 
-Decisions here are prefixed **B** (bridge). Open points for the owner
-are collected in §5.
+Decisions here are prefixed **B** (bridge).
 
 ---
 
@@ -37,7 +37,9 @@ else research/22 designed is real and still the eventual shape of
 would be exactly the kind of scope creep this project has avoided all
 along (the same discipline as "no economy before v0.4," applied here
 to "no full event-extraction pipeline before the one thing that was
-actually asked for").
+actually asked for"). **Resolved (B1/O1): build only this slice
+first.** Nothing the owner said implies wanting deaths/crimes/dialogue
+extraction yet — that stays real future work, not this lane.
 
 ## 1. Scope, precisely
 
@@ -59,95 +61,102 @@ actually asked for").
   they enter a building").
 - **Cadence:** ~1 Hz (owner-approved tradeoff — explicitly not
   animation-frame-rate). A `SKSE::GetTaskInterface()` periodic task,
-  not a Papyrus timer (research/22's rationale: this needs
-  `RE::ProcessLists`, a native-only structure Papyrus can't reach at
-  all, so there's no meaningful "Papyrus-first" version of this
-  specific piece — see the earlier conversation turn where this was
-  checked directly).
-- **Payload per tracked actor:** FormID (resolved to a stable identity
-  per §3, never stored raw per `architecture.md`'s FormID rule), `x`,
-  `y` (no `z` — the map is a 2D top-down render, `whiterun_map.json`'s
+  not a Papyrus timer — this needs `RE::ProcessLists`, a native-only
+  structure Papyrus can't reach at all, so there's no meaningful
+  "Papyrus-first" version of this specific piece (checked directly
+  earlier in this design conversation).
+- **Payload per tracked actor:** a stable identity (§3), `x`, `y` (no
+  `z` — the map is a 2D top-down render, `whiterun_map.json`'s
   transform is 2D-only).
 
-## 2. B1 — Where the code lives
+## 2. B2 — Where the code lives (resolved)
 
-`adapters/skyrim/` per `adapters/skyrim/README.md`'s own charter ("the
-only place in the repo allowed to know Skyrim exists") and ADR-0001's
-isolation rationale. Concretely `adapters/skyrim/ChronicleBridge/`, a
-CommonLibSSE-NG CMake project (research/22's recommended scaffold),
-buildable independently of `chronicle/` — `chronicle/` never imports
-it, matching every other lane's engine-agnostic discipline.
+`adapters/skyrim/ChronicleBridge/` — not a decision so much as two
+already-committed docs agreeing: `adapters/skyrim/README.md`'s own
+charter names that directory "the only place in the repo allowed to
+know Skyrim exists," and research/22 already named the plugin
+ChronicleBridge. A CommonLibSSE-NG CMake project (research/22's
+recommended scaffold), buildable independently of `chronicle/` —
+`chronicle/` never imports it, matching every other lane's
+engine-agnostic discipline.
 
-## 3. B2 — Identity mapping, not raw FormIDs
+## 3. B3 — Identity mapping (resolved: hand-maintained + fallback)
 
 Per `architecture.md`'s FormID rule (load-order-relative, must never be
 persisted raw): the plugin resolves each actor to `(plugin_name,
 local_form_id)` at the point of sampling, not a bare `FormID` integer.
-This composite key is Chronicle's actual npc identity going forward —
-the same discipline the eventual full event-extraction pipeline will
-need anyway, so building it correctly now rather than raw-FormID-first-
-then-fixing-later avoids exactly the class of silent-corruption bug the
-ADR warns about.
 
-**Not yet resolved (owner input needed, §5 O3):** whether the mapping
-from `(plugin_name, local_form_id)` to a Chronicle-style npc_id
-(`jarl_balgruuf`, `proventus`, ...) is a small hand-maintained table for
-the named cast plus a generic fallback for unnamed NPCs, or something
-auto-derived from the load order at startup.
+**Resolved:** a small hand-maintained table maps the named cast's
+`(plugin_name, local_form_id)` to Chronicle's existing npc_ids
+(`jarl_balgruuf`, `proventus`, ...); anything not in that table (guards,
+generic citizens — `highActorHandles` will return plenty of these, and
+the owner asked for "all the NPCs in Whiterun," not just the named
+cast) gets a generic fallback id, the stringified `(plugin_name,
+local_form_id)` pair itself. Auto-deriving the mapping from the load
+order was considered and rejected: it can't invent a Chronicle npc_id
+for someone the belief engine has never modeled, so it would solve
+nothing the fallback doesn't already solve, for real added complexity.
 
-## 4. B3 — Transport is a side-channel, not the frame log
+## 4. B4 — Transport (resolved: outbound-only, direction matches Stage-0)
 
 A live position isn't a belief, rumor, grudge, or derivation — it fails
 `docs/frame-log-schema.md`'s own "three things only" rule (inputs,
-derivations-with-inputs, acceleration) on its face. **Decision: this
-does not go through `chronicle/events.py` or the frame log at all.**
-It's a separate, non-canonical live feed: the plugin's embedded
-`ix::WebSocketServer` (research/22's Option C) pushes position
-snapshots; a small Python-side listener (new, minimal — not
-`chronicle/`) receives them and makes them available to the dashboard.
+derivations-with-inputs, acceleration) on its face. **This does not go
+through `chronicle/events.py` or the frame log at all** — it's a
+separate, non-canonical live feed.
 
-**Not yet resolved (owner input needed, §5 O4):** exactly how that
-listener exposes the feed to the browser. The dashboard is currently a
-pure static-read, no-backend app (`AGENTS.md`, `vision`) — introducing
-any live push-to-browser channel is a small but real architectural
-exception to that invariant, worth the owner's explicit sign-off rather
-than a default I pick myself. Candidates: (a) the listener writes a
-tiny rolling JSON file the dashboard's existing polling machinery reads
-the same way it already tails `events.jsonl`/`trace.jsonl`, staying
-fully within "static-read" by treating position snapshots as just
-another file to poll; (b) a small dev-only local WebSocket/SSE server
-the dashboard subscribes to directly, matching the `npm run dev`
-server's own already-local-only nature. (a) is the more conservative,
-doctrine-preserving choice and is my default recommendation absent
-other input.
+**Resolved (supersedes this doc's earlier draft, which got the
+transport direction wrong):** the plugin is an outbound **client**,
+never a server. It pushes position snapshots out to a small listener
+running on the Linux host, the same direction Stage-0 is built to
+prove (SKSE_HTTP's actual mechanism — confirmed against
+`notes/inbox/skse-http-test-harness-plan.md` — is "the game itself
+acts as an HTTP client, sending a request out to a server that we run
+locally," never the reverse). The earlier draft called for an embedded
+`ix::WebSocketServer` *inside* the plugin, with the Linux side
+connecting in — the opposite direction, and exactly the unverified,
+higher-risk case `notes/ideas.md` names explicitly ("an in-process
+WebSocket server bound to `127.0.0.1` inside the Proton prefix is
+reachable from a native-Linux Python process"). A successful Stage-0
+result proves outbound-from-prefix works; it proves nothing about
+inbound-to-prefix. Since this slice only ever needs to push data out —
+no inbound commands, nothing needs to reach into the game — there is
+no reason to take on the unverified direction at all. **Drop the
+`ix::WebSocketServer` dependency from this slice entirely.** Either
+reuse SKSE_HTTP's `sendLocalhostHttpRequest` at ~1Hz with a JSON body,
+or have ChronicleBridge make its own outbound connection with an
+already-license-vetted client library (`cpp-httplib`, MIT, already in
+research/22's dependency table) — verify which is more practical once
+building starts; both satisfy "outbound only, matches what Stage-0
+proves."
 
-## 5. Open points for the owner
+The listener on the Linux side (new, minimal, not `chronicle/`)
+receives these pushes and makes them available to the dashboard.
 
-- **O1 — Sequencing.** Confirm building only the spatial streamer
-  first (§0), deferring the full event-sink/hydration pipeline
-  research/22 designed to a later slice, once this one is proven live
-  against a real game session.
-- **O2 — Plugin location/name.** Confirm `adapters/skyrim/ChronicleBridge/`
-  (§2) as both location and name, or propose otherwise.
-- **O3 — Identity mapping approach.** Hand-maintained table vs.
-  auto-derived (§3).
-- **O4 — How the feed reaches the browser.** File-polling side-channel
-  (recommended, preserves the no-backend invariant) vs. a small local
-  live server (§4).
-- **O5 — Does this wait on the Stage-0 spike's exact result, or only
-  on "networking works at all"?** The spike tests SKSE_HTTP's
-  request/reply pattern; this design calls for an embedded WebSocket
-  *server* instead (a different, if related, networking primitive).
-  Recommendation: treat a successful Stage-0 result as sufficient
-  proof that Proton↔Linux localhost networking works in principle, and
-  let this slice's own first build be the concrete test of the
-  WebSocket-server variant specifically — not a reason to run a second
-  separate spike first.
+**Resolved (browser delivery): file-polling, not a live server.** The
+dashboard is currently a pure static-read, no-backend app (`AGENTS.md`,
+the vision) — that invariant is what `check-range`'s tests and
+`RunReader`'s whole poller design are built around. The listener writes
+a small rolling JSON snapshot file; the dashboard's existing polling
+machinery reads it the same way it already tails
+`events.jsonl`/`trace.jsonl`. Zero change to the no-backend invariant —
+a snapshot file is just one more thing to poll.
+
+## 5. Still open
+
+- **O5 (partially open) — exact outbound call.** `sendLocalhostHttpRequest`
+  vs. a self-made `cpp-httplib` client connection — a build-time
+  finding, not a design decision; either is fine, whichever proves
+  simpler once the plugin scaffold exists.
+- **Inbound-to-prefix remains unverified and is deferred entirely** —
+  nothing in this slice needs it, so it isn't being tested or assumed;
+  revisit only if a future slice genuinely needs the game to receive
+  something (e.g. hydration overrides).
 
 ## 6. Dashboard-side consequence (out of this doc's scope to design)
 
 A live position overlay on the existing map view, converting each
 `(x, y)` through `whiterun_map.json`'s existing `transform` formula —
 confirmed already correct for this exact worldspace, no new coordinate
-work needed there. Left for its own lane once §5's open points are
-ruled and the plugin side has something real to consume.
+work needed there. Left for its own lane once the plugin side has
+something real to consume.
