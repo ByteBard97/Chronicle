@@ -49,6 +49,8 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 42 | [lane-42-mourning-demo-run.md](lane-42-mourning-demo-run.md) | lane 36 (landed) | small (producer) |
 | 43 | [lane-43-tier-4b-avoidance.md](lane-43-tier-4b-avoidance.md) | lane 40 (design accepted) | medium (code) |
 | 44 | [lane-44-tier-5-design-prep.md](lane-44-tier-5-design-prep.md) | lane 43 | medium (design doc) |
+| 45 | [lane-45-north-star-fixture-design.md](lane-45-north-star-fixture-design.md) | lane 44 (design ruled) | medium-large (design doc) |
+| 46 | [lane-46-injection-console-display.md](lane-46-injection-console-display.md) | lane 9 (landed) | small (code) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 

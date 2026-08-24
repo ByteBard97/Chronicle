@@ -111,6 +111,8 @@ agent's report, the overseer's findings, and the verdict
 | 42 — mourning demo run producer | delivered + worker-committed `18611a3` | accepted — run verified: `runs/mourning-demo-01` exists with 2 `schedule_rewrite` events; the T4a.2 narrative watchable (priest informed through the reroute); 218 pytest green, ruff clean (coordinator re-ran) |
 | 43 — Tier 4b: avoidance (rule 18) + T4b.1 | packet written, dispatched by owner 2026-08-23 | pending delivery |
 | 44 — Tier 5 design prep (roles & vacancy) | packet written; after lane 43 | queued |
+| 45 — T6 north-star fixture design | packet written; after lane 44's design is ruled | queued |
+| 46 — InjectionConsole writing-form display | packet written; Track B filler | queued |
 | 41 — M5 schedule diff (ui-spec §3.8) | packet written (lane 36 landed); queued behind 35/38 (Track B) | queued |
 | 27 — dashboard supersession replay (reconstruct.ts) | delivered + worker-committed `ec4c41b` | accepted — coordinator re-ran the battery: 369/369 vitest, build clean, check-range 206, 203 pytest, ruff clean; T=30 assertions correctly updated to the resolved state (T=200 untouched per the authorization); boundaries exact (3 files, all authorized) |
 | 28 — NpcInspector → real data | delivered + worker-committed `b91b1d5` | accepted — same battery; derived-module + real-run tests present; visual shell preserved. Bonus fix in scope: FeedScreen never loaded the shared store at all (inspector always empty) — fixed and live-verified by the worker |
