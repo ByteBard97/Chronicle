@@ -7,7 +7,9 @@
  * governance rule). The rule chip links to lane 31's rule-log route
  * (`/rules?filters={"rule":...}`, built directly against the `filters`
  * codec -- `panelUrlState.ts`'s `drill:` helper doesn't apply here, per
- * the packet) -- it 404s until lane 31 lands, which is expected/accepted.
+ * the packet). `run` is carried through the link (lane-31 finding: a
+ * bare `<a>` is a full-page navigation, so a run-less link silently
+ * dropped the loaded run) -- mirrors `eventHref`'s pattern below.
  * The event link jumps to the encounter feed at the triggering record's
  * tick (`/feed?run=...&t=...`), the M3 cross-view deep-link idiom already
  * established by row clicks elsewhere in the app.
@@ -37,6 +39,7 @@ const ruleHref = computed(() => {
   if (rule === null) return null;
   const encoded = codecs.filters.encode({ rule: rule.rule });
   const params = new URLSearchParams();
+  if (props.runId !== null) params.set("run", props.runId);
   if (encoded !== undefined) params.set("filters", encoded);
   return `/rules?${params.toString()}`;
 });
