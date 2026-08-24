@@ -16,10 +16,19 @@
  * - stainLens on  → stage fill/ring colors (the "rumor-stage" lens)
  * - stainLens off → the mockup's gray lens-off pair (#79828e / #3a414c)
  * - showGlyphs off → glyph badges hidden
+ *
+ * Lane 35: a marker carrying `variantClass` (the variant lens is active —
+ * see `derived/mapMarkers.ts`) styles via `variantMarkerStyle` instead of
+ * the plain stage lookup, and ignores `stainLens` (the variant lens is a
+ * separate, mutually-exclusive overlay per ui-spec §7 item 3 — a marker
+ * either has a `variantClass` or it doesn't; there's no "variant lens with
+ * the stage lens's gray toggle also applied" state). Markers with no
+ * `variantClass` (the default, and every pre-lane-35 marker) render exactly
+ * as before.
  */
 import { computed } from "vue";
 import { buildMarkers, STAGE_STYLE, GLYPH_COLOR, type MapMarker } from "../../fixtures/whiterunMock";
-import type { DerivedMarker } from "../../derived/mapMarkers";
+import { variantMarkerStyle, type DerivedMarker } from "../../derived/mapMarkers";
 import NpcMarker from "./NpcMarker.vue";
 
 const props = withDefaults(
@@ -37,6 +46,21 @@ type RenderMarker = MapMarker & { id?: string };
 
 function renderReal(source: DerivedMarker[]): RenderMarker[] {
   return source.map((m) => {
+    if (m.variantClass !== undefined) {
+      const st = variantMarkerStyle(m.stage, m.variantClass);
+      return {
+        id: m.id,
+        name: `${m.name} — ${m.stage} — ${m.variantClass}`,
+        left: m.left,
+        top: m.top,
+        fill: st.fill,
+        ring: st.ring,
+        size: st.size,
+        glyph: props.showGlyphs ? m.glyph : null,
+        glyphColor: m.glyph ? GLYPH_COLOR[m.glyph] : "#888",
+        selected: m.selected,
+      };
+    }
     const st = STAGE_STYLE[m.stage];
     return {
       id: m.id,

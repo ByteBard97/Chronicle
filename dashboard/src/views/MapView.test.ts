@@ -96,4 +96,19 @@ describe("MapView", () => {
     expect(wrapper.find(".stage-legend").exists()).toBe(true);
     expect(wrapper.find(".glyph-legend").exists()).toBe(true);
   });
+
+  it("lane 35: variantId unset leaves the lens panel's default lens name untouched", () => {
+    const wrapper = mountMapView();
+    expect(wrapper.find(".lens-panel__lens").text()).toContain("rumor-stage");
+  });
+
+  it("lane 35: variantId=null shows 'variant: canonical' in the lens panel", () => {
+    const wrapper = mount(MapView, { props: { variantId: null }, global: { plugins: [createPinia()] } });
+    expect(wrapper.find(".lens-panel__lens").text()).toContain("variant: canonical");
+  });
+
+  it("lane 35: variantId=<id> shows 'variant: <id>' in the lens panel", () => {
+    const wrapper = mount(MapView, { props: { variantId: "variant-auto-1" }, global: { plugins: [createPinia()] } });
+    expect(wrapper.find(".lens-panel__lens").text()).toContain("variant: variant-auto-1");
+  });
 });

@@ -253,6 +253,47 @@ describe("MapScreen.vue", () => {
     expect(active.text()).toBe("OBSERVER");
   });
 
+  it("lane 35: with no filters.variant, the lens selector shows the default rumor-stage lens name, unedited", async () => {
+    const { wrapper } = await mountAt("?run=test-run&t=1");
+    expect(wrapper.find(".lens-panel__lens").text()).toContain("rumor-stage");
+  });
+
+  it("lane 35: filters.variant=canonical switches the lens label and restyles markers by holding class", async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: MapScreen }] });
+    stubFetch();
+    await router.push({ path: "/", query: { run: "test-run", t: "1", filters: JSON.stringify({ variant: "canonical" }) } });
+    const wrapper = mount(MapScreen, { global: { plugins: [router, createPinia()] } });
+    await router.isReady();
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.find(".lens-panel__lens").text()).toContain("variant: canonical");
+
+    // At t=1: irileth has told proventus (stage "repeated" per the existing
+    // scrub test above) and still holds variant null (canonical, so
+    // holds-it); proventus now holds v1 ("heard", holds-different);
+    // jarl_balgruuf holds no belief on this claim at all (holds-none).
+    const titles = wrapper.findAll(".npc-marker__dot").map((d) => d.attributes("title"));
+    expect(titles.some((t) => t === "Irileth — repeated — holds-it")).toBe(true);
+    expect(titles.some((t) => t === "Proventus — heard — holds-different")).toBe(true);
+    expect(titles.some((t) => t === "Jarl Balgruuf — unheard — holds-none")).toBe(true);
+  });
+
+  it("lane 35: filters.variant=v1 flips the holds-it holder to proventus", async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: MapScreen }] });
+    stubFetch();
+    await router.push({ path: "/", query: { run: "test-run", t: "1", filters: JSON.stringify({ variant: "v1" }) } });
+    const wrapper = mount(MapScreen, { global: { plugins: [router, createPinia()] } });
+    await router.isReady();
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.find(".lens-panel__lens").text()).toContain("variant: v1");
+    const titles = wrapper.findAll(".npc-marker__dot").map((d) => d.attributes("title"));
+    expect(titles.some((t) => t === "Proventus — heard — holds-it")).toBe(true);
+    expect(titles.some((t) => t === "Irileth — repeated — holds-different")).toBe(true);
+  });
+
   it("shows the tolerated-absence run note when no run is selected (runs/index.json 404s)", async () => {
     vi.stubGlobal(
       "fetch",

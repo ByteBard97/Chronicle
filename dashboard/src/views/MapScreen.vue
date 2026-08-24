@@ -22,6 +22,17 @@
  * boundaries) listing the selected NPC's held beliefs (reusing lane 28's
  * `beliefsForNpc`, read-only) with a click per belief that opens
  * `ProvenancePanel` on that belief id.
+ *
+ * Lane 35 (2026-08-24, ui-spec §3.5's map half): the variant lens rides
+ * `filters.variant` (no new query key — `filters` already round-trips
+ * arbitrary string keys). This screen is the one place that already reads
+ * `urlState`/`mapData` to build `markers`, so it's also the one place that
+ * can turn `filters.variant` into `deriveMapMarkers`'s `variantId` input
+ * (undefined = lens off, the literal string "canonical" = the null/canonical
+ * variant since a URL filter value can't carry a literal null) and thread
+ * the resolved value down to `MapView` for the lens-selector label.
+ * `MapView`/`MarkerLayer` themselves stay router/store-agnostic (see
+ * `MapView.vue`'s header) — all the URL/store reading happens here.
  */
 import { computed, watch } from "vue";
 import { useRoute } from "vue-router";
@@ -77,6 +88,14 @@ const cast = computed(() => enumerateCast(mapData.socialState, mapData.traceReco
 const activeClaimId = computed(() => firstClaimId(mapData.socialState) ?? "");
 const hasLoadedRun = computed(() => mapData.status === "loaded");
 
+// Lane 35: `filters.variant` -> `deriveMapMarkers`'s `variantId` (undefined
+// = lens off, "canonical" -> null, anything else -> that variant id verbatim).
+const variantId = computed<string | null | undefined>(() => {
+  const raw = urlState.filters.value.variant;
+  if (raw === undefined) return undefined;
+  return raw === "canonical" ? null : raw;
+});
+
 const markers = computed(() =>
   deriveMapMarkers({
     state: mapData.socialState,
@@ -86,6 +105,7 @@ const markers = computed(() =>
     claimId: activeClaimId.value,
     atTick: atTick.value,
     isSelected: (id) => selection.isSelected(id),
+    variantId: variantId.value,
   }),
 );
 
@@ -140,6 +160,7 @@ const selectedBeliefs = computed(() =>
         :coverage="coverageProp"
         :counts="countsProp"
         :has-carrier="hasCarrier"
+        :variant-id="variantId"
         @select="onSelect"
       >
         <template #inspector>

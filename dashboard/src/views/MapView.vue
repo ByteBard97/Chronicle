@@ -26,6 +26,21 @@
  * packet, at the MapView mount level, never inside SatelliteNode.vue
  * itself (lane 15's file). A `select` emitted by a marker click is
  * forwarded up to MapScreen, which owns the selection store.
+ *
+ * Lane 35 (ui-spec §3.5's map half): `variantId` is a new optional prop,
+ * same idiom as `claimId` — `undefined` (the default) means the variant
+ * lens is off and `LensPanel` keeps its own default `lensName`
+ * ("rumor-stage") unedited, matching MapView.test.ts's default-mount
+ * assertions byte-for-byte. When set (`null` = canonical, a string = that
+ * variant id), `lensName` becomes "variant: <label>" — the individual
+ * marker restyling itself happens in `MarkerLayer.vue`/`derived/mapMarkers.ts`
+ * off each marker's own `variantClass`, not here; this prop only drives the
+ * lens-selector label. MapView deliberately does NOT call `useUrlState()`
+ * or `useMapDataStore()` itself to read the variant filter — MapView.test.ts
+ * mounts with only a Pinia plugin, no router, and this prop keeps MapView
+ * router-agnostic exactly like `markers`/`claimId` already are; MapScreen.vue
+ * (which already owns `urlState` and `mapData`) reads the filter and passes
+ * both `markers` (already classified) and this label prop down.
  */
 import { computed, ref } from "vue";
 import { useSalienceStore } from "../stores/salience";
@@ -51,8 +66,15 @@ const props = withDefaults(
     coverage?: string;
     counts?: Record<RumorStage, number>;
     hasCarrier?: boolean;
+    /** `undefined` = lens off, `null` = canonical selected, string = that variant id. */
+    variantId?: string | null;
   }>(),
-  { markers: undefined, claimId: undefined, coverage: undefined, counts: undefined, hasCarrier: true },
+  { markers: undefined, claimId: undefined, coverage: undefined, counts: undefined, hasCarrier: true, variantId: undefined },
+);
+
+/** "variant: canonical" / "variant: variant-auto-1" — undefined leaves LensPanel's own default lens name in place. */
+const lensName = computed(() =>
+  props.variantId === undefined ? undefined : `variant: ${props.variantId === null ? "canonical" : props.variantId}`,
 );
 
 const emit = defineEmits<{ select: [id: string] }>();
@@ -91,7 +113,7 @@ const stainLens = ref(true);
       </MapBackdrop>
 
       <div class="map-view__left">
-        <LensPanel />
+        <LensPanel :lens-name="lensName" />
         <LayerToggles
           v-model:show-glyphs="showGlyphs"
           v-model:show-labels="showLabels"

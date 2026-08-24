@@ -229,6 +229,39 @@ describe("VariantTreeScreen.vue", () => {
     expect(panel.text()).not.toContain("npc-x");
   });
 
+  it("lane 35: no node selected -> no 'view on map' link", async () => {
+    const { wrapper } = await mountAt("/?run=tree-test-run&t=3");
+    expect(wrapper.find(".tree-screen__view-on-map").exists()).toBe(false);
+  });
+
+  it("lane 35: selecting a non-canonical node builds a /map link carrying run/t and filters.variant=<variant id>", async () => {
+    const { wrapper } = await mountAt("/?run=tree-test-run&t=2");
+    const findNode = (label: string) => wrapper.findAll(".tree-svg__node").find((n) => n.attributes("aria-label")?.startsWith(`${label} |`));
+    await findNode("va-1")!.trigger("click");
+    await flushPromises();
+
+    const link = wrapper.find(".tree-screen__view-on-map");
+    expect(link.exists()).toBe(true);
+    const href = link.attributes("href")!;
+    expect(href.startsWith("/map?")).toBe(true);
+    const params = new URLSearchParams(href.slice("/map?".length));
+    expect(params.get("run")).toBe("tree-test-run");
+    expect(params.get("t")).toBe("2");
+    expect(JSON.parse(params.get("filters")!)).toEqual({ variant: "va-1" });
+  });
+
+  it("lane 35: selecting the canonical node encodes filters.variant as the literal string 'canonical'", async () => {
+    const { wrapper } = await mountAt("/?run=tree-test-run&t=3");
+    const findNode = (label: string) => wrapper.findAll(".tree-svg__node").find((n) => n.attributes("aria-label")?.startsWith(`${label} |`));
+    await findNode("canonical")!.trigger("click");
+    await flushPromises();
+
+    const link = wrapper.find(".tree-screen__view-on-map");
+    const href = link.attributes("href")!;
+    const params = new URLSearchParams(href.slice("/map?".length));
+    expect(JSON.parse(params.get("filters")!)).toEqual({ variant: "canonical" });
+  });
+
   it("deep link ?view=tree&run=...&t=... lands on the tree screen with the right tick", async () => {
     const { wrapper } = await mountAt("/tree?run=tree-test-run&t=2");
     expect(wrapper.find("svg.tree-svg").exists()).toBe(true);

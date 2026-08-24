@@ -31,6 +31,17 @@
  * `drill` with the clicked row's real `beliefId`, this screen owns the
  * open/target state via `useDrillPanel()`, same as `FeedScreen.vue`/
  * `MapScreen.vue`).
+ *
+ * Lane 35 (2026-08-24, ui-spec §3.5's map half): a selected node also
+ * offers "view on map" -- a plain `<a href>` (ViewSwitcher.vue's own
+ * precedent for cross-view navigation, not `<router-link>`; kept this
+ * screen's file boundary as the only edit, no change to `HolderTable.vue`)
+ * to `/map` carrying `run`/`t` plus `filters={"variant": ...}` (the literal
+ * string "canonical" for the null/canonical node -- `filters` values are
+ * strings and can't carry a real `null`). Built inline with
+ * `codecs.filters.encode` (`state/urlState.ts`) rather than hand-rolling
+ * `JSON.stringify`, since no cross-route URL-building helper already exists
+ * (`panelUrlState.ts` is drill-panel-specific).
  */
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
@@ -41,7 +52,7 @@ import TreeSvg, { type RecolorMode } from "../components/tree/TreeSvg.vue";
 import HolderTable, { type HolderRow } from "../components/tree/HolderTable.vue";
 import ProvenancePanel from "../components/drilldown/ProvenancePanel.vue";
 import { useDrillPanel } from "../components/drilldown/useDrillPanel";
-import { useUrlState } from "../state/urlState";
+import { useUrlState, codecs } from "../state/urlState";
 import { useMapDataStore } from "../stores/mapData";
 import { buildVariantTree, claimIds, firstClaimId } from "../derived/variantTree";
 import { decayBelief } from "../derived/decay";
@@ -122,6 +133,23 @@ const holderTableLabel = computed(() => {
   return node.isCanonical ? "canonical" : node.id;
 });
 
+/**
+ * "view on map" href for the selected node: `/map` with `run`/`t` carried
+ * forward plus `filters={"variant": ...}` (ui-spec §3.5's map half). `null`
+ * when nothing is selected -- the affordance simply doesn't render then.
+ */
+const viewOnMapHref = computed(() => {
+  const node = selectedNode.value;
+  if (node === null) return null;
+  const variantParam = node.variantId ?? "canonical";
+  const params = new URLSearchParams();
+  if (urlState.run.value !== null) params.set("run", urlState.run.value);
+  if (urlState.t.value !== null) params.set("t", String(urlState.t.value));
+  const encodedFilters = codecs.filters.encode({ variant: variantParam });
+  if (encodedFilters !== undefined) params.set("filters", encodedFilters);
+  return `/map?${params.toString()}`;
+});
+
 function onTickInput(event: Event) {
   const raw = (event.target as HTMLInputElement).value;
   if (raw === "") {
@@ -199,6 +227,13 @@ const hasLoadedRun = computed(() => mapData.status === "loaded");
       </div>
       <aside class="tree-screen__panel" aria-label="holder table panel">
         <PanelGlass tone="inspector">
+          <a
+            v-if="viewOnMapHref !== null"
+            :href="viewOnMapHref"
+            class="tree-screen__view-on-map"
+          >
+            view on map ▸
+          </a>
           <HolderTable :node-label="holderTableLabel" :holders="holderRows" @drill="drill.openDrill" />
         </PanelGlass>
       </aside>
@@ -323,5 +358,17 @@ const hasLoadedRun = computed(() => mapData.status === "loaded");
   flex: none;
   padding: 8px;
   overflow-y: auto;
+}
+
+.tree-screen__view-on-map {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: var(--c-accent);
+  font-size: var(--fs-secondary);
+  text-decoration: none;
+}
+
+.tree-screen__view-on-map:hover {
+  color: var(--c-accent-hover);
 }
 </style>

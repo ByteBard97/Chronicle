@@ -9,11 +9,14 @@ import {
   locationAt,
   seededJitter,
   stageForNpcClaim,
+  variantClassForNpc,
+  variantMarkerStyle,
   type WhiterunMapJson,
 } from "./mapMarkers";
 import { emptySocialState, rumorKey, type SocialState } from "../log/reconstruct";
 import type { FrameRecord } from "../log/types";
 import type { KeyframeBelief, KeyframeRumorState } from "../log/types";
+import { STAGE_STYLE } from "../fixtures/whiterunMock";
 
 function trace(tick: number, payload: Record<string, unknown>, seq = 0): FrameRecord {
   return { schema_version: 1, seed_id: "s", save_uuid: "s", generation: 0, tick, stream: "trace", seq, payload };
@@ -252,6 +255,125 @@ describe("deriveMapMarkers", () => {
       isSelected: (id) => id === "jarl_balgruuf",
     });
     expect(markers[0]!.selected).toBe(true);
+  });
+});
+
+describe("variantClassForNpc (lane 35: the variant lens)", () => {
+  it("holds-none when the holder has no belief on the claim at all", () => {
+    const state = emptySocialState(0);
+    expect(variantClassForNpc(state, "nobody", "c1", null)).toBe("holds-none");
+    expect(variantClassForNpc(state, "nobody", "c1", "v1")).toBe("holds-none");
+  });
+
+  it("holds-it when the holder's belief variant_id matches the selected variant, including canonical (null === null)", () => {
+    const state = emptySocialState(0);
+    state.beliefs.set("b1", belief({ id: "b1", holder_id: "n", claim_id: "c1", variant_id: null }));
+    expect(variantClassForNpc(state, "n", "c1", null)).toBe("holds-it");
+
+    const state2 = emptySocialState(0);
+    state2.beliefs.set("b2", belief({ id: "b2", holder_id: "n", claim_id: "c1", variant_id: "v1" }));
+    expect(variantClassForNpc(state2, "n", "c1", "v1")).toBe("holds-it");
+  });
+
+  it("holds-different when the holder's belief is on a different variant than selected", () => {
+    const state = emptySocialState(0);
+    state.beliefs.set("b1", belief({ id: "b1", holder_id: "n", claim_id: "c1", variant_id: "v1" }));
+    expect(variantClassForNpc(state, "n", "c1", "v2")).toBe("holds-different");
+    expect(variantClassForNpc(state, "n", "c1", null)).toBe("holds-different"); // holds v1, canonical selected
+  });
+
+  it("only looks at beliefs for the given claim_id, ignoring beliefs on other claims", () => {
+    const state = emptySocialState(0);
+    state.beliefs.set("b1", belief({ id: "b1", holder_id: "n", claim_id: "other-claim", variant_id: "v1" }));
+    expect(variantClassForNpc(state, "n", "c1", "v1")).toBe("holds-none");
+  });
+});
+
+describe("variantMarkerStyle", () => {
+  it("holds-it uses the normal per-stage style", () => {
+    expect(variantMarkerStyle("repeated", "holds-it")).toEqual(STAGE_STYLE.repeated);
+    expect(variantMarkerStyle("heard", "holds-it")).toEqual(STAGE_STYLE.heard);
+  });
+
+  it("holds-none forces the unheard gray regardless of stage", () => {
+    expect(variantMarkerStyle("repeated", "holds-none")).toEqual(STAGE_STYLE.unheard);
+  });
+
+  it("holds-different is a fixed dimmed style, distinct from both holds-it's stage color and holds-none's gray", () => {
+    const dimmed = variantMarkerStyle("repeated", "holds-different");
+    expect(dimmed).not.toEqual(STAGE_STYLE.repeated);
+    expect(dimmed).not.toEqual(STAGE_STYLE.unheard);
+    // Same regardless of underlying stage -- holds-different never reads as stage-colored.
+    expect(variantMarkerStyle("heard", "holds-different")).toEqual(dimmed);
+  });
+});
+
+describe("deriveMapMarkers's variantId input (lane 35)", () => {
+  function stateWithBeliefs(beliefs: KeyframeBelief[]): SocialState {
+    const state = emptySocialState(0);
+    for (const b of beliefs) state.beliefs.set(b.id, b);
+    return state;
+  }
+
+  it("when variantId is omitted, markers carry no variantClass at all (byte-identical to pre-lane-35 behavior)", () => {
+    const eventRecords: FrameRecord[] = [event(0, { event_type: "npc_died", npc_id: "jarl_balgruuf", location_id: "dragonsreach" })];
+    const markers = deriveMapMarkers({
+      state: emptySocialState(0),
+      traceRecords: [],
+      eventRecords,
+      mapJson: MAP_JSON,
+      claimId: "c1",
+      atTick: 0,
+      isSelected: () => false,
+    });
+    expect(markers[0]).not.toHaveProperty("variantClass");
+    expect("variantClass" in markers[0]!).toBe(false);
+  });
+
+  it("classifies each cast member's variantClass when variantId is provided", () => {
+    const state = stateWithBeliefs([
+      belief({ id: "b1", holder_id: "holds-it-npc", claim_id: "c1", variant_id: "v1" }),
+      belief({ id: "b2", holder_id: "holds-diff-npc", claim_id: "c1", variant_id: "v2" }),
+    ]);
+    const traceRecords: FrameRecord[] = [
+      trace(0, { npc_a: "holds-it-npc", npc_b: "holds-diff-npc", location_id: "dragonsreach" }),
+      trace(0, { npc_a: "holds-none-npc", npc_b: "holds-it-npc", location_id: "bannered_mare" }),
+    ];
+    const markers = deriveMapMarkers({
+      state,
+      traceRecords,
+      eventRecords: [],
+      mapJson: MAP_JSON,
+      claimId: "c1",
+      atTick: 0,
+      isSelected: () => false,
+      variantId: "v1",
+    });
+    const byId = Object.fromEntries(markers.map((m) => [m.id, m.variantClass]));
+    expect(byId["holds-it-npc"]).toBe("holds-it");
+    expect(byId["holds-diff-npc"]).toBe("holds-different");
+    expect(byId["holds-none-npc"]).toBe("holds-none");
+  });
+
+  it("variantId: null selects the canonical variant", () => {
+    const state = stateWithBeliefs([
+      belief({ id: "b1", holder_id: "canon-npc", claim_id: "c1", variant_id: null }),
+      belief({ id: "b2", holder_id: "variant-npc", claim_id: "c1", variant_id: "v1" }),
+    ]);
+    const traceRecords: FrameRecord[] = [trace(0, { npc_a: "canon-npc", npc_b: "variant-npc", location_id: "dragonsreach" })];
+    const markers = deriveMapMarkers({
+      state,
+      traceRecords,
+      eventRecords: [],
+      mapJson: MAP_JSON,
+      claimId: "c1",
+      atTick: 0,
+      isSelected: () => false,
+      variantId: null,
+    });
+    const byId = Object.fromEntries(markers.map((m) => [m.id, m.variantClass]));
+    expect(byId["canon-npc"]).toBe("holds-it");
+    expect(byId["variant-npc"]).toBe("holds-different");
   });
 });
 

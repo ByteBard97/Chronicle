@@ -45,7 +45,7 @@ import type { FrameRecord } from "../log/types";
 import type { SocialState } from "../log/reconstruct";
 import type { KeyframeBelief, KeyframeRumorState } from "../log/types";
 import { rumorStageAt, type RumorStage } from "./rumorStage";
-import { toPct } from "../fixtures/whiterunMock";
+import { toPct, STAGE_STYLE } from "../fixtures/whiterunMock";
 
 // ---------------------------------------------------------------------------
 // The map-JSON shape this module needs (a subset of dashboard/map/whiterun_map.json)
@@ -63,6 +63,16 @@ export interface WhiterunMapJson {
 /** S/N only this lane — D (schedule deviation) and G (grudge) need Tier 3/4 state the reader doesn't reconstruct. */
 export type MapGlyph = "S" | "N" | null;
 
+/**
+ * Lane 35 (ui-spec §3.5's map half): a holder's relationship to the
+ * variant selected in the tree, for one claim. `holds-it` includes the
+ * canonical (`null`) case matching itself. Populated on `DerivedMarker`
+ * only when `DeriveMapMarkersInput.variantId` is provided (see
+ * `deriveMapMarkers`) — absent otherwise, so the claim-level lens stays
+ * byte-identical to before this lane.
+ */
+export type VariantHoldClass = "holds-it" | "holds-different" | "holds-none";
+
 export interface DerivedMarker {
   id: string;
   name: string;
@@ -72,6 +82,8 @@ export interface DerivedMarker {
   stage: RumorStage;
   glyph: MapGlyph;
   selected: boolean;
+  /** Set only when the variant lens is active (see `VariantHoldClass`). */
+  variantClass?: VariantHoldClass;
 }
 
 function isString(v: unknown): v is string {
@@ -241,6 +253,59 @@ export function stageForNpcClaim(state: SocialState, npcId: string, claimId: str
 }
 
 // ---------------------------------------------------------------------------
+// Variant lens (lane 35, ui-spec §3.5's map half: node click in the variant
+// tree -> map overlay switches to the selected variant).
+//
+// Distinct from `stageForNpcClaim`'s claim-level rollup (worst stage across
+// EVERY variant a holder has): this is a *per-variant* classification —
+// does this specific holder currently believe THIS variant (`holds-it`,
+// which includes the canonical/null case matching itself), a different one
+// (`holds-different`), or nothing on this claim at all (`holds-none`,
+// folded onto the existing "unheard" gray). "Currently" is as-of-T because
+// `state` here is always the reconstructed state at the caller's T (lane
+// 14's `mapData` store) — there is no separate T parameter to thread.
+
+/** A holder's relationship to `variantId` (`null` = canonical) for one claim, at the state's T. */
+export function variantClassForNpc(
+  state: SocialState,
+  npcId: string,
+  claimId: string,
+  variantId: string | null,
+): VariantHoldClass {
+  const beliefs = [...state.beliefs.values()].filter((b) => b.holder_id === npcId && b.claim_id === claimId);
+  if (beliefs.length === 0) return "holds-none";
+  return beliefs.some((b) => b.variant_id === variantId) ? "holds-it" : "holds-different";
+}
+
+export interface VariantMarkerStyle {
+  fill: string;
+  ring: string;
+  size: number;
+}
+
+/**
+ * Fixed dimmed/contrasted style for `holds-different` — deliberately NOT
+ * stage-colored (a holder of a superseded/sibling variant should read as
+ * "off" regardless of how strongly they hold it), distinct from both the
+ * full stage palette and `STAGE_STYLE.unheard`'s gray.
+ */
+const VARIANT_DIFFERENT_STYLE: VariantMarkerStyle = { fill: "rgba(143,180,217,.28)", ring: "#3d4b58", size: 9 };
+
+/**
+ * Marker style for the variant lens: `holds-it` keeps the holder's normal
+ * per-stage style (so freshness still reads for the variant you're
+ * tracking); `holds-none` forces `STAGE_STYLE.unheard` (matching the
+ * claim-level lens's own "knows nothing about this claim" gray, per the
+ * pinned decision); `holds-different` is the fixed dimmed/contrasted style
+ * above.
+ */
+export function variantMarkerStyle(stage: RumorStage, variantClass: VariantHoldClass): VariantMarkerStyle {
+  if (variantClass === "holds-it") return STAGE_STYLE[stage];
+  if (variantClass === "holds-none") return STAGE_STYLE.unheard;
+  return VARIANT_DIFFERENT_STYLE;
+}
+
+// ---------------------------------------------------------------------------
 // Glyph (S/N only this lane; D/G always null — pin, see module header)
 
 const GAME_DAY_TICKS = 24; // ADR-0010: 1 tick = 1 game-hour.
@@ -298,6 +363,14 @@ export interface DeriveMapMarkersInput {
   claimId: string;
   atTick: number;
   isSelected: (id: string) => boolean;
+  /**
+   * Lane 35: the variant lens. `undefined` (the default, and the only value
+   * every pre-lane-35 call site passes implicitly) means "lens off" —
+   * markers get no `variantClass` and rendering is byte-identical to
+   * before this lane. `null` means the canonical variant is selected;
+   * a string selects that variant.
+   */
+  variantId?: string | null;
 }
 
 /**
@@ -328,7 +401,7 @@ export function claimStageBreakdown(
 }
 
 export function deriveMapMarkers(input: DeriveMapMarkersInput): DerivedMarker[] {
-  const { state, traceRecords, eventRecords, mapJson, claimId, atTick, isSelected } = input;
+  const { state, traceRecords, eventRecords, mapJson, claimId, atTick, isSelected, variantId } = input;
   const cast = enumerateCast(state, traceRecords, eventRecords);
   const markers: DerivedMarker[] = [];
 
@@ -341,7 +414,7 @@ export function deriveMapMarkers(input: DeriveMapMarkersInput): DerivedMarker[] 
     const [baseLeft, baseTop] = toPct(loc.pixel[0], loc.pixel[1]);
     const [jx, jy] = seededJitter(id, location);
 
-    markers.push({
+    const marker: DerivedMarker = {
       id,
       name: displayName(id),
       left: +(baseLeft + jx).toFixed(1),
@@ -349,7 +422,11 @@ export function deriveMapMarkers(input: DeriveMapMarkersInput): DerivedMarker[] 
       stage: stageForNpcClaim(state, id, claimId, atTick),
       glyph: glyphForNpcClaim(state, id, claimId, atTick),
       selected: isSelected(id),
-    });
+    };
+    if (variantId !== undefined) {
+      marker.variantClass = variantClassForNpc(state, id, claimId, variantId);
+    }
+    markers.push(marker);
   }
 
   return markers;
