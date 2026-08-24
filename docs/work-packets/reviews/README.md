@@ -117,6 +117,7 @@ agent's report, the overseer's findings, and the verdict
 | 50 — T2.4: motivated-mutation hook | packet written; after lane 49 (Track A) | queued |
 | 51 — role roster in the log (role_installed) | packet written; Track A micro-lane, after 49/50 | queued |
 | 52 — M6 role inspector (ui-spec §3.10) | packet written; after lane 51 (Track B) | queued |
+| 53 — M7 stranger-walkthrough release gate | packet written; after lanes 49+52 (QA lane, no code) | queued |
 | 45 — T6 north-star fixture design | delivered + worker-committed `3b950a6` | accepted — overseer review + rulings in `reviews/2026-08-24-lane-45/`; O1–O4 ruled (no obligation beat, T3.4 second-privacy deferred, one fixture module + run-length parameter, Jarl + steward roles both cast with Proventus dual-cast); T2.4's engine hook named for a later micro-lane |
 | 46 — InjectionConsole writing-form display | packet written; Track B filler | queued |
 | 41 — M5 schedule diff (ui-spec §3.8) | delivered + worker-committed `a5a41ff` | accepted — coordinator re-ran the battery: 556/556 vitest, build clean, check-range 206, ruff clean; schedule-at-T reconstruction added per the packet's conditional allowance, real-run tested against `mourning-demo-01` (lane 42's data, exactly the fixture it was produced for). **M5 views complete** (run comparison 38, schedule diff 41) |

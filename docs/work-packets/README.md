@@ -57,6 +57,7 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 50 | [lane-50-motivated-mutation.md](lane-50-motivated-mutation.md) | lane 45 (design ruled) | small-medium (code) |
 | 51 | [lane-51-role-installed.md](lane-51-role-installed.md) | lane 47 (landed) | small (code) |
 | 52 | [lane-52-role-inspector.md](lane-52-role-inspector.md) | lane 51 | medium (code) |
+| 53 | [lane-53-m7-walkthrough-gate.md](lane-53-m7-walkthrough-gate.md) | lanes 49, 52 | medium (QA, no code) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 
