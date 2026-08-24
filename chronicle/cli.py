@@ -129,6 +129,10 @@ def _resolve_at(reader: FrameLogReader, at: int | None) -> int:
 _NPC_FIELDS = (
     "npc_a", "npc_b", "holder_id", "teller_id", "hearer_id", "source_id",
     "npc_id", "witness_id", "perpetrator_id", "killer_id",
+    # Tier-3 record types (lanes 23-26): the entity slot each names, so
+    # `feed --npc`/`inspect`'s participant match doesn't silently drop them.
+    "target_id", "observer_id", "subject_id", "issuer_id", "debtor_id",
+    "beneficiary_id", "from_id", "to_id",
 )
 
 
@@ -314,7 +318,6 @@ def trace_command(args: argparse.Namespace) -> int:
         (b for b in state.claims._beliefs.values() if b.claim_id == claim_id),
         key=lambda b: b.id,
     )
-    variant_ids = {b.variant_id for b in beliefs if b.variant_id is not None}
     # belief_corroborated records name beliefs, not claims (schema §4) --
     # resolve them through the reconstructed store.
     claim_of_belief = {b.id: b.claim_id for b in state.claims._beliefs.values()}
@@ -353,10 +356,16 @@ def trace_command(args: argparse.Namespace) -> int:
         for held_belief, evidence in reversed(chain):
             print(_chain_line(held_belief, evidence))
 
+    # lane-17 finding 1: filter by the claim's known variant lineage (plus the
+    # canonical telling, null) rather than currently-held variants -- a
+    # supersession whose loser is held by nobody after re-pointing must still
+    # show up here.
+    variant_ids = {v.id for v in variants} | {None}
     supersessions = [
         record
         for record in reader.records(TRACE_STREAM, upto_tick=tick)
         if record["payload"].get("record_type") == "supersession"
+        and record["payload"].get("claim_id") == claim_id
         and (
             record["payload"].get("loser_variant_id") in variant_ids
             or record["payload"].get("winner_variant_id") in variant_ids
@@ -383,10 +392,22 @@ def trace_command(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-# The encounter feed's record types (schema §4): the three encounter
-# outcomes with Tier-1 producers. belief_formed/belief_corroborated are
-# claim-layer rows, visible via `trace`, not part of the encounter feed.
-_FEED_RECORD_TYPES = ("encounter_rolled", "transmitted", "nothing_salient")
+# The encounter feed's record types, brought current with schema §4 as of
+# lanes 12-26 (lane-29 backlog note: this list predated Tier 2/3 records).
+# Tier-1 encounter outcomes, Tier-2 mutation/resolution, and Tier-3 social
+# mechanics -- all trace-stream `record_type` values, except
+# `escalation_warning`, which is an *event* (`event_type`, schema §3:95):
+# it is reserved-tier there but already has a lane-24 producer, and the
+# packet calls it out by name so the feed shows the escalation it triggers,
+# not just the `threshold_crossed` trace row that names it.
+_FEED_RECORD_TYPES = (
+    "encounter_rolled", "transmitted", "nothing_salient",
+    "supersession", "mutation_applied",
+    "transmission_declined", "rule_evaluated", "threshold_crossed",
+    "grudge_formed", "reputation_updated",
+    "obligation_issued", "obligation_resolved", "relationship_formed",
+    "escalation_warning",
+)
 
 
 def _record_matches(payload: dict[str, Any], *, location_id: str | None, npc_id: str | None) -> bool:
@@ -395,15 +416,25 @@ def _record_matches(payload: dict[str, Any], *, location_id: str | None, npc_id:
     return npc_id is None or any(payload.get(field) == npc_id for field in _NPC_FIELDS)
 
 
+def _feed_type(payload: dict[str, Any]) -> str | None:
+    """A record's type name, whichever stream it came from.
+
+    Trace records key it as ``record_type``; events key it as
+    ``event_type`` (schema §3 vs §4) -- ``feed`` reads both streams so
+    ``escalation_warning`` (an event) shows up alongside the trace rows.
+    """
+    return payload.get("record_type") or payload.get("event_type")
+
+
 def feed_command(args: argparse.Namespace) -> int:
     """``feed <run_id> [--location <id>] [--npc <id>] [--at <tick>] [--limit <n>]`` (flag form: ``--run``/``--from-tick``/``--to-tick``).
 
-    The encounter feed in text form: ``encounter_rolled``/``transmitted``/
-    ``nothing_salient`` rows from the trace stream, filtered by location
-    and/or participant NPC, up to tick ``--at``/``--to-tick`` (default:
-    all). Not the M2 dashboard feed -- no virtualization; ``--limit`` (50
-    by default, <=0 for all) keeps it a debugging surface, not a table
-    widget.
+    The encounter feed in text form: the Tier-1/2/3 record types in
+    ``_FEED_RECORD_TYPES`` from the trace stream, plus ``escalation_warning``
+    events, filtered by location and/or participant NPC, up to tick
+    ``--at``/``--to-tick`` (default: all). Not the M2 dashboard feed -- no
+    virtualization; ``--limit`` (50 by default, <=0 for all) keeps it a
+    debugging surface, not a table widget.
 
     ``FrameLogReader.records()`` yields records in *file* order, which is
     tick order for an encounter-driven driver run but is **not**
@@ -413,22 +444,27 @@ def feed_command(args: argparse.Namespace) -> int:
     gamets than the retell before it). This command materializes the
     filtered set and sorts by ``(tick, seq)`` before printing, rather than
     trusting file order, so "in tick order" holds for every run this CLI
-    might be pointed at, not just the common case.
+    might be pointed at, not just the common case. Events and trace
+    records keep independent ``seq`` counters (framelog.py), so at a tick
+    where both streams produced records, the merged order between them is
+    best-effort, not a causal guarantee -- ties are broken by stream
+    (events before trace) for determinism, nothing stronger.
     """
     run_id = _resolve_positional_run(args, command="feed")
     reader = _reader_for(run_id, runs_dir=args.runs_dir)
     upto_tick = args.to_tick if args.to_tick is not None else args.at
     matching = [
-        record
-        for record in reader.records(TRACE_STREAM, upto_tick=upto_tick)
-        if record["payload"].get("record_type") in _FEED_RECORD_TYPES
+        (stream_index, record)
+        for stream_index, stream in enumerate((EVENTS_STREAM, TRACE_STREAM))
+        for record in reader.records(stream, upto_tick=upto_tick)
+        if _feed_type(record["payload"]) in _FEED_RECORD_TYPES
         and (args.from_tick is None or record["tick"] >= args.from_tick)
         and _record_matches(record["payload"], location_id=args.location, npc_id=args.npc)
     ]
-    matching.sort(key=lambda record: (record["tick"], record["seq"]))
+    matching.sort(key=lambda entry: (entry[1]["tick"], entry[0], entry[1]["seq"]))
     shown = matching if args.limit <= 0 else matching[: args.limit]
-    for record in shown:
-        record_type = record["payload"].get("record_type", "?")
+    for _, record in shown:
+        record_type = _feed_type(record["payload"]) or "?"
         print(f"tick {record['tick']:>6}  seq {record['seq']:>4}  {record_type:<22} {json.dumps(record['payload'])}")
     print(f"\n({len(shown)} of {len(matching)} matching record(s))", file=sys.stderr)
     return 0

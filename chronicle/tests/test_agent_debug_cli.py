@@ -17,7 +17,7 @@ import json
 import pytest
 
 from chronicle.claims import EventKey, decay
-from chronicle.cli import main
+from chronicle.cli import _FEED_RECORD_TYPES, main
 from chronicle.driver import Driver
 from chronicle.events import NPCDied
 from chronicle.framelog import FrameLogReader
@@ -206,6 +206,76 @@ def test_trace_supersession_renders_a_null_variant_id_as_the_original_telling(tm
     assert "None" not in out
 
 
+def test_trace_lists_a_supersession_whose_loser_is_held_by_nobody(tmp_path, monkeypatch, capsys):
+    """lane-17 finding 1: cli.py's old supersession filter was built from
+    *currently-held* variants, so a loser that gets re-pointed away from by
+    its only holder vanished from the listing at every ``--at``. The fix
+    (lane 32) unions over the claim's full variant lineage instead."""
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=_RUN,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=tuple(
+            ScheduleBlock(npc_id=npc, location_id="bannered_mare", start_tick=0, end_tick=50)
+            for npc in ("irileth", "hulda")
+        ),
+        encounter_probability=1.0,
+        runs_dir=tmp_path,
+    )
+    driver.inject_event(
+        NPCDied(
+            tick=0, save_uuid=_SAVE_UUID, generation=0, seq=1,
+            gamets=0.0, wall_ts=0.0, npc_id="jarl_balgruuf",
+            cause="assassination", killer_id=None, location_id="bannered_mare",
+        ),
+        origin={"kind": "scenario", "detail": "test_agent_debug_cli"},
+    )
+    driver.witness(
+        claim_id="claim-jarl-death",
+        belief_id="belief-irileth-death",
+        evidence_id="evidence-irileth-death",
+        kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "bannered_mare"},
+        canonical_event_key=EventKey(_SAVE_UUID, 0, 1),
+        witness_id="irileth",
+        gamets=0.0,
+    )
+    # hulda hears a mutated (weaker, "reported") variant first -- the only
+    # holder of variant-mutated.
+    driver.retell(
+        claim=driver.claim("claim-jarl-death"),
+        parent_variant=None,
+        variant_id="variant-mutated",
+        belief_id="belief-hulda-death",
+        evidence_id="evidence-hulda-variant-mutated",
+        teller_id="irileth",
+        teller_belief=driver.belief_of("irileth", "claim-jarl-death"),
+        hearer_id="hulda",
+        gamets=0.0,
+        mutate_slot="perpetrator",
+        mutated_value="the Thalmor",
+    )
+    # irileth's stronger "witnessed" telling then challenges hulda directly
+    # and wins: hulda's belief re-points to the original telling (winner
+    # variant_id None), so variant-mutated is left held by nobody.
+    driver.resolve(
+        claim=driver.claim("claim-jarl-death"),
+        holder_id="hulda",
+        teller_id="irileth",
+        teller_belief=driver.belief_of("irileth", "claim-jarl-death"),
+        evidence_id="evidence-hulda-challenged",
+        gamets=2.0,
+    )
+    driver.close()
+
+    rc = main(["trace", _RUN, "claim-jarl-death"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "variant-mutated superseded by (original telling)" in out
+
+
 # ---------------------------------------------------------------------------
 # feed
 # ---------------------------------------------------------------------------
@@ -236,13 +306,20 @@ def test_feed_filters_by_location_and_at(run_dir, capsys):
     assert max(int(line.split()[1]) for line in lines) <= 2
 
 
-def test_feed_only_shows_the_encounter_record_types(run_dir, capsys):
+def test_feed_only_shows_the_feed_vocabulary(run_dir, capsys):
+    """This run's cast opts into no Tier-3 mappings, so its actual vocabulary
+    is Tier-0/1/3-wrapper rows (rule_evaluated/encounter_rolled/transmitted/
+    nothing_salient); the assertion checks against the full lane-32
+    vocabulary (``_FEED_RECORD_TYPES``) rather than hardcoding that subset,
+    so it doesn't go stale the next time a lane adds a producer."""
     rc = main(["feed", _RUN, "--limit", "0"])
     out = capsys.readouterr().out
     assert rc == 0
     lines = _feed_lines(out)
     assert lines
-    assert all(any(record_type in line for record_type in ("encounter_rolled", "transmitted", "nothing_salient")) for line in lines)
+    assert all(any(record_type in line for record_type in _FEED_RECORD_TYPES) for line in lines)
+    # belief_formed/belief_corroborated are claim-layer rows, visible via
+    # `trace`, deliberately excluded from the encounter feed.
     assert not any("belief_formed" in line for line in lines)
 
 
