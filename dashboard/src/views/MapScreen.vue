@@ -33,6 +33,16 @@
  * the resolved value down to `MapView` for the lens-selector label.
  * `MapView`/`MarkerLayer` themselves stay router/store-agnostic (see
  * `MapView.vue`'s header) — all the URL/store reading happens here.
+ *
+ * Lane 54 (M7 gate fix): `TimelineBar` moved out to `App.vue` -- the
+ * timeline is global chrome (ui-spec §2), not map-specific, so it's now
+ * mounted once at the shared router-outlet wrapper instead of here. This
+ * screen's own combined `[run, t]` watcher below is unchanged (still the
+ * one and only owner of `mapData` loading while `/map` is the active
+ * route -- `App.vue`'s twin watcher explicitly steps aside for it), and
+ * `.map-screen`'s height changed from a hardcoded `100vh` to `100%` since
+ * this screen no longer owns the full viewport -- `App.vue`'s outlet pane
+ * does.
  */
 import { computed, watch } from "vue";
 import { useRoute } from "vue-router";
@@ -42,7 +52,6 @@ import ViewSwitcher from "../components/ViewSwitcher.vue";
 import NpcInspector from "../components/NpcInspector.vue";
 import PanelGlass from "../components/PanelGlass.vue";
 import MapView from "./MapView.vue";
-import TimelineBar from "../components/timeline/TimelineBar.vue";
 import ProvenancePanel from "../components/drilldown/ProvenancePanel.vue";
 import { useDrillPanel } from "../components/drilldown/useDrillPanel";
 import { useSalienceStore } from "../stores/salience";
@@ -190,8 +199,6 @@ const selectedBeliefs = computed(() =>
       </MapView>
     </div>
 
-    <TimelineBar />
-
     <ProvenancePanel
       :open="drill.open.value"
       :belief-id="drill.beliefId.value"
@@ -205,7 +212,7 @@ const selectedBeliefs = computed(() =>
 
 <style scoped>
 .map-screen {
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--c-page-bg);

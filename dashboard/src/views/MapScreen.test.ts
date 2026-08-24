@@ -173,10 +173,13 @@ describe("MapScreen.vue", () => {
     vi.unstubAllGlobals();
   });
 
-  it("mounts MapView inside its chrome and TimelineBar in the footer", async () => {
+  it("mounts MapView inside its chrome (TimelineBar moved to the global shell, lane 54)", async () => {
     const { wrapper } = await mountAt("?run=test-run");
     expect(wrapper.findComponent(MapView).exists()).toBe(true);
-    expect(wrapper.findComponent(TimelineBar).exists()).toBe(true);
+    // Lane 54 (M7 gate fix): the timeline is global chrome now, mounted
+    // once in App.vue rather than duplicated inside MapScreen -- this
+    // screen doesn't render it at all anymore.
+    expect(wrapper.findComponent(TimelineBar).exists()).toBe(false);
   });
 
   it("run loads -> markers render the real cast (irileth, proventus, jarl_balgruuf) at t=0", async () => {

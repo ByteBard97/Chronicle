@@ -7,13 +7,22 @@
  *
  * Lane 16: reads the run's real trace/event streams straight from the
  * lane-14 map store (`useMapDataStore()`) rather than the
- * `whiterunMock.ts` fixture — `TimelineBar` is mounted only inside
- * `MapScreen.vue`, which already owns that store as a singleton (Pinia),
- * so this component pulls from it directly instead of MapScreen threading
- * props down (MapScreen.vue needed no edit for this lane — see the lane
- * report). `mapData.ts` itself is this lane's do-not-touch boundary
- * (read-only); markers/day-ticks/heat-stripe are derived here via the pure
- * `src/derived/timelineMarkers.ts` module.
+ * `whiterunMock.ts` fixture — pulls from the store directly instead of a
+ * parent threading props down. `mapData.ts` itself is this lane's
+ * do-not-touch boundary (read-only); markers/day-ticks/heat-stripe are
+ * derived here via the pure `src/derived/timelineMarkers.ts` module.
+ *
+ * Lane 54 (M7 gate fix): promoted from a `MapScreen.vue`-only mount to
+ * global chrome, per ui-spec §2's own framing of the timeline as global,
+ * not map-specific -- it's now mounted once in `App.vue` so it renders on
+ * every route. Reading straight from the shared Pinia store singleton
+ * (rather than props from a specific parent) is exactly what makes that
+ * move a relocation, not a rewrite: this component doesn't know or care
+ * which view is currently mounted above it. The small "TIMELINE" caption
+ * added to the row below is this lane's answer to the packet's
+ * discoverability ask (task 3) -- the bar is always-visible chrome now, so
+ * a dedicated nav tab that navigates nowhere would be worse than a plain
+ * in-place label.
  *
  * `urlState.t` is the playhead throughout (ui-spec §1.2): marker clicks
  * and `TransportControls`' play/skip/step all read and write it directly;
@@ -145,6 +154,7 @@ function onMarkerClick(tick: number) {
 <template>
   <div class="timeline-bar" data-testid="timeline-bar">
     <div class="timeline-bar__row">
+      <span class="timeline-bar__label">TIMELINE</span>
       <TransportControls :max-tick="maxTick" />
       <div ref="trackWrapEl" class="timeline-bar__track-wrap">
         <TimelineTrack
@@ -184,6 +194,15 @@ function onMarkerClick(tick: number) {
   gap: var(--space-3);
   flex: 1;
   min-height: 0;
+}
+
+.timeline-bar__label {
+  font-family: var(--font-display);
+  color: var(--c-panel-title);
+  flex: none;
+  white-space: nowrap;
+  font-size: 8px;
+  letter-spacing: 0.16em;
 }
 
 .timeline-bar__track-wrap {
