@@ -9,6 +9,7 @@
 // match it, not generated from it (OpenAPI-to-C++ codegen is immature/heavy
 // for a payload this small).
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,13 @@ namespace ChronicleBridge {
         std::string host = "127.0.0.1";  // the Chronicle host's LAN IP once running on a separate machine.
         int port = 8765;
         std::string path = "/whiterun/positions";
+        // Sent as the X-Chronicle-Bridge-Token header when set -- must match
+        // the listener's --shared-secret exactly (adapters/skyrim/listener/
+        // listener.py). Not real authentication (no TLS) -- a lightweight
+        // bearer check so an accidental LAN neighbor can't write garbage into
+        // the snapshot file. See that script's module docstring for the
+        // trust model this is and isn't meant to cover.
+        std::optional<std::string> sharedSecret;
     };
 
     // POSTs one PositionSnapshot (chronicle-bridge.openapi.yaml) to the

@@ -30,6 +30,8 @@ paths:
         A snapshot of every actor currently outdoors in WhiterunWorld.
         Actors that have gone indoors since the last snapshot are simply
         absent -- no stale position, no placeholder (design doc §1).
+      security:
+        - bridgeToken: []
       requestBody:
         required: true
         content:
@@ -41,8 +43,26 @@ paths:
           description: Accepted. No body -- fire-and-forget, no reply needed.
         "400":
           description: Malformed payload (failed schema validation).
+        "401":
+          description: Missing/incorrect X-Chronicle-Bridge-Token (only enforced when the listener is started with --shared-secret).
+        "413":
+          description: Body exceeds the listener's size cap.
 
 components:
+  securitySchemes:
+    bridgeToken:
+      type: apiKey
+      in: header
+      name: X-Chronicle-Bridge-Token
+      description: >
+        A lightweight shared-secret bearer check, NOT real authentication
+        (no TLS, no per-client identity) -- meant to stop an accidental
+        LAN neighbor from writing to the snapshot file, not to withstand
+        a targeted attacker. Optional: the listener only enforces this
+        when started with --shared-secret (adapters/skyrim/listener/
+        listener.py); OutboundConfig.sharedSecret (ChronicleBridge/src/
+        OutboundClient.h) must match exactly when it is. Do not expose
+        this listener beyond a trusted home LAN regardless.
   schemas:
     PositionSnapshot:
       type: object
