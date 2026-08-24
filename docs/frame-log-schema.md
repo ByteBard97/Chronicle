@@ -93,7 +93,7 @@ Event kinds:
 | `crime_witnessed` | 0 | `witness_id` (string), `perpetrator_id` (string), `crime_type` (string), `location_id` (string \| null) |
 | `rumor_heard` | 0 | `hearer_id` (string), `source_id` (string), `rumor_id` (string), `content` (string) |
 | `escalation_warning` | 3 — **reserved** | `holder_id` (string — the escalating NPC, e.g. the repeatedly-wronged merchant), `grievance_kind` (string — the claim kind the accumulator counted, holder-as-victim), `count` (number — accumulator value at crossing), `threshold` (number). Warning escalations materialized as events before their claims propagate (ladder T3.1: no orphan beliefs); the warning claim is witnessed off this event's canonical key. Fields defined 2026-08-23 (lane-18 F2, coordinator ruling) |
-| `schedule_rewrite` | 4a — **reserved** | the rewrite as an event with a causal link to its trigger (ladder T4a.1). Fields defined with schedule write-back |
+| `schedule_rewrite` | 4a — **reserved** | `npc_id` (string — the NPC whose schedule is rewritten, e.g. the mourner), `location_id` (string — the overlay's destination), `start_tick` / `end_tick` (ints — the half-open overlay window; restoration is `end_tick` reached, not a separate record), `cause` (string — e.g. `"mourning"`), `trigger_event_key` (`{save_uuid, generation, seq}` — the canonical event this rewrite is causally linked to), `rule` (string — the firing rule's name). The rewrite as an event with a causal link to its trigger (ladder T4a.1). Fields defined 2026-08-23 (lane-33 design doc T2, coordinator ruling O3) |
 | `role_lapse` | 5 — **reserved** | duty-lapse effects as events (ladder T5.1). Fields defined with roles |
 
 Reserved kinds are schema commitments, not machinery: writers must not emit

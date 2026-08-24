@@ -40,6 +40,8 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 33 | [lane-33-tier-4a-design-prep.md](lane-33-tier-4a-design-prep.md) | lane 32; Tier 3 (landed) | medium (design doc) |
 | 34 | [lane-34-layer-4-reconstruction.md](lane-34-layer-4-reconstruction.md) | lane-30 pre-dispatch finding | medium (code) |
 | 35 | [lane-35-map-variant-lens.md](lane-35-map-variant-lens.md) | lanes 14, 21 (landed) | small-medium (code) |
+| 36 | [lane-36-schedule-write-back.md](lane-36-schedule-write-back.md) | lane 33 (design accepted) | medium-large (code) |
+| 37 | [lane-37-t4a2-counterfactual.md](lane-37-t4a2-counterfactual.md) | lane 36 (serial) | medium (test) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 
