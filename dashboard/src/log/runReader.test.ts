@@ -228,3 +228,143 @@ describe("RunReader.stateAt — schedule_rewrite survives a keyframe window (lan
     expect(state.scheduleOverlays).toHaveLength(1);
   });
 });
+
+describe("RunReader.stateAt — role roster survives a keyframe window (lane 52, same bug shape as schedule_rewrite)", () => {
+  // Reproduces runs/north-star-01's exact shape: role_installed +
+  // npc_died + status_changed(role_appointed) all at tick 0, well before
+  // the keyframe at tick 23. Before roleEventsUpTo existed, RunReader.
+  // stateAt(t) for t >= 23 would keyframe-window the events read from
+  // tick 23 onward and never see any of these tick-0 role events --
+  // exactly the bug shape lane 41 fixed for schedule_rewrite, reproduced
+  // here for the role roster.
+  const REGISTRY: RunRegistryEntry = {
+    run_id: "synthetic-roles",
+    seed_id: "synthetic-roles",
+    created_wall_ts: 0,
+    branches: [{ save_uuid: "s0", generation: 0 }],
+    tick_range: { start: 0, end: 100 },
+    streams: { events: "events.jsonl", trace: "trace.jsonl" },
+    status: "complete",
+  };
+
+  function line(tick: number, seq: number, payload: Record<string, unknown>): string {
+    return (
+      JSON.stringify({
+        schema_version: 1,
+        seed_id: "synthetic-roles",
+        save_uuid: "s0",
+        generation: 0,
+        tick,
+        stream: "events",
+        seq,
+        payload,
+      }) + "\n"
+    );
+  }
+
+  const installLine = line(0, 1, {
+    event_type: "role_installed",
+    gamets: 0,
+    wall_ts: 0,
+    origin: null,
+    role_id: "jarl_of_whiterun",
+    title: "Jarl of Whiterun",
+    institution_id: "whiterun_court",
+    duties: [{ name: "hold_court", lapse_status_kind: "duty_lapsed" }],
+    holder_id: "jarl_balgruuf",
+  });
+  const diedLine = line(0, 2, {
+    event_type: "npc_died",
+    gamets: 0,
+    wall_ts: 0,
+    origin: null,
+    npc_id: "jarl_balgruuf",
+    cause: "assassination",
+    killer_id: "the_player",
+    location_id: "dragonsreach",
+  });
+  const appointedLine = line(0, 3, {
+    event_type: "status_changed",
+    gamets: 0,
+    wall_ts: 0,
+    origin: null,
+    npc_id: "irileth",
+    status_kind: "role_appointed",
+    detail: "jarl_of_whiterun",
+    location_id: null,
+  });
+  const keyframeOffset = Buffer.byteLength(installLine + diedLine + appointedLine);
+  const keyframeLine = line(23, 4, { record_type: "keyframe", state: {} });
+
+  const eventsBytes = Buffer.from(installLine + diedLine + appointedLine + keyframeLine, "utf8");
+  const traceBytes = Buffer.from("", "utf8");
+  const indexJson = JSON.stringify({
+    schema_version: 1,
+    streams: {
+      events: {
+        tick_offsets: { "0": 0, "23": keyframeOffset },
+        keyframe_offsets: [{ tick: 23, offset: keyframeOffset }],
+      },
+      trace: { tick_offsets: {}, keyframe_offsets: [] },
+    },
+  });
+
+  function stubSyntheticRolesFetch() {
+    const files: Record<string, Buffer> = {
+      "/runs/synthetic-roles/events.jsonl": eventsBytes,
+      "/runs/synthetic-roles/trace.jsonl": traceBytes,
+      "/runs/synthetic-roles/index.json": Buffer.from(indexJson, "utf8"),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const pathname = new URL(url, "http://example").pathname;
+        const bytes = files[pathname];
+        if (bytes === undefined) return new Response(null, { status: 404 });
+        const rangeHeader = (init?.headers as Record<string, string> | undefined)?.Range;
+        if (!rangeHeader) return new Response(new TextDecoder().decode(bytes), { status: 200 });
+        const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader);
+        let start = 0;
+        let end = bytes.length;
+        if (match) {
+          start = Number(match[1]);
+          end = match[2] === "" ? bytes.length : Number(match[2]) + 1;
+        }
+        end = Math.min(end, bytes.length);
+        const slice = bytes.subarray(start, end);
+        return new Response(new TextDecoder().decode(slice), {
+          status: 206,
+          headers: { "Content-Range": `bytes ${start}-${end - 1}/${bytes.length}` },
+        });
+      }),
+    );
+  }
+
+  it("stateAt(50), past the tick-23 keyframe, still shows irileth holding the role (the succession is not lost)", async () => {
+    stubSyntheticRolesFetch();
+    const reader = new RunReader(REGISTRY);
+    const state = await reader.stateAt(50);
+    const role = state.roles.get("jarl_of_whiterun");
+    expect(role).toBeDefined();
+    expect(role!.holder_id).toBe("irileth");
+    expect(role!.vacated_at).toBeNull();
+  });
+
+  it("stateAt(50) also shows the vacancy having happened, not just the final succession (holder_id resolves through both transitions)", async () => {
+    // A weaker fix that only replayed the LAST role event it happened to
+    // see would still get this case wrong if it silently dropped the
+    // death -- checking the fully-resolved role, not the intermediate
+    // step, is the actual contract `RunReader.stateAt` promises.
+    stubSyntheticRolesFetch();
+    const reader = new RunReader(REGISTRY);
+    const state = await reader.stateAt(23);
+    expect(state.roles.get("jarl_of_whiterun")!.holder_id).toBe("irileth");
+  });
+
+  it("stateAtLatestKnown also carries the full-history role scan", async () => {
+    stubSyntheticRolesFetch();
+    const reader = new RunReader(REGISTRY);
+    const state = await reader.stateAtLatestKnown();
+    expect(state.roles.get("jarl_of_whiterun")!.holder_id).toBe("irileth");
+  });
+});

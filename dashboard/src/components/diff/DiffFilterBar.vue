@@ -26,7 +26,10 @@ function distinct(values: string[]): string[] {
 
 const npcOptions = computed(() => distinct(props.rows.flatMap((r) => r.npcs)));
 const ruleOptions = computed(() => distinct(props.rows.map((r) => r.rule?.rule).filter((r): r is string => r !== undefined)));
-const TYPE_OPTIONS: DiffRowType[] = ["belief", "grudge", "obligation", "reputation"];
+// "role" appended (lane 52, additive edit -- see DiffRow.vue's header for
+// why DiffRowType gaining a member also touches this exhaustive-in-spirit
+// list, kept in bounds rather than restructured).
+const TYPE_OPTIONS: DiffRowType[] = ["belief", "grudge", "obligation", "reputation", "role"];
 
 function update(key: keyof SocialDiffFilters, value: string) {
   const next = { ...props.filters };

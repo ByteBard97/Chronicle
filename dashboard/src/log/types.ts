@@ -61,7 +61,9 @@ export type EventKind =
   | "rumor_heard"
   | "escalation_warning" // reserved (Tier 3)
   | "schedule_rewrite" // reserved (Tier 4a)
-  | "role_lapse"; // reserved (Tier 5)
+  | "role_lapse" // reserved (Tier 5) -- superseded, see status_changed below
+  | "role_installed" // Tier 5, lane 51 -- the role-roster anchor (schema §3:98)
+  | "status_changed"; // Tier 5, lane 51 -- duty_lapsed/role_appointed carrier (schema §3:97)
 
 export interface EventOrigin {
   kind: "scenario" | "console" | "adapter";
@@ -303,6 +305,41 @@ export interface KeyframeReputation {
   certified_count: number;
   uncertainty: number;
   last_updated: number;
+  [extra: string]: unknown;
+}
+
+/** One duty a role's holder performs (chronicle/roles.py's `Duty`), per `role_installed`'s `duties[]` (schema §3:98). */
+export interface KeyframeRoleDuty {
+  name: string;
+  lapse_status_kind: string;
+  [extra: string]: unknown;
+}
+
+/**
+ * A role roster entry (chronicle/roles.py's `Role`), lane 51/52's Tier-5
+ * addition -- replayed from `role_installed` + `npc_died` +
+ * `status_changed(role_appointed)` events (schema §3:97-98).
+ *
+ * UNLIKE every other `Keyframe*` type in this file, this is never actually
+ * part of a keyframe's `state` object: `chronicle/framelog.py::state_at`
+ * (framelog.py:696-745) builds its own `roles_by_id` fresh, from an
+ * unconditional full scan of the events stream (`self.records(EVENTS_STREAM,
+ * upto_tick=tick)`, no keyframe floor) on every single call -- confirmed
+ * against `serialize_state`, which never writes a `roles` key at all. Named
+ * `Keyframe*` only for naming-convention consistency with this file's other
+ * mirrored-dataclass types; see `reconstruct.ts`'s module header and
+ * `runReader.ts`'s `roleEventsUpTo` for where that same full-scan discipline
+ * is mirrored on the dashboard side (lane 41's `scheduleOverlaysUpTo`
+ * precedent).
+ */
+export interface KeyframeRole {
+  role_id: string;
+  title: string;
+  institution_id: string;
+  duties: KeyframeRoleDuty[];
+  holder_id: string | null;
+  /** gamets of the most recent vacancy, or `null` if never vacated / currently held. */
+  vacated_at: number | null;
   [extra: string]: unknown;
 }
 

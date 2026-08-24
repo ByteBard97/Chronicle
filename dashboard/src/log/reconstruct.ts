@@ -69,6 +69,25 @@
  * directly rather than `socialState.scheduleOverlays` -- harmless now
  * that both are correct, left as-is rather than churned for its own sake.
  */
+/*
+ * `roles` (lane 52, Tier 5): the SAME keyframe-windowing hazard the note
+ * above documents for `schedule_rewrite` applies here too, for the SAME
+ * reason -- `chronicle/framelog.py::state_at`'s role roster (`roles_by_id`)
+ * is built from an unconditional full scan of the events stream
+ * (framelog.py:696-745, `self.records(EVENTS_STREAM, upto_tick=tick)`, no
+ * keyframe floor), never from a keyframe's `state` object at all
+ * (`serialize_state` never writes a `roles` key -- see `types.ts`'s
+ * `KeyframeRole` doc). `applyTraceRecord`'s `role_installed` / `npc_died` /
+ * `status_changed(role_appointed)` handling below is correct for a full,
+ * unwindowed replay (`derived/roles.ts`, `derived/socialDiff.ts` -- both
+ * replay from `emptySocialState` over a run's complete record set, no
+ * keyframe fast-path), but is NOT sufficient on its own for
+ * `RunReader.stateAt`/`stateAtLatestKnown`, which feed `applyTraceRecord`
+ * only the keyframe-windowed delta slice (`deltasBetween`).
+ * `RunReader.roleEventsUpTo` (mirroring `scheduleOverlaysUpTo` exactly)
+ * does the full byte-0 scan and overwrites `state.roles` with its
+ * authoritative result -- the same two-site fix `scheduleOverlaysUpTo` got.
+ */
 import type {
   EventKeyRef,
   FrameRecord,
@@ -79,6 +98,7 @@ import type {
   KeyframeObligation,
   KeyframeRelationship,
   KeyframeReputation,
+  KeyframeRole,
   KeyframeRumorState,
   KeyframeScheduleBlock,
   KeyframeScheduleOverlay,
@@ -135,6 +155,18 @@ export interface SocialState {
    * `effective_schedule_at` docstring confirms the same).
    */
   scheduleOverlays: KeyframeScheduleOverlay[];
+  /**
+   * Keyed by `role_id` (lane 52, Tier 5). Folded from `role_installed` +
+   * `npc_died` + `status_changed(role_appointed)` events -- see this
+   * module's header for why this is NEVER hydrated from a keyframe (unlike
+   * every other field on this interface) and why `RunReader` must
+   * separately full-scan it, same as `scheduleOverlays`. Deliberately
+   * carries no lapse flag: duty-lapse state is a read-time correlation
+   * against raw `status_changed(duty_lapsed)` events, computed by
+   * `derived/roles.ts`, never stored here -- mirrors
+   * `chronicle/roles.py`'s own `Role` dataclass exactly (no lapse field).
+   */
+  roles: Map<string, KeyframeRole>;
 }
 
 export function rumorKey(npcId: string, claimId: string, variantId: string | null): string {
@@ -165,6 +197,7 @@ export function emptySocialState(tick: number): SocialState {
     reputations: new Map(),
     baseSchedule: [],
     scheduleOverlays: [],
+    roles: new Map(),
   };
 }
 
@@ -263,6 +296,98 @@ export function parseScheduleRewrite(payload: Record<string, unknown>): Keyframe
   };
 }
 
+// ---------------------------------------------------------------------------
+// Role roster fold (lane 52, Tier 5) -- mirrors
+// `chronicle/framelog.py::state_at`'s `roles_by_id` loop (framelog.py:
+// 696-745) exactly: three EVENTS-stream record shapes, matched on
+// `event_type` (never `record_type` -- these are events, not trace),
+// folded in file/seq order. Exported as one dispatcher (`applyRoleEvent`)
+// so `applyTraceRecord` (normal, keyframe-windowed replay) and
+// `RunReader.roleEventsUpTo` (the mandatory full byte-0 scan, see this
+// module's header) share exactly one fold implementation rather than two
+// independently maintained copies.
+
+function parseRoleDuties(raw: unknown): { name: string; lapse_status_kind: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { name: string; lapse_status_kind: string }[] = [];
+  for (const entry of raw) {
+    if (entry === null || typeof entry !== "object") continue;
+    const name = (entry as Record<string, unknown>).name;
+    const lapseKind = (entry as Record<string, unknown>).lapse_status_kind;
+    if (isString(name) && isString(lapseKind)) out.push({ name, lapse_status_kind: lapseKind });
+  }
+  return out;
+}
+
+/** `role_installed` (schema §3:98): upsert the full role by `role_id`. */
+function applyRoleInstalled(roles: Map<string, KeyframeRole>, payload: Record<string, unknown>): void {
+  const roleId = payload.role_id;
+  const title = payload.title;
+  const institutionId = payload.institution_id;
+  const holderId = payload.holder_id;
+  if (!isString(roleId) || !isString(title) || !isString(institutionId) || !isStringOrNull(holderId)) return;
+  roles.set(roleId, {
+    role_id: roleId,
+    title,
+    institution_id: institutionId,
+    duties: parseRoleDuties(payload.duties),
+    holder_id: holderId,
+    vacated_at: null,
+  });
+}
+
+/**
+ * `npc_died`: every role in the roster-so-far whose CURRENT `holder_id`
+ * equals the dying NPC's id is vacated -- `vacated_at` from the event's
+ * own `gamets` (framelog.py:735, `payload["gamets"]`, NOT the envelope
+ * tick), falling back to the envelope tick only if `gamets` is missing or
+ * malformed (reader tolerance, schema §7).
+ */
+function applyNpcDiedToRoles(roles: Map<string, KeyframeRole>, payload: Record<string, unknown>, tick: number): void {
+  const npcId = payload.npc_id;
+  if (!isString(npcId)) return;
+  const gamets = payload.gamets;
+  const vacatedAt = typeof gamets === "number" ? gamets : tick;
+  for (const [roleId, role] of roles) {
+    if (role.holder_id === npcId) {
+      roles.set(roleId, { ...role, holder_id: null, vacated_at: vacatedAt });
+    }
+  }
+}
+
+/** `status_changed` with `status_kind === "role_appointed"`: `detail` IS the role_id, `npc_id` the new holder. */
+function applyRoleAppointed(roles: Map<string, KeyframeRole>, payload: Record<string, unknown>): void {
+  const roleId = payload.detail;
+  const npcId = payload.npc_id;
+  if (!isString(roleId) || !isString(npcId)) return;
+  const existing = roles.get(roleId);
+  if (existing === undefined) return;
+  roles.set(roleId, { ...existing, holder_id: npcId, vacated_at: null });
+}
+
+/**
+ * Dispatch one events-stream payload's effect on the role roster, or a
+ * documented no-op for anything else (including `status_changed(duty_lapsed)`
+ * -- deliberately NOT folded into the roster, see this module's header and
+ * `SocialState.roles`'s doc: duty-lapse state lives in `derived/roles.ts`
+ * alone, correlated at read time, never stored here).
+ */
+export function applyRoleEvent(roles: Map<string, KeyframeRole>, payload: Record<string, unknown>, tick: number): void {
+  switch (payload.event_type) {
+    case "role_installed":
+      applyRoleInstalled(roles, payload);
+      return;
+    case "npc_died":
+      applyNpcDiedToRoles(roles, payload, tick);
+      return;
+    case "status_changed":
+      if (payload.status_kind === "role_appointed") applyRoleAppointed(roles, payload);
+      return;
+    default:
+      return;
+  }
+}
+
 /**
  * Mutates `state` in place applying one trace record's effect, mirroring
  * the matching `chronicle/claims.py` function. `tick` is the record's
@@ -279,6 +404,21 @@ export function applyTraceRecord(state: SocialState, payload: Record<string, unk
   if (payload.event_type === "schedule_rewrite") {
     const overlay = parseScheduleRewrite(payload);
     if (overlay !== null) state.scheduleOverlays.push(overlay);
+    return;
+  }
+
+  // Role roster events (lane 52, Tier 5): also EVENTS-stream, matched on
+  // `event_type`, same "check before the record_type-or-bail return" shape
+  // as schedule_rewrite above. This fold is correct only for a full,
+  // unwindowed replay (derived/roles.ts, derived/socialDiff.ts) -- see this
+  // module's header for why `RunReader` additionally needs
+  // `roleEventsUpTo`'s full-scan overwrite.
+  if (
+    payload.event_type === "role_installed" ||
+    payload.event_type === "npc_died" ||
+    payload.event_type === "status_changed"
+  ) {
+    applyRoleEvent(state.roles, payload, tick);
     return;
   }
 
@@ -766,6 +906,7 @@ export function replayTo(start: SocialState, records: FrameRecord[], targetTick:
     reputations: new Map(start.reputations),
     baseSchedule: [...start.baseSchedule],
     scheduleOverlays: [...start.scheduleOverlays],
+    roles: new Map(start.roles),
   };
   for (const record of records) {
     if (record.tick > targetTick) continue;

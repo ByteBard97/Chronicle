@@ -7,6 +7,7 @@ import DiffScreen from "../views/DiffScreen.vue";
 import RuleLogScreen from "../views/RuleLogScreen.vue";
 import CompareScreen from "../views/CompareScreen.vue";
 import SchedDiffScreen from "../views/SchedDiffScreen.vue";
+import RolesScreen from "../views/RolesScreen.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -19,6 +20,7 @@ export const router = createRouter({
     { path: "/rules", name: "rules", component: RuleLogScreen },
     { path: "/compare", name: "compare", component: CompareScreen },
     { path: "/scheddiff", name: "scheddiff", component: SchedDiffScreen },
+    { path: "/roles", name: "roles", component: RolesScreen },
   ],
 });
 
@@ -46,6 +48,7 @@ const VIEW_PATHS: Record<string, string> = {
   rules: "/rules",
   compare: "/compare",
   scheddiff: "/scheddiff",
+  roles: "/roles",
 };
 
 router.beforeEach((to) => {

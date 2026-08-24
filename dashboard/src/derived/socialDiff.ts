@@ -45,6 +45,25 @@
  * touching grudges elsewhere should hoist this into a shared module
  * instead of a second independent port.
  *
+ * Role rows (lane 52, additive, ui-spec §3.10: "role rows join the diff
+ * panel"): `"role"` added to `DiffRowType` -- a vacancy/succession row per
+ * role whose roster-level state (`SocialState.roles`, folded by
+ * `reconstruct.ts`'s `applyRoleEvent` as part of this module's existing
+ * full, unwindowed `replayTo` calls -- no keyframe-window hazard here,
+ * unlike `RunReader`) differs between T2 and T1, plus one row per
+ * `status_changed(duty_lapsed)` event firing inside the (T2, T1] window
+ * (duty lapse has no roster-level representation to diff -- see
+ * `derived/roles.ts`'s header -- so it's read directly off `window`
+ * instead). `toEventLink` (below) can't be reused for either: role events
+ * are EVENTS-stream payloads keyed by `event_type`, not `record_type`, so
+ * routing them through it would produce `recordType: "unknown"` on every
+ * row -- `toRoleEventLink` builds the link off `event_type` instead.
+ * `DiffRow.vue`'s `TYPE_LABEL` and `DiffFilterBar.vue`'s `TYPE_OPTIONS` are
+ * both exhaustive over `DiffRowType` and needed a one-key additive edit
+ * each to keep `vue-tsc`/the filter list correct -- filed as an in-bounds
+ * finding (same "verify and note" precedent as this lane's `reconstruct.ts`/
+ * `runReader.ts` extension), not a restructure of either file.
+ *
  * Rule-chip matching (packet: "the exact matching heuristic is left to
  * your judgment... not hardcoded to specific rule name strings"): a
  * delta's underlying trace record (e.g. `grudge_formed`) and the
@@ -57,7 +76,7 @@
  * caller-supplied set of ids (the delta's own subject/object ids) --
  * no rule name is ever hardcoded into the matching logic itself.
  */
-import type { FrameRecord, KeyframeGrudge } from "../log/types";
+import type { FrameRecord, KeyframeGrudge, KeyframeRole } from "../log/types";
 import { emptySocialState, grudgeKey, replayTo, reputationKey, rumorKey, type SocialState } from "../log/reconstruct";
 import { decayBelief, decayValue } from "./decay";
 import { rumorStageAt } from "./rumorStage";
@@ -91,7 +110,7 @@ export function grudgeCooled(grudge: KeyframeGrudge, atTick: number): boolean {
 // ---------------------------------------------------------------------------
 // Row shape
 
-export type DiffRowType = "belief" | "grudge" | "obligation" | "reputation";
+export type DiffRowType = "belief" | "grudge" | "obligation" | "reputation" | "role";
 
 /** The `rule_evaluated` record best-effort matched as this delta's cause. */
 export interface DiffRuleChip {
@@ -414,6 +433,112 @@ function reputationRows(state1: SocialState, state2: SocialState, window: FrameR
 }
 
 // ---------------------------------------------------------------------------
+// Role rows (lane 52 -- see header)
+
+/** `record.payload.event_type`-keyed event link -- role events carry no `record_type` (see header). */
+function toRoleEventLink(record: FrameRecord | null): DiffEventLink | null {
+  if (record === null) return null;
+  const eventType = record.payload.event_type;
+  return { tick: record.tick, seq: record.seq, recordType: typeof eventType === "string" ? eventType : "unknown" };
+}
+
+function roleHolderLabel(holderId: string | null | undefined): string {
+  return holderId ?? "(vacant)";
+}
+
+function rosterRows(state1: SocialState, state2: SocialState, window: FrameRecord[]): DiffRow[] {
+  const rows: DiffRow[] = [];
+  const ids = new Set([...state1.roles.keys(), ...state2.roles.keys()]);
+  for (const id of ids) {
+    const r1: KeyframeRole | null = state1.roles.get(id) ?? null;
+    const r2: KeyframeRole | null = state2.roles.get(id) ?? null;
+    const base = r1 ?? r2;
+    if (base === null) continue;
+
+    const isNew = r2 === null;
+    const holderChanged = (r1?.holder_id ?? null) !== (r2?.holder_id ?? null);
+    if (!isNew && !holderChanged) continue;
+
+    const before = r2 !== null ? (r2.holder_id !== null ? 1 : -1) : 0;
+    const after = r1 !== null ? (r1.holder_id !== null ? 1 : -1) : 0;
+
+    const kind: "installed" | "vacancy" | "succession" = isNew ? "installed" : r1?.holder_id === null ? "vacancy" : "succession";
+
+    const event = toRoleEventLink(
+      lastMatch(window, (r) => {
+        const eventType = r.payload.event_type;
+        if (eventType === "role_installed") return r.payload.role_id === id;
+        if (eventType === "npc_died") return kind === "vacancy" && r.payload.npc_id === r2?.holder_id;
+        if (eventType === "status_changed") return r.payload.status_kind === "role_appointed" && r.payload.detail === id;
+        return false;
+      }),
+    );
+    const rule =
+      event !== null
+        ? matchRuleForEvent(window, event.tick, [id, r1?.holder_id, r2?.holder_id].filter((s): s is string => typeof s === "string"))
+        : null;
+
+    rows.push({
+      key: `role:${id}`,
+      type: "role",
+      npcs: [r1?.holder_id, r2?.holder_id].filter((s): s is string => typeof s === "string"),
+      claimId: null,
+      label: `role ${base.title} (${id})`,
+      before,
+      after,
+      delta: after - before,
+      detail:
+        kind === "installed"
+          ? `installed, holder ${roleHolderLabel(r1?.holder_id)}`
+          : `${roleHolderLabel(r2?.holder_id)} → ${roleHolderLabel(r1?.holder_id)}`,
+      rule,
+      event,
+    });
+  }
+  return rows;
+}
+
+/**
+ * One row per `status_changed(duty_lapsed)` event firing inside `window` --
+ * duty lapse has no roster-level state to diff (see `derived/roles.ts`'s
+ * header on why `Role` carries no lapse field), so this reads the raw
+ * event directly and best-effort-correlates it to whichever known role
+ * (from either snapshot) currently lists a duty by that name.
+ */
+function dutyLapseRows(state1: SocialState, state2: SocialState, window: FrameRecord[]): DiffRow[] {
+  const rows: DiffRow[] = [];
+  const knownRoles = [...state1.roles.values(), ...state2.roles.values()];
+  for (const record of window) {
+    if (record.payload.event_type !== "status_changed") continue;
+    if (record.payload.status_kind !== "duty_lapsed") continue;
+    const dutyName = record.payload.detail;
+    const npcId = record.payload.npc_id;
+    if (typeof dutyName !== "string" || typeof npcId !== "string") continue;
+    const role = knownRoles.find((r) => r.duties.some((d) => d.name === dutyName));
+    const roleLabel = role !== undefined ? `${role.title} (${role.role_id})` : "(unknown role)";
+
+    rows.push({
+      key: `role-duty-lapse:${role?.role_id ?? "unknown"}:${dutyName}:${record.tick}:${record.seq}`,
+      type: "role",
+      npcs: [npcId],
+      claimId: null,
+      label: `duty lapsed: ${dutyName} (${roleLabel})`,
+      before: 0,
+      after: -1,
+      delta: -1,
+      detail: `${npcId}'s ${dutyName} lapsed`,
+      rule: matchRuleForEvent(window, record.tick, [role?.role_id, npcId].filter((s): s is string => typeof s === "string")),
+      event: { tick: record.tick, seq: record.seq, recordType: "status_changed" },
+    });
+  }
+  return rows;
+}
+
+function roleRows(state1: SocialState, state2: SocialState, window: FrameRecord[]): DiffRow[] {
+  return [...rosterRows(state1, state2, window), ...dutyLapseRows(state1, state2, window)];
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 
 export interface SocialDiffFilters {
@@ -465,5 +590,6 @@ export function computeSocialDiff(allRecords: FrameRecord[], t1: number, t2: num
     ...grudgeRows(state1, state2, window),
     ...obligationRows(state1, state2, window),
     ...reputationRows(state1, state2, window),
+    ...roleRows(state1, state2, window),
   ]);
 }

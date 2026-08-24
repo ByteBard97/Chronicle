@@ -741,3 +741,192 @@ describe("reconstruct: layer-4 social state (lane 34)", () => {
     expect([...hydrated.reputations.keys()]).toEqual([...replayed.reputations.keys()]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Role roster (lane 52, Tier 5): role_installed / npc_died /
+// status_changed(role_appointed) -- see this file's `SocialState.roles` doc
+// for why fromKeyframeState never hydrates it (a keyframe never carries a
+// `roles` key at all) and why `applyTraceRecord`'s fold here is only
+// correct for a full, unwindowed replay (RunReader's keyframe-window fix
+// is covered separately in runReader.test.ts).
+
+describe("reconstruct: role roster replay (lane 52)", () => {
+  it("role_installed upserts the full role, keyed by role_id, with holder_id and duties", () => {
+    const state = emptySocialState(-1);
+    applyTraceRecord(
+      state,
+      {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "steward_of_whiterun",
+        title: "Steward of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [{ name: "collect_taxes", lapse_status_kind: "duty_lapsed" }],
+        holder_id: "proventus",
+      },
+      0,
+    );
+    expect(state.roles.get("steward_of_whiterun")).toEqual({
+      role_id: "steward_of_whiterun",
+      title: "Steward of Whiterun",
+      institution_id: "whiterun_court",
+      duties: [{ name: "collect_taxes", lapse_status_kind: "duty_lapsed" }],
+      holder_id: "proventus",
+      vacated_at: null,
+    });
+  });
+
+  it("npc_died vacates every role currently held by the dying NPC, using the event's own gamets", () => {
+    const state = emptySocialState(-1);
+    applyTraceRecord(
+      state,
+      {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "jarl_of_whiterun",
+        title: "Jarl of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [{ name: "hold_court", lapse_status_kind: "duty_lapsed" }],
+        holder_id: "jarl_balgruuf",
+      },
+      0,
+    );
+    applyTraceRecord(
+      state,
+      {
+        event_type: "npc_died",
+        gamets: 12.5,
+        wall_ts: 0,
+        origin: null,
+        npc_id: "jarl_balgruuf",
+        cause: "assassination",
+        killer_id: "the_player",
+        location_id: "dragonsreach",
+      },
+      12, // envelope tick deliberately differs from gamets -- vacated_at must use gamets (framelog.py:735), not this.
+    );
+    const role = state.roles.get("jarl_of_whiterun")!;
+    expect(role.holder_id).toBeNull();
+    expect(role.vacated_at).toBe(12.5);
+  });
+
+  it("npc_died is a no-op for roles the dying NPC does not currently hold", () => {
+    const state = emptySocialState(-1);
+    applyTraceRecord(
+      state,
+      {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "steward_of_whiterun",
+        title: "Steward of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [],
+        holder_id: "proventus",
+      },
+      0,
+    );
+    applyTraceRecord(
+      state,
+      { event_type: "npc_died", gamets: 5, wall_ts: 0, origin: null, npc_id: "irileth", cause: "combat", killer_id: null, location_id: null },
+      5,
+    );
+    expect(state.roles.get("steward_of_whiterun")!.holder_id).toBe("proventus");
+  });
+
+  it("status_changed(role_appointed): detail is the role_id, npc_id the new holder, vacancy cleared", () => {
+    const state = emptySocialState(-1);
+    applyTraceRecord(
+      state,
+      {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "jarl_of_whiterun",
+        title: "Jarl of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [],
+        holder_id: "jarl_balgruuf",
+      },
+      0,
+    );
+    applyTraceRecord(state, { event_type: "npc_died", gamets: 0, wall_ts: 0, origin: null, npc_id: "jarl_balgruuf", cause: "assassination", killer_id: null, location_id: null }, 0);
+    applyTraceRecord(
+      state,
+      { event_type: "status_changed", gamets: 0, wall_ts: 0, origin: null, npc_id: "irileth", status_kind: "role_appointed", detail: "jarl_of_whiterun", location_id: null },
+      0,
+    );
+    const role = state.roles.get("jarl_of_whiterun")!;
+    expect(role.holder_id).toBe("irileth");
+    expect(role.vacated_at).toBeNull();
+  });
+
+  it("status_changed(duty_lapsed) does NOT touch the roster -- no lapse field is ever stored here (derived/roles.ts's job)", () => {
+    const state = emptySocialState(-1);
+    applyTraceRecord(
+      state,
+      {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "jarl_of_whiterun",
+        title: "Jarl of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [{ name: "hold_court", lapse_status_kind: "duty_lapsed" }],
+        holder_id: "jarl_balgruuf",
+      },
+      0,
+    );
+    const before = new Map(state.roles);
+    applyTraceRecord(
+      state,
+      { event_type: "status_changed", gamets: 0, wall_ts: 0, origin: null, npc_id: "jarl_balgruuf", status_kind: "duty_lapsed", detail: "hold_court", location_id: null },
+      0,
+    );
+    expect(state.roles).toEqual(before);
+  });
+
+  it("status_changed(role_appointed) for an unknown role_id is a tolerant no-op (reader tolerance, schema §7)", () => {
+    const state = emptySocialState(-1);
+    applyTraceRecord(
+      state,
+      { event_type: "status_changed", gamets: 0, wall_ts: 0, origin: null, npc_id: "irileth", status_kind: "role_appointed", detail: "no_such_role", location_id: null },
+      0,
+    );
+    expect(state.roles.size).toBe(0);
+  });
+
+  it("replayTo carries the roster forward (a fresh Map, not the same reference, per its field-by-field copy contract)", () => {
+    const start = emptySocialState(-1);
+    applyTraceRecord(
+      start,
+      {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "steward_of_whiterun",
+        title: "Steward of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [],
+        holder_id: "proventus",
+      },
+      0,
+    );
+    const replayed = replayTo(start, [], 10);
+    expect(replayed.roles.get("steward_of_whiterun")).toEqual(start.roles.get("steward_of_whiterun"));
+    expect(replayed.roles).not.toBe(start.roles);
+  });
+
+  it("fromKeyframeState never hydrates roles -- a keyframe's state object carries no roles key at all (this module's own header finding)", () => {
+    const state = fromKeyframeState({ schedules: [] }, 47);
+    expect(state.roles.size).toBe(0);
+  });
+});

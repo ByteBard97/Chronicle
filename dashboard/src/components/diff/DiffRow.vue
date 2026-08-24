@@ -13,6 +13,12 @@
  * The event link jumps to the encounter feed at the triggering record's
  * tick (`/feed?run=...&t=...`), the M3 cross-view deep-link idiom already
  * established by row clicks elsewhere in the app.
+ *
+ * `"role"` (lane 52, ui-spec §3.10 additive edit): `TYPE_LABEL` is an
+ * exhaustive `Record<DiffRow["type"], string>`, so adding `"role"` to
+ * `DiffRowType` (derived/socialDiff.ts) requires this one-key addition to
+ * keep `vue-tsc` green -- a minimal, in-bounds fix (this file is otherwise
+ * out of lane 52's edit list), not a restructure.
  */
 import { computed } from "vue";
 import type { DiffRow } from "../../derived/socialDiff";
@@ -29,6 +35,7 @@ const TYPE_LABEL: Record<DiffRow["type"], string> = {
   grudge: "grudge",
   obligation: "obligation",
   reputation: "reputation",
+  role: "role",
 };
 
 const deltaSign = computed(() => (props.row.delta > 0 ? "positive" : props.row.delta < 0 ? "negative" : "zero"));

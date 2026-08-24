@@ -284,6 +284,151 @@ describe("computeSocialDiff", () => {
     const rows = computeSocialDiff(records, 10, 5);
     expect(rows.filter((r) => r.type === "reputation")).toHaveLength(0);
   });
+
+  // -------------------------------------------------------------------
+  // Role rows (lane 52, ui-spec §3.10: "role rows join the diff panel")
+
+  it("role succession inside the window: a role row with a working event link off event_type (not record_type)", () => {
+    const records: FrameRecord[] = [
+      record(0, 0, "events", {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "jarl_of_whiterun",
+        title: "Jarl of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [{ name: "hold_court", lapse_status_kind: "duty_lapsed" }],
+        holder_id: "jarl_balgruuf",
+      }),
+      record(7, 0, "events", {
+        event_type: "npc_died",
+        gamets: 7,
+        wall_ts: 0,
+        origin: null,
+        npc_id: "jarl_balgruuf",
+        cause: "assassination",
+        killer_id: "the_player",
+        location_id: "dragonsreach",
+      }),
+      record(7, 1, "events", {
+        event_type: "status_changed",
+        gamets: 7,
+        wall_ts: 0,
+        origin: null,
+        npc_id: "irileth",
+        status_kind: "role_appointed",
+        detail: "jarl_of_whiterun",
+        location_id: null,
+      }),
+    ];
+
+    const rows = computeSocialDiff(records, 10, 5);
+    const row = rows.find((r) => r.key === "role:jarl_of_whiterun");
+    expect(row).toBeDefined();
+    expect(row!.type).toBe("role");
+    expect(row!.npcs).toEqual(["irileth", "jarl_balgruuf"]);
+    expect(row!.detail).toBe("jarl_balgruuf → irileth");
+    // The event link must resolve off `event_type`, not `record_type` --
+    // role events have no `record_type` at all, so a naive reuse of
+    // `toEventLink` would render this as "unknown" (see this module's
+    // header finding).
+    expect(row!.event).toEqual({ tick: 7, seq: 1, recordType: "status_changed" });
+  });
+
+  it("a role installed for the first time inside the window is a new row (T2 never saw it)", () => {
+    const records: FrameRecord[] = [
+      record(7, 0, "events", {
+        event_type: "role_installed",
+        gamets: 7,
+        wall_ts: 0,
+        origin: null,
+        role_id: "steward_of_whiterun",
+        title: "Steward of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [],
+        holder_id: "proventus",
+      }),
+    ];
+    const rows = computeSocialDiff(records, 10, 5);
+    const row = rows.find((r) => r.key === "role:steward_of_whiterun");
+    expect(row).toBeDefined();
+    expect(row!.detail).toBe("installed, holder proventus");
+    expect(row!.before).toBe(0);
+    expect(row!.after).toBe(1);
+  });
+
+  it("a vacancy (death, no successor yet in the window) produces a role row with a negative delta and no succession row", () => {
+    const records: FrameRecord[] = [
+      record(0, 0, "events", {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "steward_of_whiterun",
+        title: "Steward of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [],
+        holder_id: "proventus",
+      }),
+      record(7, 0, "events", {
+        event_type: "npc_died",
+        gamets: 7,
+        wall_ts: 0,
+        origin: null,
+        npc_id: "proventus",
+        cause: "illness",
+        killer_id: null,
+        location_id: "dragonsreach",
+      }),
+    ];
+    const rows = computeSocialDiff(records, 10, 5);
+    const row = rows.find((r) => r.key === "role:steward_of_whiterun")!;
+    expect(row.detail).toBe("proventus → (vacant)");
+    expect(row.before).toBe(1);
+    expect(row.after).toBe(-1);
+    expect(row.delta).toBeLessThan(0);
+    expect(row.event).toEqual({ tick: 7, seq: 0, recordType: "npc_died" });
+  });
+
+  it("a duty_lapsed event inside the window produces its own role row, correlated to the role owning that duty", () => {
+    const records: FrameRecord[] = [
+      record(0, 0, "events", {
+        event_type: "role_installed",
+        gamets: 0,
+        wall_ts: 0,
+        origin: null,
+        role_id: "jarl_of_whiterun",
+        title: "Jarl of Whiterun",
+        institution_id: "whiterun_court",
+        duties: [{ name: "hold_court", lapse_status_kind: "duty_lapsed" }],
+        holder_id: "jarl_balgruuf",
+      }),
+      record(7, 0, "events", {
+        event_type: "status_changed",
+        gamets: 7,
+        wall_ts: 0,
+        origin: null,
+        npc_id: "jarl_balgruuf",
+        status_kind: "duty_lapsed",
+        detail: "hold_court",
+        location_id: null,
+      }),
+    ];
+    const rows = computeSocialDiff(records, 10, 5);
+    const row = rows.find((r) => r.key.startsWith("role-duty-lapse:"));
+    expect(row).toBeDefined();
+    expect(row!.type).toBe("role");
+    expect(row!.npcs).toEqual(["jarl_balgruuf"]);
+    expect(row!.label).toContain("hold_court");
+    expect(row!.label).toContain("Jarl of Whiterun");
+    expect(row!.event).toEqual({ tick: 7, seq: 0, recordType: "status_changed" });
+  });
+
+  it("no role events at all produces zero role rows", () => {
+    const rows = computeSocialDiff([], 10, 5);
+    expect(rows.filter((r) => r.type === "role")).toHaveLength(0);
+  });
 });
 
 describe("matchRuleForEvent", () => {

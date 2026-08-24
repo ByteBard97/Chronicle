@@ -8,10 +8,11 @@
  * Range-fetches starting there, rather than scanning from byte 0 of a
  * possibly-large log — the whole point of the sidecar index existing.
  */
-import type { FrameRecord, KeyframeScheduleOverlay, RunRegistryEntry, SidecarIndexFile } from "./types";
+import type { FrameRecord, KeyframeRole, KeyframeScheduleOverlay, RunRegistryEntry, SidecarIndexFile } from "./types";
 import { fetchSidecarIndex, keyframeAtOrBefore, tickAtOrBefore } from "./sidecarIndex";
 import { readByteRange, runStreamUrl, LiveTailPoller, type LiveTailListener } from "./streamReader";
 import {
+  applyRoleEvent,
   emptySocialState,
   fromKeyframeState,
   parseScheduleRewrite,
@@ -130,12 +131,35 @@ export class RunReader {
     return overlays;
   }
 
+  /**
+   * Every role-roster event up to `uptoTick`, scanned from byte 0 of the
+   * events stream every time -- the same full-scan discipline
+   * `scheduleOverlaysUpTo` uses and for the identical reason
+   * (`reconstruct.ts`'s module header / `types.ts`'s `KeyframeRole` doc):
+   * `chronicle/framelog.py::state_at`'s own role roster is built this way
+   * unconditionally, never from a keyframe. Records are sorted by
+   * `(tick, seq)` before folding -- `readByteRange` returns them in file
+   * order already, but this reader is not documented to promise that, and
+   * install-before-appoint ordering is load-bearing for `applyRoleEvent`.
+   */
+  private async roleEventsUpTo(uptoTick: number): Promise<Map<string, KeyframeRole>> {
+    const { records } = await readByteRange(this.eventsUrl, 0);
+    const roles = new Map<string, KeyframeRole>();
+    const sorted = [...records].sort((a, b) => (a.tick !== b.tick ? a.tick - b.tick : a.seq - b.seq));
+    for (const record of sorted) {
+      if (record.tick > uptoTick) continue;
+      applyRoleEvent(roles, record.payload, record.tick);
+    }
+    return roles;
+  }
+
   /** State as of tick T: nearest keyframe <= T, replayed forward with every intervening delta. */
   async stateAt(t: number): Promise<SocialState> {
     const keyframeState = await this.keyframeStateAtOrBefore(t);
     const deltas = await this.deltasBetween(keyframeState.tick, t);
     const state = replayTo(keyframeState, deltas, t);
     state.scheduleOverlays = await this.scheduleOverlaysUpTo(t);
+    state.roles = await this.roleEventsUpTo(t);
     return state;
   }
 
@@ -152,6 +176,7 @@ export class RunReader {
     const latestTick = deltas.length > 0 ? deltas[deltas.length - 1]!.tick : Math.max(keyframeState.tick, 0);
     const state = replayTo(keyframeState, deltas, latestTick);
     state.scheduleOverlays = await this.scheduleOverlaysUpTo(latestTick);
+    state.roles = await this.roleEventsUpTo(latestTick);
     return state;
   }
 

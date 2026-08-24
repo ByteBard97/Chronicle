@@ -45,4 +45,12 @@ describe("router: view=feed lands on /feed", () => {
     expect(router.currentRoute.value.query.t).toBe("50");
     expect(router.currentRoute.value.query.filters).toBe('{"npc":"sven"}');
   });
+
+  it("redirects a view=roles query to /roles, preserving t and filters (lane 52)", async () => {
+    await router.push('/?run=north-star-01&view=roles&t=100&filters={"npc":"irileth"}');
+    expect(router.currentRoute.value.path).toBe("/roles");
+    expect(router.currentRoute.value.query.run).toBe("north-star-01");
+    expect(router.currentRoute.value.query.t).toBe("100");
+    expect(router.currentRoute.value.query.filters).toBe('{"npc":"irileth"}');
+  });
 });
