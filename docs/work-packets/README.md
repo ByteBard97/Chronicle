@@ -43,6 +43,9 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 36 | [lane-36-schedule-write-back.md](lane-36-schedule-write-back.md) | lane 33 (design accepted) | medium-large (code) |
 | 37 | [lane-37-t4a2-counterfactual.md](lane-37-t4a2-counterfactual.md) | lane 36 (serial) | medium (test) |
 | 38 | [lane-38-run-comparison.md](lane-38-run-comparison.md) | lanes 6, 21 (landed); lane 37 (fixture, when landed) | medium-large (code) |
+| 39 | [lane-39-status-changed-event.md](lane-39-status-changed-event.md) | lane 26 backlog | small (code) |
+| 40 | [lane-40-tier-4b-design-prep.md](lane-40-tier-4b-design-prep.md) | lanes 36, 37 (landed) | small-medium (design doc) |
+| 41 | [lane-41-schedule-diff.md](lane-41-schedule-diff.md) | lanes 34, 36 (landed) | medium (code) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 
