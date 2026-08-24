@@ -31,6 +31,13 @@ fixes or revert. This supersedes the "No `git commit` in any lane"
 convention line in older packets and in `docs/work-packets/README.md`
 rule 2.
 
+**Commit discipline (2026-08-24, after the lane-30/40 git race):**
+stage and commit **atomically in one step** (`git add <paths> && git
+commit`). Never leave staged-but-uncommitted files in the index and
+walk away — another session's commit will sweep them up under the wrong
+message (documented case: `0740c1b`, corrected by `c8a95a3`). Before
+committing, check `git status` for files you didn't stage.
+
 The overseer agent (planner/reviewer) evaluates lane deliverables against
 their packet's acceptance criteria before anything is committed. One
 subdirectory per review round: `reviews/<date>-<lane>/` containing the
@@ -91,7 +98,7 @@ agent's report, the overseer's findings, and the verdict
 | 25 — Tier 3 L-E: obligation violation cascade | delivered + worker-committed `f7453f4` | accepted — 203 passed, ruff clean (coordinator re-ran); existing scripted violation passes byte-identical. All six flags ruled in the worker's favor: opt-in cascade via `violation_evidentiary_strength=None` (keeps the immutable framelog test stable — correct); `source_belief_id = obligation.id` accepted with a documentation note (grievance sources aren't always beliefs — consumers must tolerate); self-victim emotional 1.0 accepted (tunable, reversible); rule-14 disable = full cascade suspension (consistent with the driver-owned-rule toggle pattern); count-literal migration retroactively in-bounds (mechanical, now pre-authorized in lane 26's packet); reputation context = obligation.action per R8's own text |
 | 26 — Tier 3 L-F: observer-local reputation wiring | delivered + worker-committed `fa553c7` | accepted — 205 passed, ruff clean (coordinator re-ran). **Tier 3 complete: T3.1–T3.5 all green, rules 1–16 live.** Flags ruled: re-hearings and resolution re-points produce no reputation rows (correct per R11's "gains or corroborates" text; re-point-as-acquisition noted as a future-rung candidate, not ruled in); `RumorHeard` anchor for the Thane event accepted (a `StatusChanged` event class is a backlog micro-lane — events.py + framelog branch + coordinator schema §3 amendment); fail-loud on missing subject slot endorsed; count migration per pre-authorization |
 | 29 — Tier-3-rich demo run | delivered + committed `b577e72` (Kimi's scenario design; Claude's one-line fix + landing during the usage outage — attribution in the delivery report) | **accepted** (self-reported during the coordinator outage; coordinator has since independently re-verified): crash diagnosis correct (`_scripted_setup` stamps beliefs to gamets 3.0 before the loop starts at 0, tripping `claims.py:348`'s rehearsal-ordering guard); fix minimal and scenario-local (loop starts at tick 4, timings preserved, no engine files touched); all five Tier-3 record types present incl. `fired:false` rows; 205 pytest + ruff green. **M4's data substrate exists** |
-| 30 — M4 diff panel (ui-spec §3.7) | packet written; **blocked on lane 34** (pre-dispatch review found the layer-4 reconstruction gap) | queued |
+| 30 — M4 diff panel (ui-spec §3.7) | delivered — implementation landed inside commit `0740c1b` via a documented git race (Kimi's lane-40 commit swept Claude's staged lane-30 files into a shared index; byte-for-byte verified intact, see the correction note `c8a95a3`) | accepted — coordinator re-ran the battery: 471/471 vitest, build clean, check-range 206, 218 pytest, ruff clean; the M3 gate's T3.4 landing-case carry-forward is present and passing (`FeedScreen.t34LandingCase.test.ts`) |
 | 34 — dashboard layer-4 reconstruction (precursor) | delivered + worker-committed `49fa795` | accepted — coordinator re-ran the battery: 443/443 vitest, build clean, check-range 206, 217 pytest, ruff clean; boundaries exact (types + reconstruct + tests + realRun test). Protocol note (fourth occurrence): no filed delivery report — the board's standing reminder holds |
 | 31 — M4 rule-firing log | packet written; serial after lane 30 | queued |
 | 32 — cli.py hygiene (Tier 2/3 record vocabulary) | delivered + worker-committed `59c2047` | accepted — 206 passed, ruff clean (coordinator re-ran); trace filter verified against carrier-mutation-01 (all 7 supersessions now listed, was 4; regression test confirmed to fail without the fix) |
