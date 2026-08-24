@@ -109,7 +109,7 @@ agent's report, the overseer's findings, and the verdict
 | 39 — StatusChanged event class | delivered + worker-committed `5362cbc` | accepted — 218 passed, ruff clean (coordinator re-ran); payload mapping + round-trip + canonical-key anchor tests verified; schema §3:97 match field-for-field |
 | 40 — Tier 4b design prep (avoidance) | delivered + worker-committed `0740c1b` | accepted — overseer review + rulings in `reviews/2026-08-23-lane-40/`; O1–O4 ruled (hard-zero avoidance probability, threshold 0.5, public grudges() accessor in lane 43, mutual-collapse accepted) |
 | 42 — mourning demo run producer | delivered + worker-committed `18611a3` | accepted — run verified: `runs/mourning-demo-01` exists with 2 `schedule_rewrite` events; the T4a.2 narrative watchable (priest informed through the reroute); 218 pytest green, ruff clean (coordinator re-ran) |
-| 43 — Tier 4b: avoidance (rule 18) + T4b.1 | packet written, dispatched by owner 2026-08-23 | pending delivery |
+| 43 — Tier 4b: avoidance (rule 18) + T4b.1 | delivered + worker-committed `79d8d73` | accepted — 223 passed, ruff clean (coordinator re-ran); rung + control pair + cooling case all verified (the cooling band derived from the ruled half-lives, doctrine-3 visibility holds through the transition); `grudges()` public accessor per O3; no deviations from the ruled design. **Tier 4 complete — rules 1–18 live, Tiers 0–4 all green** |
 | 44 — Tier 5 design prep (roles & vacancy) | packet written; after lane 43 | queued |
 | 45 — T6 north-star fixture design | packet written; after lane 44's design is ruled | queued |
 | 46 — InjectionConsole writing-form display | packet written; Track B filler | queued |
