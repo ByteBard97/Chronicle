@@ -13,9 +13,19 @@
  *   line (a transmission with no mutation).
  * - Cross-links: dashed curved path, loser -> winner (an arrowhead marks
  *   the winner end), labeled with the resolution rule + confidence dent.
- *   Overlapping (same fromId/toId) cross-links fan out via `pairIndex`/
- *   `pairCount` so duplicates don't collapse into one indistinguishable
- *   curve.
+ *   `derived/variantTree.ts` emits one `VariantTreeCrossLink` per raw
+ *   `supersession` record, which can repeat the same (fromId, toId) pair
+ *   dozens or hundreds of times (a contested claim stuck in a repeated
+ *   resolution loop -- confirmed against `runs/north-star-01`, where one
+ *   pair alone carries 190 supersessions). Rendering one path+label per
+ *   *record* rather than per distinct *edge* is exactly lane 56's M7 bug
+ *   (dossier step 4): hundreds of overlapping label copies stacked into an
+ *   illegible mass. This component therefore aggregates `crossLinks` down
+ *   to one path + one label per distinct (fromId, toId, resolutionRule,
+ *   confidenceDent) group (`aggregatedCrossLinks` below) -- the label shows
+ *   a "x N" suffix when more than one record collapses into that group, so
+ *   the repeated-contradiction signal survives instead of being silently
+ *   dropped.
  * - Node fill: `recolorMode` "first-appearance" scales on `order`
  *   (canonical always first/darkest); "holder-count" scales on
  *   `holderCount`. "by-hold" is explicitly out of scope (no hold concept
@@ -65,6 +75,63 @@ const height = computed(() => {
   return MARGIN * 2 + maxOrder * DY + NODE_R * 2;
 });
 
+/**
+ * One path/label per distinct (fromId, toId, resolutionRule,
+ * confidenceDent) group -- see the module header on why `props.crossLinks`
+ * (one entry per raw `supersession` record) can't be rendered 1:1 without
+ * flooding the canvas. The label's own content is part of the group key,
+ * not just (fromId, toId): confirmed uniform per pair across every fixture
+ * under `runs/*` today, but keying on exactly what the rendered label shows
+ * means a future run where the same pair resolves under two different
+ * rules/dents still gets two honest labels instead of one that silently
+ * mis-states the dent for some of the collapsed records.
+ *
+ * `pairIndex`/`pairCount` are irrelevant post-aggregation: with duplicates
+ * collapsed there is exactly one curve per group, so the fan-out bow (which
+ * was only ever driven by these two fields) is always centered (bow = 0)
+ * here. They're kept on `AggregatedCrossLink`/passed as 0/1 purely to
+ * satisfy `CrossLinkGeom`'s shape, not because the bow still does anything.
+ */
+interface AggregatedCrossLink {
+  id: string;
+  fromId: string;
+  toId: string;
+  resolutionRule: string;
+  confidenceDent: number;
+  count: number;
+  pairIndex: number;
+  pairCount: number;
+}
+
+const aggregatedCrossLinks = computed<AggregatedCrossLink[]>(() => {
+  const order: string[] = [];
+  const groups = new Map<string, VariantTreeCrossLink[]>();
+  for (const link of props.crossLinks) {
+    const key = `${link.fromId}->${link.toId}::${link.resolutionRule}::${link.confidenceDent}`;
+    const existing = groups.get(key);
+    if (existing === undefined) {
+      groups.set(key, [link]);
+      order.push(key);
+    } else {
+      existing.push(link);
+    }
+  }
+  return order.map((key) => {
+    const group = groups.get(key)!;
+    const rep = group[0]!;
+    return {
+      id: key,
+      fromId: rep.fromId,
+      toId: rep.toId,
+      resolutionRule: rep.resolutionRule,
+      confidenceDent: rep.confidenceDent,
+      count: group.length,
+      pairIndex: 0,
+      pairCount: 1,
+    };
+  });
+});
+
 const maxOrder = computed(() => Math.max(1, ...props.nodes.map((n) => n.order)));
 const maxHolderCount = computed(() => Math.max(1, ...props.nodes.map((n) => n.holderCount)));
 
@@ -98,8 +165,11 @@ function hash01(s: string): number {
   return (h >>> 0) / 0xffffffff;
 }
 
+/** Structural shape the curve-geometry helpers need -- satisfied by both a raw `VariantTreeCrossLink` and an `AggregatedCrossLink`. */
+type CrossLinkGeom = Pick<VariantTreeCrossLink, "id" | "fromId" | "toId" | "pairIndex" | "pairCount">;
+
 /** The quadratic-bezier control point for one cross-link (shared by the path and its label so they always agree). Same-pair duplicates fan out via a perpendicular bow keyed on `pairIndex`. */
-function crossLinkControl(link: VariantTreeCrossLink, from: Pt, to: Pt): Pt {
+function crossLinkControl(link: CrossLinkGeom, from: Pt, to: Pt): Pt {
   const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -119,7 +189,7 @@ function quadraticPoint(from: Pt, ctrl: Pt, to: Pt, t: number): Pt {
   };
 }
 
-function crossLinkPath(link: VariantTreeCrossLink): string {
+function crossLinkPath(link: CrossLinkGeom): string {
   const from = pointById.value[link.fromId];
   const to = pointById.value[link.toId];
   if (from === undefined || to === undefined) return "";
@@ -143,13 +213,19 @@ function crossLinkPath(link: VariantTreeCrossLink): string {
  * rather than fixing every label at t=0.5 — spreads distinct pairs' labels
  * apart without needing to know about each other.
  */
-function crossLinkLabelPoint(link: VariantTreeCrossLink): Pt {
+function crossLinkLabelPoint(link: CrossLinkGeom): Pt {
   const from = pointById.value[link.fromId];
   const to = pointById.value[link.toId];
   if (from === undefined || to === undefined) return { x: 0, y: 0 };
   const ctrl = crossLinkControl(link, from, to);
   const t = 0.3 + hash01(link.id) * 0.4;
   return quadraticPoint(from, ctrl, to, t);
+}
+
+/** Cross-link label text: the resolution rule + dent, plus a "x N" suffix when this aggregated edge collapses more than one raw supersession record. */
+function crossLinkLabel(link: AggregatedCrossLink): string {
+  const base = `${link.resolutionRule} (dent ${link.confidenceDent})`;
+  return link.count > 1 ? `${base} ×${link.count}` : base;
 }
 
 /** Clamp a label's text-anchor-middle x so it can't run off the (scrollable) canvas edge. */
@@ -206,14 +282,14 @@ function nodeTitle(node: VariantTreeNode): string {
 
     <!-- Supersession cross-links (dashed) -->
     <g class="tree-svg__cross-links">
-      <g v-for="link in crossLinks" :key="link.id">
+      <g v-for="link in aggregatedCrossLinks" :key="link.id">
         <path class="tree-svg__cross-link-path" :d="crossLinkPath(link)" marker-end="url(#tree-svg__arrow)" />
         <text
           class="tree-svg__cross-link-label"
           :x="clampLabelX(crossLinkLabelPoint(link).x)"
           :y="crossLinkLabelPoint(link).y"
         >
-          {{ link.resolutionRule }} (dent {{ link.confidenceDent }})
+          {{ crossLinkLabel(link) }}
         </text>
       </g>
     </g>
