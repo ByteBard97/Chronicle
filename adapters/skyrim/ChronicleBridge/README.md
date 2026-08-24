@@ -39,12 +39,23 @@ set one of these environment variables before configuring:
 
 ## Runtime configuration
 
-Not yet implemented (see the `TODO` in `src/plugin.cpp`): the outbound
-target currently defaults to `127.0.0.1:8765`, which only works if
-Chronicle runs on the same machine as the game. Once Skyrim runs on its
-own machine, this needs to read the Chronicle host's real LAN IP from an
-INI file (the conventional `Data/SKSE/Plugins/ChronicleBridge.ini`
-pattern) rather than a hardcoded default.
+`Data/SKSE/Plugins/ChronicleBridge.ini` (`src/Config.cpp`) overrides the
+outbound target -- create it next to the DLL once Skyrim runs on a
+different machine than Chronicle:
+
+```ini
+[General]
+Host=192.168.1.50
+Port=8765
+SharedSecret=whatever-the-listener-was-started-with
+```
+
+Any key left out (or the file itself being absent) falls back to the
+built-in default for that field (`127.0.0.1:8765`, no shared secret) --
+so a fresh install with no ini yet behaves exactly as before this
+existed. `SharedSecret` must match whatever the listener was started
+with (`--shared-secret`, `adapters/skyrim/listener/listener.py`) or every
+POST gets rejected with 401.
 
 ## Filling in the named-cast identity table
 

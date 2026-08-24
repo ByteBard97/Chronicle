@@ -26,6 +26,7 @@
 #include <mutex>
 #include <thread>
 
+#include "Config.h"
 #include "OutboundClient.h"
 #include "SpatialStreamer.h"
 
@@ -105,15 +106,13 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SKSE::log::info(
         "ChronicleBridge loaded -- spatial streamer slice only (see docs/design/chronicle-bridge-spatial-streamer.md)");
 
-    // TODO once the Chronicle host's actual LAN IP is known: read host, port,
-    // and sharedSecret from an INI file (SKSE plugins conventionally ship a
-    // Data/SKSE/Plugins/ChronicleBridge.ini) rather than hardcoding
-    // OutboundConfig's defaults -- the default 127.0.0.1 only works if
-    // Chronicle runs on the same machine, which won't be true once Skyrim
-    // runs on its own Windows box, and sharedSecret must match whatever the
-    // listener was started with (--shared-secret, adapters/skyrim/listener/
-    // listener.py) or every POST gets rejected with 401.
-    ChronicleBridge::OutboundConfig config{};
+    // Data/SKSE/Plugins/ChronicleBridge.ini overrides host/port/sharedSecret
+    // when present (Config.cpp); a fresh install with no ini yet keeps
+    // OutboundConfig's 127.0.0.1:8765 defaults, which only work if Chronicle
+    // runs on the same machine as the game. sharedSecret must match whatever
+    // the listener was started with (--shared-secret, adapters/skyrim/
+    // listener/listener.py) or every POST gets rejected with 401.
+    ChronicleBridge::OutboundConfig config = ChronicleBridge::LoadConfigFromIni();
 
     std::thread(TimerThreadLoop).detach();
     std::thread(SenderThreadLoop, config).detach();

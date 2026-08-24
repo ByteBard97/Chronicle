@@ -30,6 +30,7 @@ add_commonlibsse_plugin(${PROJECT_NAME} SOURCES
     src/SpatialStreamer.cpp
     src/IdentityMap.cpp
     src/OutboundClient.cpp
+    src/Config.cpp
 )
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_23)
 target_precompile_headers(${PROJECT_NAME} PRIVATE src/PCH.h)
