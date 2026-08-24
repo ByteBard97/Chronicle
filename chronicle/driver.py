@@ -64,6 +64,7 @@ from chronicle.rules import (
     ENCOUNTER_SAMPLING,
     MUTATION_POLICY,
     OBLIGATION_LIFECYCLE,
+    REPUTATION_ACCUMULATION,
     SHARED_CLAIM_INVARIANT,
     TELL_DECISION_POLICY,
     TESTIMONY_TRANSFER,
@@ -158,6 +159,7 @@ class Driver:
         tell_probability: float = TELL_PROBABILITY,
         claim_privacy: Mapping[str, str] | None = None,
         accumulation_thresholds: Mapping[str, tuple[str, int]] | None = None,
+        reputation_relevance: Mapping[str, tuple[str, bool, str]] | None = None,
         keyframe_interval: int = DEFAULT_KEYFRAME_INTERVAL,
         runs_dir: Path | None = None,
         event_log: EventLog | None = None,
@@ -186,6 +188,13 @@ class Driver:
         # party's id; the threshold is per-kind, caller-supplied (never a
         # global). Same caller-supplies-context idiom as above.
         self.accumulation_thresholds = dict(accumulation_thresholds) if accumulation_thresholds is not None else {}
+        # Rule 16's reputation-relevant kinds (R11): claim_kind ->
+        # (subject_slot, positive, context). The subject slot names which
+        # slot holds the observed party's id; the evidence kind comes from
+        # the acquisition path, never from the mapping. Same
+        # caller-supplies-context idiom as above; no mapping registered
+        # means zero reputation rows -- behavior identical to pre-lane-26.
+        self.reputation_relevance = dict(reputation_relevance) if reputation_relevance is not None else {}
         self.save_uuid = save_uuid
         self.generation = generation
         self.keyframe_interval = keyframe_interval
@@ -336,6 +345,8 @@ class Driver:
         )
         # Rule 11 evaluates exactly here, where a belief forms (R5).
         self._evaluate_accumulation(holder_id=belief.holder_id, claim=claim, tick=tick, gamets=belief.first_learned)
+        # Rule 16: first-hand observation is "witnessed" reputation evidence (R11).
+        self._apply_reputation(holder_id=belief.holder_id, claim=claim, kind="witnessed", tick=tick, gamets=belief.first_learned)
         return claim, belief, evidence
 
     def retell(
@@ -424,6 +435,16 @@ class Driver:
                 tick=int(kwargs["gamets"]),  # type: ignore[arg-type]
                 gamets=float(kwargs["gamets"]),  # type: ignore[arg-type]
             )
+            # Rule 16: a telling the hearer hadn't held is "reported"
+            # reputation evidence (R11). A re-hearing mints nothing, so no
+            # reputation row can come of it either.
+            self._apply_reputation(
+                holder_id=belief.holder_id,
+                claim=self.claims.claim(variant.claim_id),
+                kind="reported",
+                tick=int(kwargs["gamets"]),  # type: ignore[arg-type]
+                gamets=float(kwargs["gamets"]),  # type: ignore[arg-type]
+            )
         return variant, belief, evidence
 
     def corroborate(self, **kwargs: object) -> tuple[BeliefInstance, Evidence]:
@@ -451,6 +472,15 @@ class Driver:
                 fired=True,
                 result={"confidence_before": confidence_before, "confidence_after": updated.confidence},
             ),
+        )
+        # Rule 16: independent corroborating testimony is "corroborated"
+        # reputation evidence (R11).
+        self._apply_reputation(
+            holder_id=updated.holder_id,
+            claim=self.claims.claim(updated.claim_id),
+            kind="corroborated",
+            tick=int(evidence.gamets),
+            gamets=evidence.gamets,
         )
         return updated, evidence
 
@@ -1133,6 +1163,49 @@ class Driver:
                     "claim_id": warning_claim_id,
                 },
             },
+        )
+
+    def _apply_reputation(self, *, holder_id: str, claim: Claim, kind: str, tick: int, gamets: float) -> None:
+        """Rule 16's hook: runs exactly where a belief is acquired or corroborated (R11), never per-tick.
+
+        No-op unless the claim's kind is registered in the construction-
+        time reputation_relevance mapping. The evidence kind names the
+        acquisition path (witnessed / reported / corroborated); subject,
+        positive, and context come from the mapping applied to the claim's
+        slots -- never a global flag, so T3.5's observer-locality tripwire
+        (no acquisition, no update) holds structurally. The update itself
+        goes through the ordinary update_reputation wrapper, so the
+        reputation_updated record (schema §4:128) is emitted
+        field-for-field; one rule_evaluated row pairs with each update.
+        """
+        spec = self.reputation_relevance.get(claim.kind)
+        if spec is None or not self.rules.enabled(REPUTATION_ACCUMULATION):
+            return
+        subject_slot, positive, context = spec
+        subject_id = claim.slots[subject_slot]
+        reputation = self.update_reputation(
+            observer_id=holder_id,
+            subject_id=subject_id,
+            context=context,
+            kind=kind,
+            positive=positive,
+            gamets=gamets,
+        )
+        self._evaluate_rule(
+            REPUTATION_ACCUMULATION,
+            tick=tick,
+            inputs={
+                "claim_id": claim.id,
+                "observer_id": holder_id,
+                "subject_id": subject_id,
+                "context": context,
+                "kind": kind,
+                "positive": positive,
+            },
+            outcome=RuleResult(
+                fired=True,
+                result={"alpha": reputation.alpha, "beta": reputation.beta, "uncertainty": reputation.uncertainty},
+            ),
         )
 
     def _write_nothing_salient(
