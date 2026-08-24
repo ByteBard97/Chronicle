@@ -48,7 +48,7 @@
  * per overlaid NPC, automatic restoration once
  * `tick >= overlay.end_tick`).
  *
- * FINDING (out of scope for this lane, filed for the coordinator):
+ * FIXED (was filed as a lane-41 finding, closed the same night):
  * `RunReader.deltasBetween` (log/runReader.ts) windows the events stream
  * from the nearest keyframe's tick onward (via the sidecar's
  * `tick_offsets`), while `chronicle/framelog.py::state_at` scans the
@@ -57,14 +57,17 @@
  * keyframe-relative floor). Concretely: `runs/mourning-demo-01` has
  * `schedule_rewrite` records at tick 0 (end_tick 72) and its first
  * keyframe at tick 23 -- querying `stateAt(t)` for any `t` in `[23, 72)`
- * replays deltas starting at the keyframe's byte offset and never sees
- * the tick-0 overlay, so `SocialState.scheduleOverlays` under-populates
- * for that range even though this module's own replay logic is correct
- * given the records it's handed. `derived/scheduleDiff.ts` works around
- * this by reading `mapData.eventRecords` (loaded in full from tick 0,
- * independent of keyframe placement) rather than depending on
- * `socialState.scheduleOverlays` alone for its overlay input -- the real
- * fix belongs in `runReader.ts`, out of this lane's file boundary.
+ * would replay deltas starting at the keyframe's byte offset and never
+ * see the tick-0 overlay, under-populating `SocialState.scheduleOverlays`
+ * for that range even though this module's own replay logic was correct
+ * given the records it was handed. `RunReader.stateAt`/`stateAtLatestKnown`
+ * now separately scan the full events stream from byte 0 for
+ * `schedule_rewrite` specifically (mirroring Python's own unconditional
+ * full scan), overwriting `scheduleOverlays` with the authoritative
+ * result -- see `runReader.ts`'s `scheduleOverlaysUpTo`. `derived/
+ * scheduleDiff.ts`/`SchedDiffScreen.vue` still read `mapData.eventRecords`
+ * directly rather than `socialState.scheduleOverlays` -- harmless now
+ * that both are correct, left as-is rather than churned for its own sake.
  */
 import type {
   EventKeyRef,

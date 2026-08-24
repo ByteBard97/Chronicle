@@ -8,12 +8,13 @@
  * Range-fetches starting there, rather than scanning from byte 0 of a
  * possibly-large log — the whole point of the sidecar index existing.
  */
-import type { FrameRecord, RunRegistryEntry, SidecarIndexFile } from "./types";
+import type { FrameRecord, KeyframeScheduleOverlay, RunRegistryEntry, SidecarIndexFile } from "./types";
 import { fetchSidecarIndex, keyframeAtOrBefore, tickAtOrBefore } from "./sidecarIndex";
 import { readByteRange, runStreamUrl, LiveTailPoller, type LiveTailListener } from "./streamReader";
 import {
   emptySocialState,
   fromKeyframeState,
+  parseScheduleRewrite,
   replayTo,
   type SocialState,
 } from "./reconstruct";
@@ -101,11 +102,41 @@ export class RunReader {
     return all;
   }
 
+  /**
+   * Every `schedule_rewrite` event up to `uptoTick`, scanned from byte 0
+   * of the events stream every time -- deliberately NOT keyframe-windowed
+   * (lane 41's finding, reconstruct.ts's module header): a keyframe's own
+   * `state.schedules[]` is the run's immutable BASE schedule, not a
+   * rolled-up "overlays active as of this keyframe" snapshot, so an
+   * overlay that started before a keyframe but whose `end_tick` reaches
+   * past it would otherwise never be seen by a keyframe-relative delta
+   * read. `chronicle/framelog.py`'s own reader has the identical shape
+   * (`self.records(EVENTS_STREAM, upto_tick=tick)`, no keyframe floor,
+   * every single `state_at` call) -- this mirrors that, not a regression
+   * against the byte-offset acceleration this class otherwise relies on
+   * for everything else (claims/beliefs/grudges/etc. via `deltasBetween`
+   * stay keyframe-windowed; only this one record family needs the full
+   * history, because it's the only one whose "currently active" answer
+   * depends on total override rather than accumulation).
+   */
+  private async scheduleOverlaysUpTo(uptoTick: number): Promise<KeyframeScheduleOverlay[]> {
+    const { records } = await readByteRange(this.eventsUrl, 0);
+    const overlays: KeyframeScheduleOverlay[] = [];
+    for (const record of records) {
+      if (record.tick > uptoTick) continue;
+      const overlay = parseScheduleRewrite(record.payload);
+      if (overlay !== null) overlays.push(overlay);
+    }
+    return overlays;
+  }
+
   /** State as of tick T: nearest keyframe <= T, replayed forward with every intervening delta. */
   async stateAt(t: number): Promise<SocialState> {
     const keyframeState = await this.keyframeStateAtOrBefore(t);
     const deltas = await this.deltasBetween(keyframeState.tick, t);
-    return replayTo(keyframeState, deltas, t);
+    const state = replayTo(keyframeState, deltas, t);
+    state.scheduleOverlays = await this.scheduleOverlaysUpTo(t);
+    return state;
   }
 
   /**
@@ -119,7 +150,9 @@ export class RunReader {
     const keyframeState = await this.keyframeStateAtOrBefore(unbounded);
     const deltas = await this.deltasBetween(keyframeState.tick, unbounded);
     const latestTick = deltas.length > 0 ? deltas[deltas.length - 1]!.tick : Math.max(keyframeState.tick, 0);
-    return replayTo(keyframeState, deltas, latestTick);
+    const state = replayTo(keyframeState, deltas, latestTick);
+    state.scheduleOverlays = await this.scheduleOverlaysUpTo(latestTick);
+    return state;
   }
 
   /** Byte offsets this reader has read through, as of its last `stateAt`/`stateAtLatestKnown` call. */
