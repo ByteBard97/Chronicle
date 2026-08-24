@@ -51,6 +51,36 @@ class ScheduleBlock:
         return self.start_tick <= tick < self.end_tick
 
 
+def effective_schedule_at(
+    base: Sequence[ScheduleBlock],
+    overlays: Sequence[ScheduleBlock],
+    tick: int,
+) -> tuple[ScheduleBlock, ...]:
+    """The schedule blocks in effect at one tick (Tier 4a, ladder T4a.1): social-state write-back.
+
+    Base blocks covering ``tick``, except any NPC with an overlay covering
+    ``tick`` has ALL of their base presence at this tick replaced by the
+    overlay -- total override, not merge (an NPC can't be at two places at
+    once). Overlays are ordinary ``ScheduleBlock``s (an inserted mourning
+    block is structurally identical to a base one -- Tier 4a's write-back
+    needs no new shape); restoration is automatic once ``tick`` moves past
+    an overlay's ``end_tick`` and the base blocks apply again unmodified,
+    which is why there is no separate "restore" step anywhere.
+
+    This is the ONE place presence-with-overlays is computed (design doc
+    T1/T3): both the live driver's tick loop and ``framelog.state_at``'s
+    reconstruction call this, so the two can't drift apart. It is also
+    why the T4a.2 roll-identity guarantee holds automatically --
+    ``sample_encounters`` below rolls each pair independently of who else
+    is present, so overriding one NPC's presence here never touches any
+    roll that doesn't name them.
+    """
+    overridden = {overlay.npc_id for overlay in overlays if overlay.covers(tick)}
+    return tuple(block for block in base if block.covers(tick) and block.npc_id not in overridden) + tuple(
+        overlay for overlay in overlays if overlay.covers(tick)
+    )
+
+
 def npcs_present_at(schedule: Sequence[ScheduleBlock], tick: int) -> dict[str, tuple[str, ...]]:
     """Group NPCs by location for one tick, from whichever schedule blocks cover it.
 
@@ -110,6 +140,13 @@ def sample_encounters(
     the frame-log envelope from record one), the same explicit-dependency
     discipline as gamets on decay()/retell() elsewhere in this codebase.
     """
+    # T4a.2's roll-identity guarantee (design doc T4) depends on this loop
+    # rolling each pair independently of the rest of ``present_by_location``
+    # -- a pair's roll never reads who else is present at this location, so
+    # effective_schedule_at()'s overlay override (Tier 4a) can change who's
+    # in this dict without perturbing any roll for a pair it doesn't name.
+    # A future refactor that rolls once per site (rather than per pair)
+    # would break this silently -- keep the independence.
     rolls: list[EncounterRoll] = []
     for location_id, npc_ids in present_by_location.items():
         ordered = sorted(npc_ids)

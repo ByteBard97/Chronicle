@@ -52,8 +52,9 @@ from chronicle.events import (
     Event,
     NPCDied,
     RumorHeard,
+    ScheduleRewrite,
 )
-from chronicle.schedule import ScheduleBlock
+from chronicle.schedule import ScheduleBlock, effective_schedule_at
 from chronicle.social import (
     Grudge,
     Obligation,
@@ -237,7 +238,12 @@ def serialize_state(
 
     Lists are sorted by id so two independently-built snapshots of equal
     state compare equal regardless of insertion order. Schedule blocks are
-    those effective (covering) as of ``tick``.
+    captured in full, unfiltered by ``tick`` (design doc T3, lane 33/36):
+    the base schedule is immutable (Tier 4a's overlay design never
+    mutates it), so capturing it whole every keyframe is cheap and closes
+    a latent gap -- filtering to "covers this keyframe's tick" meant a
+    block covering some other tick within the same keyframe interval
+    could be missing from every keyframe that ever captures it.
     """
     beliefs = sorted(claims._beliefs.values(), key=lambda b: b.id)
     return {
@@ -265,7 +271,7 @@ def serialize_state(
         "reputations": [
             _reputation_json(r) for r in sorted(social._reputations.values(), key=lambda r: (r.observer_id, r.subject_id, r.context))
         ],
-        "schedules": [_schedule_json(b) for b in schedule if b.covers(tick)],
+        "schedules": [_schedule_json(b) for b in schedule],
     }
 
 
@@ -362,6 +368,19 @@ def event_payload(event: Event, *, origin: Mapping[str, str] | None) -> dict[str
             grievance_kind=event.grievance_kind,
             count=event.count,
             threshold=event.threshold,
+        )
+    elif isinstance(event, ScheduleRewrite):
+        payload["event_type"] = "schedule_rewrite"
+        payload.update(
+            npc_id=event.npc_id,
+            location_id=event.location_id,
+            start_tick=event.start_tick,
+            end_tick=event.end_tick,
+            cause=event.cause,
+            trigger_event_key=_event_key_json(
+                EventKey(event.trigger_save_uuid, event.trigger_generation, event.trigger_seq)
+            ),
+            rule=event.rule,
         )
     else:
         raise TypeError(f"no events-stream payload mapping for {type(event).__name__} -- extend chronicle/framelog.py (schema §3)")
@@ -656,12 +675,25 @@ class FrameLogReader:
         # Canonical events up to T: replayed belief_formed records recover
         # their gamets from the canonical event they derive from.
         event_gamets: dict[tuple[str, int, int], float] = {}
+        # Tier 4a (design doc T3, lane 36): every schedule_rewrite fired by
+        # T, so the overlay filter below can find whichever ones are active
+        # *at* T -- log-derived, exactly like every other Tier-3 record.
+        overlays: list[ScheduleBlock] = []
         for record in self.records(EVENTS_STREAM, upto_tick=tick):
             payload = record["payload"]
             if payload.get("record_type") == "keyframe" or "event_type" not in payload:
                 continue
             key = (record["save_uuid"], record["generation"], record["seq"])
             event_gamets[key] = payload["gamets"]
+            if payload["event_type"] == "schedule_rewrite":
+                overlays.append(
+                    ScheduleBlock(
+                        npc_id=payload["npc_id"],
+                        location_id=payload["location_id"],
+                        start_tick=payload["start_tick"],
+                        end_tick=payload["end_tick"],
+                    )
+                )
 
         for record in self.records(TRACE_STREAM, upto_tick=tick):
             if record["tick"] <= replay_after:
@@ -782,4 +814,15 @@ class FrameLogReader:
             # encounter_rolled / nothing_salient carry no store mutation;
             # unknown record types are skipped (schema §7).
 
-        return ReconstructedState(tick=tick, claims=claims, social=social, schedule=schedule)
+        # Tier 4a (design doc T1/T3): the same effective-schedule helper
+        # the live driver's tick loop uses -- base blocks covering T, with
+        # any NPC under an overlay active at T overridden by it. `schedule`
+        # here is the full base (unfiltered per the keyframe fix above);
+        # `overlays` is every schedule_rewrite fired by T, and
+        # effective_schedule_at narrows both to what's active at T.
+        return ReconstructedState(
+            tick=tick,
+            claims=claims,
+            social=social,
+            schedule=effective_schedule_at(schedule, overlays, tick),
+        )

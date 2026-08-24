@@ -49,7 +49,13 @@ from chronicle.claims import (
     Resolution,
     Variant,
 )
-from chronicle.events import EscalationWarning, Event, EventLog, NPCDied
+from chronicle.events import (
+    EscalationWarning,
+    Event,
+    EventLog,
+    NPCDied,
+    ScheduleRewrite,
+)
 from chronicle.framelog import (
     DEFAULT_KEYFRAME_INTERVAL,
     FrameLogWriter,
@@ -65,6 +71,7 @@ from chronicle.rules import (
     MUTATION_POLICY,
     OBLIGATION_LIFECYCLE,
     REPUTATION_ACCUMULATION,
+    SCHEDULE_WRITE_BACK,
     SHARED_CLAIM_INVARIANT,
     TELL_DECISION_POLICY,
     TESTIMONY_TRANSFER,
@@ -77,6 +84,7 @@ from chronicle.rules import (
 from chronicle.schedule import (
     ENCOUNTER_PROBABILITY,
     ScheduleBlock,
+    effective_schedule_at,
     npcs_present_at,
     sample_encounters,
 )
@@ -105,6 +113,13 @@ MUTATION_PROBABILITY = 0.2
 # behavior is identical to pre-gate runs (the 196-test battery is the
 # regression proof); fixtures lower it per-run at construction time.
 TELL_PROBABILITY = 1.0
+
+# Tier-4a schedule write-back (ladder T4a.1, rule 17; design doc T6): how
+# long a mourning overlay lasts, in ticks. Placeholder magnitude (3
+# game-days) -- the ladder names "N days" without pinning N; the ordering
+# requirement (observable, non-trivial duration) is load-bearing, not this
+# number (design doc O2, coordinator-ruled 2026-08-23).
+MOURNING_DURATION_TICKS = 72
 
 # The warning claim's kind matches the escalation_warning event type
 # (schema §3:95): the claim is the belief-layer shadow of that event, and
@@ -160,6 +175,9 @@ class Driver:
         claim_privacy: Mapping[str, str] | None = None,
         accumulation_thresholds: Mapping[str, tuple[str, int]] | None = None,
         reputation_relevance: Mapping[str, tuple[str, bool, str]] | None = None,
+        mourning_triggers: Mapping[str, str] | None = None,
+        mourning_location: str | None = None,
+        mourning_duration_ticks: int = MOURNING_DURATION_TICKS,
         keyframe_interval: int = DEFAULT_KEYFRAME_INTERVAL,
         runs_dir: Path | None = None,
         event_log: EventLog | None = None,
@@ -195,6 +213,22 @@ class Driver:
         # caller-supplies-context idiom as above; no mapping registered
         # means zero reputation rows -- behavior identical to pre-lane-26.
         self.reputation_relevance = dict(reputation_relevance) if reputation_relevance is not None else {}
+        # Rule 17's mourning-eligible kinds (design doc T5, O1): claim_kind
+        # -> the slot naming the deceased. Unlike rule 11/16's victim/
+        # subject slots, no fixture names the deceased in an npc_death
+        # claim's own slots today (only perpetrator/cause/location) -- a
+        # scenario author must add e.g. slots={"deceased": npc_id, ...}
+        # explicitly for a death claim to be mourning-eligible. Same
+        # caller-supplies-context idiom as above; no mapping registered
+        # means zero mourning overlays -- behavior identical to pre-lane-36.
+        self.mourning_triggers = dict(mourning_triggers) if mourning_triggers is not None else {}
+        # The overlay's destination (design doc T6, O5): one construction-
+        # time location per run. None disables rule 17 regardless of
+        # mourning_triggers -- there is nowhere to send the mourner.
+        # Per-household destinations are a fixture-design question deferred
+        # past T4a.1 (O5, coordinator-ruled).
+        self.mourning_location = mourning_location
+        self.mourning_duration_ticks = mourning_duration_ticks
         self.save_uuid = save_uuid
         self.generation = generation
         self.keyframe_interval = keyframe_interval
@@ -208,6 +242,20 @@ class Driver:
             for event in self.event_log.lineage(save_uuid, generation)
             if isinstance(event, NPCDied)
         }
+        # Rule 17's overlays (design doc T1): derived from schedule_rewrite
+        # canonical events, same start-from-keyframe-safe pattern as
+        # _deceased above -- a pre-populated event_log's rewrites are
+        # already in effect, not re-triggered.
+        self._schedule_overlays: list[ScheduleBlock] = [
+            ScheduleBlock(
+                npc_id=event.npc_id,
+                location_id=event.location_id,
+                start_tick=event.start_tick,
+                end_tick=event.end_tick,
+            )
+            for event in self.event_log.lineage(save_uuid, generation)
+            if isinstance(event, ScheduleRewrite)
+        ]
         self.claims = claims if claims is not None else ClaimStore()
         self.social = social if social is not None else SocialStateStore()
         self.writer = FrameLogWriter(
@@ -347,6 +395,8 @@ class Driver:
         self._evaluate_accumulation(holder_id=belief.holder_id, claim=claim, tick=tick, gamets=belief.first_learned)
         # Rule 16: first-hand observation is "witnessed" reputation evidence (R11).
         self._apply_reputation(holder_id=belief.holder_id, claim=claim, kind="witnessed", tick=tick, gamets=belief.first_learned)
+        # Rule 17: witnessing a mourning-eligible death is belief acquisition too.
+        self._evaluate_mourning(holder_id=belief.holder_id, claim=claim, tick=tick, gamets=belief.first_learned)
         return claim, belief, evidence
 
     def retell(
@@ -445,6 +495,14 @@ class Driver:
                 tick=int(kwargs["gamets"]),  # type: ignore[arg-type]
                 gamets=float(kwargs["gamets"]),  # type: ignore[arg-type]
             )
+            # Rule 17: hearing of a mourning-eligible death for the first
+            # time is belief acquisition too -- a re-hearing mints nothing.
+            self._evaluate_mourning(
+                holder_id=belief.holder_id,
+                claim=self.claims.claim(variant.claim_id),
+                tick=int(kwargs["gamets"]),  # type: ignore[arg-type]
+                gamets=float(kwargs["gamets"]),  # type: ignore[arg-type]
+            )
         return variant, belief, evidence
 
     def corroborate(self, **kwargs: object) -> tuple[BeliefInstance, Evidence]:
@@ -479,6 +537,17 @@ class Driver:
             holder_id=updated.holder_id,
             claim=self.claims.claim(updated.claim_id),
             kind="corroborated",
+            tick=int(evidence.gamets),
+            gamets=evidence.gamets,
+        )
+        # Rule 17: corroborating testimony is belief acquisition too (rule
+        # 16's exact call-site pattern) -- in practice usually latch-blocked
+        # (the holder was already informed to have something to corroborate
+        # against), but a kinship edge formed after first learning is a real
+        # case this catches.
+        self._evaluate_mourning(
+            holder_id=updated.holder_id,
+            claim=self.claims.claim(updated.claim_id),
             tick=int(evidence.gamets),
             gamets=evidence.gamets,
         )
@@ -736,7 +805,10 @@ class Driver:
             self.writer.flush()
 
     def _run_tick(self, tick: int) -> None:
-        present = npcs_present_at(self.schedule, tick)
+        # Rule 17's overlay override happens here (design doc T1/T4): the
+        # base schedule is never mutated, so this is the one place "who is
+        # actually present" differs from "what the base schedule says."
+        present = npcs_present_at(effective_schedule_at(self.schedule, self._schedule_overlays, tick), tick)
         if self._deceased:
             # The dead are not present to be met (ladder T1.2): drop them
             # before rolling. A location left with a lone survivor has no
@@ -1206,6 +1278,86 @@ class Driver:
                 fired=True,
                 result={"alpha": reputation.alpha, "beta": reputation.beta, "uncertainty": reputation.uncertainty},
             ),
+        )
+
+    # -- rule 17: schedule write-back (ladder T4a.1; design doc T1-T7) --------
+
+    def _mourning_already_triggered(self, npc_id: str, trigger_event_key: EventKey) -> bool:
+        """The R5-pattern latch (design doc T6): log-derived, from the event log itself.
+
+        A schedule_rewrite event already naming this exact (npc,
+        trigger_event_key) pair means the overlay was already inserted --
+        surviving reconstruction and a start-from-keyframe resume the same
+        way _deceased/_schedule_overlays are derived at __init__, rather
+        than an in-memory flag that a fresh Driver wouldn't know about.
+        """
+        return any(
+            isinstance(event, ScheduleRewrite)
+            and event.npc_id == npc_id
+            and (event.trigger_save_uuid, event.trigger_generation, event.trigger_seq) == tuple(trigger_event_key)
+            for event in self.event_log.lineage(self.save_uuid, self.generation)
+        )
+
+    def _evaluate_mourning(self, *, holder_id: str, claim: Claim, tick: int, gamets: float) -> None:
+        """Rule 17's hook: runs at belief acquisition, the same call sites as rule 16 (R11's pattern), never a per-tick sweep.
+
+        No-op unless the claim's kind is registered in the
+        construction-time mourning_triggers mapping AND a mourning_location
+        is configured. The kinship lookup happens HERE, in the driver --
+        never inside a rule (the T2.3 lesson, same as rule 15's motive
+        check, driver.py:1039-ish _tell_decline_motive). fired means the
+        rule 17 gate decided to insert the overlay; the cascade (the
+        schedule_rewrite event + the overlay itself) is the driver's,
+        evidenced by that event, so the rule's own result stays None (the
+        AccumulationThresholdRule precedent).
+        """
+        deceased_slot = self.mourning_triggers.get(claim.kind)
+        if deceased_slot is None or self.mourning_location is None or not self.rules.enabled(SCHEDULE_WRITE_BACK):
+            return
+        deceased_id = claim.slots.get(deceased_slot)
+        if deceased_id is None:
+            return
+        trigger_event_key = EventKey(*claim.canonical_event_key)
+        kin = self.social.relationship(holder_id, deceased_id, "kinship") is not None
+        already_mourning = kin and self._mourning_already_triggered(holder_id, trigger_event_key)
+        result = self._evaluate_rule(
+            SCHEDULE_WRITE_BACK,
+            tick=tick,
+            inputs={
+                "npc_id": holder_id,
+                "deceased_id": deceased_id,
+                "kin": kin,
+                "already_mourning": already_mourning,
+            },
+        )
+        if result is None or not result.fired:
+            return
+        # The cascade: the event enters the log first (engine-internal,
+        # origin None, schema §3 -- same convention as rule 11's
+        # escalation_warning), then the overlay itself (design doc T1) --
+        # both driver-side, evidenced by the event, never inside the rule.
+        seq = max((event.seq for event in self.event_log.lineage(self.save_uuid, self.generation)), default=0) + 1
+        start_tick = tick
+        end_tick = tick + self.mourning_duration_ticks
+        self.inject_event(
+            ScheduleRewrite(
+                tick=tick, save_uuid=self.save_uuid, generation=self.generation, seq=seq,
+                gamets=gamets, wall_ts=0.0,
+                npc_id=holder_id, location_id=self.mourning_location,
+                start_tick=start_tick, end_tick=end_tick, cause="mourning",
+                trigger_save_uuid=trigger_event_key.save_uuid,
+                trigger_generation=trigger_event_key.generation,
+                trigger_seq=trigger_event_key.seq,
+                rule=SCHEDULE_WRITE_BACK,
+            )
+        )
+        self._schedule_overlays.append(
+            ScheduleBlock(
+                npc_id=holder_id,
+                location_id=self.mourning_location,
+                start_tick=start_tick,
+                end_tick=end_tick,
+            )
         )
 
     def _write_nothing_salient(

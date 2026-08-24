@@ -21,9 +21,9 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
     exist by name so the registry lists all 19, but emit nothing and run
     nothing until their tier's lane lands. Rules 11 (accumulation-
     threshold, lane 24), 14 (obligation-lifecycle violation cascade,
-    lane 25), 15 (tell-decision-policy, lane 23), and 16 (reputation-
-    evidence-accumulation, lane 26) are live; the stub set is now
-    12-13 and 17-19.
+    lane 25), 15 (tell-decision-policy, lane 23), 16 (reputation-
+    evidence-accumulation, lane 26), and 17 (schedule-write-back, lane 36)
+    are live; the stub set is now 12-13 and 18-19.
   - Budget (O4 ruling): 9+10 are one state machine and 4 is
     schema-not-rule -- 17/20 against the ceiling. The registry still lists
     all 19 names; the table below is the vocabulary, slugified from §8's
@@ -240,8 +240,39 @@ class TellDecisionRule:
         return RuleResult(fired=declined, result={"reason": "roll"} if declined else None)
 
 
+class ScheduleWriteBackRule:
+    """Rule 17, schedule write-back (ladder T4a.1; design doc T1-T7, lane 33/36).
+
+    The first rule where state writes back into behavior. Both inputs are
+    caller-assembled booleans (the T2.3 lesson, restated for Tier 4a):
+    ``kin`` -- the newly-informed holder has a kinship edge to the
+    deceased (``social.relationship(holder_id, deceased_id, "kinship")``,
+    looked up in the driver, never here) -- and ``already_mourning`` -- the
+    R5-pattern log-derived latch (a ``schedule_rewrite`` event already
+    exists for this exact (npc, trigger_event_key) pair, so a later
+    corroboration of the same death can't re-insert the overlay).
+
+    fired means the overlay WAS inserted -- the driver's cascade (the
+    schedule_rewrite event + the overlay itself) runs only then, the same
+    "fired = the rule's effect" convention as rule 15
+    (``TellDecisionRule``). Real toggle, not instrumentation-only (lane-19
+    precedent for driver-owned rules): disabling this rule must suppress
+    the rewrite itself, because T4a.2's Run B is Run A with this rule
+    disabled (design doc T7), not a second hand-authored fixture.
+    """
+
+    name = SCHEDULE_WRITE_BACK
+    tier = 4
+
+    def evaluate(self, ctx: RuleContext) -> RuleResult:
+        kin = ctx.inputs["kin"]
+        already_mourning = ctx.inputs["already_mourning"]
+        assert isinstance(kin, bool) and isinstance(already_mourning, bool)
+        return RuleResult(fired=kin and not already_mourning)
+
+
 def _default_rules() -> tuple[Rule, ...]:
-    """The 19 §8 rules: 1-10 enabled (wrappers/read-path), 11/14/15/16 live, the rest disabled stubs."""
+    """The 19 §8 rules: 1-10 enabled (wrappers/read-path), 11/14/15/16/17 live, the rest disabled stubs."""
     return (
         RecordedRule(WITNESS_CREATES_BELIEF, 0),
         BeliefDecayRule(),
@@ -259,7 +290,7 @@ def _default_rules() -> tuple[Rule, ...]:
         RecordedRule(OBLIGATION_LIFECYCLE, 3),
         TellDecisionRule(),
         RecordedRule(REPUTATION_ACCUMULATION, 3),
-        StubRule(SCHEDULE_WRITE_BACK, 4),
+        ScheduleWriteBackRule(),
         StubRule(PAIRWISE_ENCOUNTER_WEIGHTING, 4),
         StubRule(ROLE_VACANCY_SUCCESSION, 5),
     )

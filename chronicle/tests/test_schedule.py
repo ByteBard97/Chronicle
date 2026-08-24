@@ -1,6 +1,11 @@
 import pytest
 
-from chronicle.schedule import ScheduleBlock, npcs_present_at, sample_encounters
+from chronicle.schedule import (
+    ScheduleBlock,
+    effective_schedule_at,
+    npcs_present_at,
+    sample_encounters,
+)
 
 
 def test_schedule_block_rejects_an_end_tick_at_or_before_start_tick():
@@ -82,6 +87,38 @@ def test_sample_encounters_orders_pairs_deterministically_within_a_location():
     present = {"bannered_mare": ("ysolda", "hulda")}
     encounters = sample_encounters(present, seed_id="seed-a", tick=1, encounter_probability=1.0)
     assert [(r.npc_a, r.npc_b) for r in encounters] == [("hulda", "ysolda")]  # sorted, not insertion order
+
+
+def test_effective_schedule_at_overrides_only_the_overlay_npcs_own_presence():
+    # Tier 4a (design doc T1/T4): base has sven + camilla at the house; an
+    # active overlay sends sven to the temple. Camilla's base block is
+    # untouched -- present unmodified, no merge with the overlay's site.
+    base = (
+        ScheduleBlock(npc_id="sven", location_id="house", start_tick=0, end_tick=100),
+        ScheduleBlock(npc_id="camilla", location_id="house", start_tick=0, end_tick=100),
+    )
+    overlay = (ScheduleBlock(npc_id="sven", location_id="temple", start_tick=10, end_tick=30),)
+    effective = effective_schedule_at(base, overlay, tick=15)
+    assert set(effective) == {
+        ScheduleBlock(npc_id="camilla", location_id="house", start_tick=0, end_tick=100),
+        ScheduleBlock(npc_id="sven", location_id="temple", start_tick=10, end_tick=30),
+    }
+
+
+def test_effective_schedule_at_restores_the_base_once_the_overlay_ends():
+    base = (ScheduleBlock(npc_id="sven", location_id="house", start_tick=0, end_tick=100),)
+    overlay = (ScheduleBlock(npc_id="sven", location_id="temple", start_tick=10, end_tick=30),)
+    assert effective_schedule_at(base, overlay, tick=9) == base
+    assert effective_schedule_at(base, overlay, tick=30) == base  # end_tick exclusive: restored already
+    assert effective_schedule_at(base, overlay, tick=15) == (
+        ScheduleBlock(npc_id="sven", location_id="temple", start_tick=10, end_tick=30),
+    )
+
+
+def test_effective_schedule_at_with_no_overlays_is_the_base_unfiltered_by_nothing_extra():
+    base = (ScheduleBlock(npc_id="sven", location_id="house", start_tick=0, end_tick=100),)
+    assert effective_schedule_at(base, (), tick=50) == base
+    assert effective_schedule_at(base, (), tick=200) == ()  # outside the base block too
 
 
 def test_sample_encounters_rolls_each_pair_independently_across_multiple_npcs():

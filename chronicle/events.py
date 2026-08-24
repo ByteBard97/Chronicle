@@ -113,6 +113,30 @@ class EscalationWarning(Event):
 
 
 @dataclass(frozen=True)
+class ScheduleRewrite(Event):
+    """A schedule block insertion/restoration driven by social state (ladder T4a.1).
+
+    The first tier where state writes back into behavior. Restoration is
+    ``end_tick`` reached, not a separate event -- one record covers the
+    whole rewrite (design doc T2). ``trigger_*`` names the canonical event
+    this rewrite is causally linked to (e.g. the kin's ``NPCDied``) as a
+    flat (save_uuid, generation, seq) triple rather than importing
+    claims.py's EventKey -- this module owns only the canonical event log
+    (layer 1) and does not depend on layer 2 types.
+    """
+
+    npc_id: str
+    location_id: str
+    start_tick: int
+    end_tick: int
+    cause: str
+    trigger_save_uuid: str
+    trigger_generation: int
+    trigger_seq: int
+    rule: str
+
+
+@dataclass(frozen=True)
 class BranchKey:
     """Identifies one branch of a save's timeline. See ADR-0004."""
 
