@@ -20,7 +20,7 @@ describe("livePositions store", () => {
   });
 
   it("poll() sets the snapshot from a successful fetch", async () => {
-    const snapshot = { wall_ts: 1000, npcs: [{ id: "jarl_balgruuf", x: 1, y: 2 }] };
+    const snapshot = { wall_ts: 1000, npcs: [{ id: "jarl_balgruuf", name: "Jarl Balgruuf", x: 1, y: 2 }] };
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(snapshot) }),

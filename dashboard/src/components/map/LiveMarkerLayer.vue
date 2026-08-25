@@ -10,7 +10,7 @@ defineProps<{
 
 <template>
   <div class="live-marker-layer">
-    <LiveMarker v-for="m in markers" :key="m.id" :id="m.id" :left="m.left" :top="m.top" />
+    <LiveMarker v-for="m in markers" :key="m.id" :id="m.id" :name="m.name" :left="m.left" :top="m.top" />
   </div>
 </template>
 

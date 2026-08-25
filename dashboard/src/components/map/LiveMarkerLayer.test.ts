@@ -7,8 +7,8 @@ describe("LiveMarkerLayer", () => {
     const wrapper = mount(LiveMarkerLayer, {
       props: {
         markers: [
-          { id: "jarl_balgruuf", left: 10, top: 20 },
-          { id: "irileth", left: 30, top: 40 },
+          { id: "jarl_balgruuf", name: "Jarl Balgruuf", left: 10, top: 20 },
+          { id: "irileth", name: "Irileth", left: 30, top: 40 },
         ],
       },
     });

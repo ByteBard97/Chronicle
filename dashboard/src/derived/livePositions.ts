@@ -21,6 +21,8 @@ import mapJson from "../../map/whiterun_map.json";
 
 export interface LiveNpcPosition {
   id: string;
+  /** The actor's in-game display name (e.g. "Idolaf Battle-Born") -- display-only, never a stable identity. Empty string if the game reported none. */
+  name: string;
   x: number;
   y: number;
 }
@@ -32,6 +34,7 @@ export interface LivePositionSnapshot {
 
 export interface LiveMarker {
   id: string;
+  name: string;
   left: number;
   top: number;
 }
@@ -53,7 +56,7 @@ export function deriveLiveMarkers(snapshot: LivePositionSnapshot | null): LiveMa
   for (const npc of snapshot.npcs) {
     const [left, top] = worldToPercent(npc.x, npc.y);
     if (left < 0 || left > 100 || top < 0 || top > 100) continue;
-    markers.push({ id: npc.id, left, top });
+    markers.push({ id: npc.id, name: npc.name, left, top });
   }
   return markers;
 }

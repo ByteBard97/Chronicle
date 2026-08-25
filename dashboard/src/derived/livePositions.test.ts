@@ -19,10 +19,11 @@ describe("deriveLiveMarkers", () => {
   it("projects every npc in the snapshot to a left/top percent marker", () => {
     const markers = deriveLiveMarkers({
       wall_ts: 1000,
-      npcs: [{ id: "jarl_balgruuf", x: 21934.3, y: -3923.3 }],
+      npcs: [{ id: "jarl_balgruuf", name: "Jarl Balgruuf", x: 21934.3, y: -3923.3 }],
     });
     expect(markers).toHaveLength(1);
     expect(markers[0]!.id).toBe("jarl_balgruuf");
+    expect(markers[0]!.name).toBe("Jarl Balgruuf");
     expect(markers[0]!.left).toBeGreaterThan(0);
     expect(markers[0]!.top).toBeGreaterThan(0);
   });
@@ -31,7 +32,7 @@ describe("deriveLiveMarkers", () => {
     const markers = deriveLiveMarkers({
       wall_ts: 1000,
       // Far outside WhiterunWorld's exterior cell entirely.
-      npcs: [{ id: "somewhere_else", x: 1_000_000, y: 1_000_000 }],
+      npcs: [{ id: "somewhere_else", name: "", x: 1_000_000, y: 1_000_000 }],
     });
     expect(markers).toEqual([]);
   });
