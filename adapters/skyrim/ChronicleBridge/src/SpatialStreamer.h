@@ -14,7 +14,15 @@
 namespace ChronicleBridge {
 
     struct NpcPosition {
-        std::string id;  // resolved per IdentityMap -- never a raw FormID.
+        std::string id;    // resolved per IdentityMap -- never a raw FormID.
+        // The actor's in-game display name (e.g. "Idolaf Battle-Born"), read
+        // directly off the actor -- not IdentityMap's hand-maintained
+        // kNamedCast table. Display purposes only (dashboard click-to-reveal),
+        // orthogonal to `id`'s stable-identity contract: most actors in a
+        // Whiterun snapshot aren't in Chronicle's own named-cast fixture and
+        // never will be, but they still have a perfectly good vanilla name.
+        // Empty string if the game reports none.
+        std::string name;
         float x;
         float y;
     };

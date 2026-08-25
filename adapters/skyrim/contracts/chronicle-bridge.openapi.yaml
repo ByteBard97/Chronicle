@@ -79,7 +79,7 @@ components:
             $ref: "#/components/schemas/NpcPosition"
     NpcPosition:
       type: object
-      required: [id, x, y]
+      required: [id, name, x, y]
       additionalProperties: false
       properties:
         id:
@@ -90,6 +90,14 @@ components:
             "<plugin_name>:<local_form_id_hex>" for anyone not in the
             hand-maintained table (design doc §3, B3) -- never a raw
             FormID (architecture.md's FormID rule).
+        name:
+          type: string
+          description: >
+            The actor's in-game display name (e.g. "Idolaf Battle-Born"),
+            read directly from the game -- independent of whether `id`
+            resolved to a Chronicle npc_id or the generic fallback.
+            Display-only (dashboard click-to-reveal); never used as a
+            stable identity. Empty string if the game reports none.
         x:
           type: number
           format: double

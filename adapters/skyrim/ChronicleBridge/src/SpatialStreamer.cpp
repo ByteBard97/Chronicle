@@ -38,8 +38,14 @@ namespace ChronicleBridge {
 
             auto id = ResolveNamedCast(*ref).value_or(FallbackIdentity(*ref));
 
+            // GetDisplayFullName() is the same string the game's own UI
+            // shows (dialogue subtitles, activation prompts) -- verify this
+            // resolves against the actual CommonLibSSE-NG Actor/TESObjectREFR
+            // headers on first build; not yet compiled against.
+            std::string name = actorPtr->GetDisplayFullName();
+
             const RE::NiPoint3 pos = actorPtr->GetPosition();
-            out.push_back(NpcPosition{.id = std::move(id), .x = pos.x, .y = pos.y});
+            out.push_back(NpcPosition{.id = std::move(id), .name = std::move(name), .x = pos.x, .y = pos.y});
         }
 
         return out;

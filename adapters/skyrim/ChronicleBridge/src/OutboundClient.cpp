@@ -82,8 +82,9 @@ namespace ChronicleBridge {
             body << std::format(R"({{"wall_ts":{},"npcs":[)", SanitizeFinite(wallTimestamp));
             for (std::size_t i = 0; i < npcs.size(); ++i) {
                 if (i > 0) body << ',';
-                body << std::format(R"({{"id":"{}","x":{},"y":{}}})", EscapeJsonString(npcs[i].id),
-                                     SanitizeFinite(npcs[i].x), SanitizeFinite(npcs[i].y));
+                body << std::format(R"({{"id":"{}","name":"{}","x":{},"y":{}}})", EscapeJsonString(npcs[i].id),
+                                     EscapeJsonString(npcs[i].name), SanitizeFinite(npcs[i].x),
+                                     SanitizeFinite(npcs[i].y));
             }
             body << "]}";
             return body.str();
