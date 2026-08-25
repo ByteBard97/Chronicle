@@ -420,3 +420,31 @@ Extraction pipeline (esmdump REFR/XTEL dump → door resolution → JSON) is
 ad-hoc in /tmp for now; productionize it if the location set needs to grow.
 See docs/research/14-isometric-render-foundations.md for the render
 foundations and verification.
+
+## Live positions (ChronicleBridge)
+
+A second, non-canonical marker layer on the map view: real-time NPC
+positions streamed from a running Skyrim session via the SKSE plugin
+(`adapters/skyrim/ChronicleBridge/`), architecturally separate from the
+frame-log/`RunReader` path above -- no tick, no belief state, just
+"where is this actor right now" (docs/design/chronicle-bridge-spatial-streamer.md).
+
+- `src/derived/livePositions.ts` — projects ChronicleBridge's raw
+  WhiterunWorld world-space coordinates to the map's percent-of-crop-square
+  space, reusing `whiterun_map.json`'s `transform` block.
+- `src/stores/livePositions.ts` — polls the listener's snapshot file on a
+  plain 1s interval (not byte-offset tailing -- it's a latest-snapshot
+  file the listener overwrites in place, not an append-only log).
+- `src/components/map/LiveMarker(Layer).vue` — a small neutral-dot layer;
+  click a dot to toggle a persistent name label (the actor's real in-game
+  display name, independent of whether it's in Chronicle's own
+  belief-engine cast).
+- `vite-plugins/serveLive.ts` — serves the listener's snapshot file at
+  `/live/whiterun-positions.json` in both `vite dev` and `vite preview`.
+
+To see it locally: run the listener
+(`adapters/skyrim/listener/listener.py`, see that directory's README),
+launch Skyrim with ChronicleBridge active, then open `/map` here — live
+markers appear automatically once the game is outdoors in Whiterun. With
+no listener running, this layer silently renders nothing (a 404 on the
+snapshot file is the expected default state, not an error).
