@@ -13,18 +13,30 @@ namespace ChronicleBridge {
             std::string_view chronicleNpcId;
         };
 
-        // NOT YET FILLED IN -- deliberately left empty rather than guessing at
-        // FormIDs from memory (a wrong hardcoded hex value would silently
-        // resolve to the wrong NPC or to nothing, which is worse than the
-        // generic fallback catching them honestly). Fill this in once the
-        // plugin can actually run: log every resolved FormRef for a session
-        // standing in Whiterun, cross-reference against Chronicle's fixture
-        // npc_ids (chronicle/fixtures/whiterun_relationships.py names
-        // jarl_balgruuf, proventus, irileth, whiterun_guard_1, hulda,
-        // ysolda), and add entries here. Until then every actor resolves via
-        // FallbackIdentity() -- correct, just not yet linked to Chronicle's
-        // own belief-engine identities.
-        constexpr std::array<NamedCastEntry, 0> kNamedCast{};
+        // Filled in only from FormIDs actually observed at runtime (the
+        // plugin's own NpcPosition.name field, cross-referenced against
+        // Chronicle's fixture npc_ids in
+        // chronicle/fixtures/whiterun_relationships.py) -- never guessed
+        // from memory, per this comment's original reasoning: a wrong
+        // hardcoded hex value would silently resolve to the wrong NPC,
+        // worse than the generic fallback catching it honestly.
+        //
+        // "ysolda" observed 2026-08-24 in a live Whiterun exterior snapshot
+        // (Skyrim.esm:01a69a -> name "Ysolda").
+        //
+        // jarl_balgruuf/irileth/proventus/hulda are not yet in this table --
+        // they spend most of their time indoors (Dragonsreach, the Bannered
+        // Mare) and hadn't appeared in an *outdoor* snapshot as of this
+        // pass; add them the same way once one of them is observed outside.
+        // whiterun_guard_1 is deliberately never added this way: Whiterun's
+        // guards are multiple interchangeable generic actors sharing the
+        // same display name, so no single observed FormID is "the" guard
+        // any more than another -- picking one would be exactly the kind of
+        // guess this table exists to avoid. Leave guards on the generic
+        // fallback.
+        constexpr std::array<NamedCastEntry, 1> kNamedCast{{
+            {"Skyrim.esm", 0x01a69a, "ysolda"},
+        }};
 
     }  // namespace
 
