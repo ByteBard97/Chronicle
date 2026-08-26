@@ -41,6 +41,22 @@ can go headlessly.** What's left there — the C++ shim side and the
 dashboard UI for triggering a fork (`ui-spec.md` §3.1) — needs the
 Windows build machine, a live game, or dashboard-lane work respectively.
 
+## 0c. Landed: named-cast growth (`2f27cc8`)
+
+`IdentityMap.cpp`'s `kNamedCast` grew from 1 entry (ysolda) to 19, using
+the exact plugin/FormID pairs observed in a real Whiterun snapshot
+(`whiterun-positions.json`), independently verified against that JSON
+programmatically — zero transcription errors. Matching Python fixture
+growth (`chronicle/fixtures/whiterun_schedule.py`/
+`whiterun_relationships.py`): a schedule block per new NPC, and only 5
+relationship edges for pairs with confident vanilla-lore backing
+(Carlotta/Lucia, Amren/Saffir, both feuding households, Sigurd/Adrianne)
+— deliberately schedule-only for the rest rather than inventing ties.
+A regression test keeps the two hand-synced sides (C++ table, Python
+fixture) from silently drifting apart. **Still unverified beyond direct
+textual comparison** — the C++ side needs the Windows build machine and
+a live game to confirm it actually compiles and resolves correctly.
+
 ## 1. Landed: trust-discounted retelling (rule 20, `472f3f8`)
 
 Every design question is ruled — via Kimi + advisor, code-verified, not
