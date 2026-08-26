@@ -347,6 +347,33 @@ def test_inject_event_appends_a_console_origin_record(run_dir, capsys):
     reader.state_at(30)
 
 
+def test_inject_event_stamps_a_custom_origin_kind_and_detail(run_dir, capsys):
+    """A non-console caller (e.g. a future Skyrim-adapter listener shelling
+    out to this same write path, docs/design/chronicle-bridge-death-extraction.md)
+    can stamp itself correctly instead of being mislabeled 'console'."""
+    event = {"event_type": "npc_died", "gamets": 31, "npc_id": "nazeem", "cause": "adapter-reported death"}
+    rc = main(["inject", _RUN, "--event", json.dumps(event), "--origin-kind", "adapter", "--origin-detail", "chronicle-bridge death event"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "origin adapter: chronicle-bridge death event" in out
+
+    reader = FrameLogReader(run_dir)
+    events = [r for r in reader.records("events") if r["payload"].get("event_type") == "npc_died"]
+    last = events[-1]
+    assert last["payload"]["origin"] == {"kind": "adapter", "detail": "chronicle-bridge death event"}
+
+
+def test_inject_event_rejects_an_unknown_origin_kind(run_dir, capsys):
+    event = {"event_type": "npc_died", "gamets": 32, "npc_id": "nazeem", "cause": "test"}
+    rc = main(["inject", _RUN, "--event", json.dumps(event), "--origin-kind", "bogus"])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "origin-kind" in captured.err
+    assert "bogus" in captured.err
+    reader = FrameLogReader(run_dir)
+    assert all(r["payload"].get("gamets") != 32 for r in reader.records("events"))
+
+
 def test_inject_at_the_current_max_tick_is_allowed(run_dir, capsys):
     event = {"event_type": "npc_died", "tick": _TICKS - 1, "npc_id": "nazeem", "cause": "test"}
     rc = main(["inject", _RUN, "--event", json.dumps(event)])

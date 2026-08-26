@@ -514,8 +514,13 @@ _RESERVED_EVENT_TYPES = {
 _EVENT_ENVELOPE_FIELDS = {"event_type", "tick", "gamets", "wall_ts", "seq", "origin"}
 
 # The origin stamp for the write path (schema §3: injected events are
-# ordinary canonical events in every other respect).
+# ordinary canonical events in every other respect). Default matches the
+# console's own usage; --origin-kind/--origin-detail let a non-console
+# caller (e.g. a future Skyrim-adapter listener shelling out to this same
+# tested write path, per docs/design/chronicle-bridge-death-extraction.md)
+# stamp itself correctly instead of being mislabeled "console".
 _INJECT_WRITE_ORIGIN = {"kind": "console", "detail": "chronicle inject"}
+_VALID_ORIGIN_KINDS = {"scenario", "console", "adapter"}
 
 
 def _check_event_type(event_type: Any) -> str | None:
@@ -593,11 +598,19 @@ def _inject_write(args: argparse.Namespace) -> int:
     an events-stream payload per schema §3 (``event_type`` plus the
     kind-specific fields, and ``tick`` or ``gamets``); the CLI fills in the
     branch identity from the run, a fresh seq, and wall_ts when absent, and
-    stamps ``origin: {"kind": "console", "detail": "chronicle inject"}``.
+    stamps ``origin: {"kind": "console", "detail": "chronicle inject"}"`` by
+    default -- pass ``--origin-kind``/``--origin-detail`` to stamp
+    differently (e.g. ``adapter`` for a Skyrim-adapter caller), per schema
+    §3's ``origin.kind`` enum (``scenario`` | ``console`` | ``adapter``).
     Injection at a tick earlier than the run's current max tick is refused
     -- that is fork territory, a deliberately deferred milestone
     (docs/dashboard-build-plan.md §3).
     """
+    if args.origin_kind is not None and args.origin_kind not in _VALID_ORIGIN_KINDS:
+        known = ", ".join(sorted(_VALID_ORIGIN_KINDS))
+        print(f"chronicle: --origin-kind {args.origin_kind!r} is not one of {known} (docs/frame-log-schema.md §3)", file=sys.stderr)
+        return 1
+
     run_id = _resolve_positional_run(args, command="inject")
     run_dir = _run_dir(run_id, runs_dir=args.runs_dir)
     reader = _reader_for(run_id, runs_dir=args.runs_dir)
@@ -668,7 +681,13 @@ def _inject_write(args: argparse.Namespace) -> int:
         wall_ts=float(data.get("wall_ts", time.time())),
         **kwargs,
     )
-    payload = event_payload(event, origin=_INJECT_WRITE_ORIGIN)
+    origin = _INJECT_WRITE_ORIGIN
+    if args.origin_kind is not None or args.origin_detail is not None:
+        origin = {
+            "kind": args.origin_kind if args.origin_kind is not None else _INJECT_WRITE_ORIGIN["kind"],
+            "detail": args.origin_detail if args.origin_detail is not None else _INJECT_WRITE_ORIGIN["detail"],
+        }
+    payload = event_payload(event, origin=origin)
 
     writer = _open_appending_writer(run_dir, seed_id=seed_id, save_uuid=save_uuid, generation=generation)
     try:
@@ -681,7 +700,7 @@ def _inject_write(args: argparse.Namespace) -> int:
         for f in writer._files.values():
             f.close()
         writer._closed = True
-    print(f"injected {event_type} seq={seq} tick={tick} into run {run_id} (origin console: chronicle inject)")
+    print(f"injected {event_type} seq={seq} tick={tick} into run {run_id} (origin {origin['kind']}: {origin['detail']})")
     return 0
 
 
@@ -804,6 +823,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_inject.add_argument("--actor", default=None)
     p_inject.add_argument("--payload", default=None)
     p_inject.add_argument("--event", default=None, help="a full events-stream payload as JSON (schema §3); appends it to the run's events.jsonl")
+    p_inject.add_argument(
+        "--origin-kind",
+        default=None,
+        dest="origin_kind",
+        help="override the injected event's origin.kind (schema §3: scenario|console|adapter); defaults to 'console'",
+    )
+    p_inject.add_argument(
+        "--origin-detail",
+        default=None,
+        dest="origin_detail",
+        help="override the injected event's origin.detail; defaults to 'chronicle inject'",
+    )
     p_inject.set_defaults(func=inject_command)
 
     return parser
