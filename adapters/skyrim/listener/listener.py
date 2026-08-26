@@ -46,6 +46,29 @@ protocol layered on top of it), gated the same way as every other
 listener restarts -- same limitation as before, just carried in a richer
 per-pair state machine now instead of a single "last pushed rank" int.
 
+GET /whiterun/avoidance and POST /whiterun/avoidance/ack (docs/design/
+chronicle-bridge-avoidance-out.md): the same poll/ack protocol shape as
+hydration, applied to rule 18's already-computed avoidance-pair state
+(`chronicle.avoidance.is_avoiding`, reusing `chronicle.driver`'s own
+`_avoidance_thresholds` condition, never a second copy of it) instead of
+the relationship-rank bucketing. Two structural differences from
+hydration, both because avoidance is a different shape of fact:
+symmetric, not directed (a grudge is holder->target, but rule 18's own
+`frozenset((npc_a, npc_b))` treats a grudge PAIR as mutual for avoidance
+purposes) -- so the response's `npc_a`/`npc_b` are canonicalized
+lexicographically (`sorted((a, b))`) rather than preserving
+holder/target, and the same canonicalization is applied to an incoming
+ack's pair before looking up its state, so a caller that echoes the pair
+in either order still resolves to the same entry; and a two-outcome ack
+(`applied`/`retry`), not hydration's three, because avoidance has no
+`no_relationship`-equivalent permanent-failure case -- it depends only on
+whether both NPCs are named-cast (already filtered) and whether a live
+game/actor reference is available (`retry`, temporary), never on an
+authored vanilla record that may not exist. See `_AvoidancePairState`'s
+docstring for the state machine (same shape as `_HydrationPairState`'s,
+minus the third outcome and its per-rank scoping -- here there is only
+ever one tracked fact per pair, "is it avoiding").
+
 Read-only exception, /whiterun/hydration (docs/design/chronicle-bridge-
 hydration-out.md §3b): this one route DOES import chronicle/ directly
 (`chronicle.framelog.FrameLogReader`/`state_at`, `chronicle.social`,
@@ -84,6 +107,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from models import GameEvent, PositionSnapshot
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+from chronicle.avoidance import is_avoiding
 from chronicle.framelog import FrameLogReader, default_runs_dir
 from chronicle.hydration import RANK_NO_GRUDGE, relationship_rank_for
 
@@ -362,6 +386,129 @@ def _apply_hydration_ack(
         del pair_states[(holder_id, target_id)]
 
 
+@dataclasses.dataclass
+class _AvoidancePairState:
+    """One entry in the per-(npc_a, npc_b) avoidance state machine -- the
+    same protocol shape as `_HydrationPairState`, applied to a symmetric,
+    two-outcome fact instead of a directed, per-rank one.
+
+    `(npc_a, npc_b)` is always the canonical, lexicographically sorted
+    ordering (`tuple(sorted((a, b)))`) -- the pair is looked up and stored
+    under that key regardless of which order a grudge's holder/target (or
+    an incoming ack) happened to name them in, since avoidance itself is
+    mutual once it applies (design doc, and rule 18's own
+    `frozenset((npc_a, npc_b))`).
+
+        (absent from the dict)  -- "not-yet-offered": baseline, equivalent
+                                    to a settled `avoiding=False`. Every
+                                    pair starts here, and a `retry` ack (or
+                                    a listener restart) sends it back here.
+        status="awaiting_ack"   -- offered in a GET response, no ack
+                                    received yet for this exact `avoiding`
+                                    value. A poll while awaiting-ack at the
+                                    SAME value is a no-op.
+        status="applied"        -- the C++ poller confirmed it expressed
+                                    this `avoiding` value in-game. A poll
+                                    at the same value is a no-op.
+
+    Unlike hydration's `permanently_skipped`, there is no third status
+    here: avoidance has no `no_relationship`-equivalent permanent-failure
+    case (see the module docstring's comparison), so an ack only ever
+    settles a pair (`applied`) or forgets it for re-evaluation (`retry`,
+    handled by deleting the entry -- indistinguishable from what a
+    listener restart already does, same precedent as hydration's `retry`).
+
+    `awaiting_since` closes the identical dropped-ack gap
+    `_HydrationPairState` documents: an "awaiting_ack" entry older than
+    `_AWAITING_ACK_TIMEOUT_SECONDS` is treated as expired and re-offered on
+    the next poll regardless of whether its `avoiding` value changed.
+    """
+
+    avoiding: bool
+    status: str  # "awaiting_ack" | "applied"
+    awaiting_since: float | None = None  # time.monotonic() when status became "awaiting_ack"; None otherwise.
+
+
+_AVOIDANCE_ACK_OUTCOMES = frozenset({"applied", "retry"})
+
+
+def _avoidance_pairs(live_run: str, pair_states: dict[tuple[str, str], _AvoidancePairState]) -> list[dict[str, object]]:
+    """Compute changed (npc_a, npc_b, avoiding) pairs for the live run's named-cast grudges.
+
+    Groups every named-cast grudge by its unordered pair
+    (`frozenset((holder_id, target_id))`) -- a mutual pair (both sides
+    holding a grudge against the other) collapses to one group, the same
+    "avoidance is about the pair, not the direction" rule
+    `Driver._grudge_severities` already applies. `avoiding` for a group is
+    true if ANY grudge in it currently satisfies `is_avoiding` (either
+    direction can put the pair into avoidance) -- a stricter union than
+    strictly necessary to replicate `Driver`'s own single-dict-entry
+    internals, but the correct symmetric semantics for a read-only export
+    that isn't required to reproduce that internal's incidental
+    iteration-order behavior.
+
+    Only pairs whose `avoiding` value differs from what's currently
+    tracked in `pair_states` (or whose `awaiting_ack` entry has expired,
+    per `_AvoidancePairState`'s docstring) are returned -- same dedupe/ack
+    discipline as `_hydration_pairs`.
+    """
+    reader = FrameLogReader(default_runs_dir() / live_run)
+    max_tick = _max_tick(reader)
+    if max_tick is None:
+        return []
+    state = reader.state_at(max_tick)
+    at_gamets = float(max_tick)
+
+    grudges_by_pair: dict[frozenset[str], list] = {}
+    for grudge in state.social.grudges():
+        if grudge.holder_id not in NAMED_CAST_NPC_IDS or grudge.target_id not in NAMED_CAST_NPC_IDS:
+            continue
+        grudges_by_pair.setdefault(frozenset((grudge.holder_id, grudge.target_id)), []).append(grudge)
+
+    changed: list[dict[str, object]] = []
+    for pair, grudges in grudges_by_pair.items():
+        avoiding = any(is_avoiding(g, at_gamets=at_gamets) for g in grudges)
+        npc_a, npc_b = sorted(pair)
+        key = (npc_a, npc_b)
+        entry = pair_states.get(key)
+
+        expired = (
+            entry is not None
+            and entry.status == "awaiting_ack"
+            and entry.awaiting_since is not None
+            and time.monotonic() - entry.awaiting_since > _AWAITING_ACK_TIMEOUT_SECONDS
+        )
+
+        last_avoiding = entry.avoiding if entry is not None else False
+        if not expired and avoiding == last_avoiding:
+            continue
+        pair_states[key] = _AvoidancePairState(avoiding=avoiding, status="awaiting_ack", awaiting_since=time.monotonic())
+        changed.append({"npc_a": npc_a, "npc_b": npc_b, "avoiding": avoiding})
+    return changed
+
+
+def _apply_avoidance_ack(
+    pair_states: dict[tuple[str, str], _AvoidancePairState], npc_a: str, npc_b: str, outcome: str
+) -> None:
+    """Advance one pair's state machine entry per an ack's outcome.
+
+    Canonicalizes `(npc_a, npc_b)` the same way `_avoidance_pairs` does
+    before lookup, so an ack that echoes the pair in either order still
+    resolves to the same tracked entry. Silently ignores an ack for a pair
+    with no current entry -- same reasoning as `_apply_hydration_ack`:
+    nothing to update, and a stale/racing ack must never crash this
+    endpoint.
+    """
+    key = tuple(sorted((npc_a, npc_b)))
+    entry = pair_states.get(key)
+    if entry is None:
+        return
+    if outcome == "applied":
+        pair_states[key] = _AvoidancePairState(avoiding=entry.avoiding, status="applied")
+    elif outcome == "retry":
+        del pair_states[key]
+
+
 def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str | None) -> type[BaseHTTPRequestHandler]:
     # Per-pair hydration state machine (design doc §3b + the ack protocol
     # that closes fad0d79's "delivered before confirmed" gap) -- see
@@ -376,6 +523,12 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
     # protocol's own design, a listener restart is handled identically to a
     # `retry` ack (both just forget the pair), so this is not a new gap.
     hydration_pair_states: dict[tuple[str, str], _HydrationPairState] = {}
+
+    # Per-(npc_a, npc_b) avoidance state machine (design doc
+    # chronicle-bridge-avoidance-out.md), same closure-scoped,
+    # in-memory-only, does-not-survive-a-restart shape as
+    # hydration_pair_states above -- see _AvoidancePairState's docstring.
+    avoidance_pair_states: dict[tuple[str, str], _AvoidancePairState] = {}
 
     class Handler(BaseHTTPRequestHandler):
         def _check_auth(self) -> bool:
@@ -409,6 +562,8 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
                 self._handle_events()
             elif self.path == "/whiterun/hydration/ack":
                 self._handle_hydration_ack()
+            elif self.path == "/whiterun/avoidance/ack":
+                self._handle_avoidance_ack()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -473,6 +628,8 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
         def do_GET(self) -> None:
             if self.path == "/whiterun/hydration":
                 self._handle_hydration()
+            elif self.path == "/whiterun/avoidance":
+                self._handle_avoidance()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -547,6 +704,77 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
 
             for holder_id, target_id, outcome in parsed:
                 _apply_hydration_ack(hydration_pair_states, holder_id, target_id, outcome)
+
+            self.send_response(204)
+            self.end_headers()
+
+        def _handle_avoidance(self) -> None:
+            """GET /whiterun/avoidance -- same gating as /whiterun/hydration
+            (503 without --live-run, same auth), symmetric response shape
+            (docs/design/chronicle-bridge-avoidance-out.md)."""
+            if live_run is None:
+                self.send_response(503)
+                self.end_headers()
+                return
+            if not self._check_auth():
+                return
+
+            pairs = _avoidance_pairs(live_run, avoidance_pair_states)
+            body = json.dumps(pairs).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _handle_avoidance_ack(self) -> None:
+            """POST /whiterun/avoidance/ack -- the same ack protocol as
+            /whiterun/hydration/ack, applied to a symmetric pair and a
+            two-outcome ("applied" | "retry") shape (see module docstring
+            for why avoidance has no third, permanent-failure outcome).
+
+            Body: a JSON array of {"npc_a": str, "npc_b": str, "outcome":
+            "applied" | "retry"} objects -- npc_a/npc_b may be given in
+            either order (canonicalized before lookup, see
+            `_apply_avoidance_ack`). Not part of the OpenAPI contract, same
+            hand-rolled-JSON precedent as every other ack/GET pair in this
+            file. A malformed body is rejected wholesale with a 400, same
+            reject-the-whole-batch style as /whiterun/hydration/ack.
+            """
+            if live_run is None:
+                self.send_response(503)
+                self.end_headers()
+                return
+            if not self._check_auth():
+                return
+            raw = self._read_body()
+            if raw is None:
+                return
+
+            try:
+                payload = json.loads(raw)
+                if not isinstance(payload, list):
+                    raise TypeError("expected a JSON array")
+                parsed: list[tuple[str, str, str]] = []
+                for item in payload:
+                    if not isinstance(item, dict):
+                        raise TypeError("expected an array of objects")
+                    npc_a = item["npc_a"]
+                    npc_b = item["npc_b"]
+                    outcome = item["outcome"]
+                    if not isinstance(npc_a, str) or not isinstance(npc_b, str):
+                        raise TypeError("npc_a/npc_b must be strings")
+                    if outcome not in _AVOIDANCE_ACK_OUTCOMES:
+                        raise ValueError(f"unknown outcome: {outcome!r}")
+                    parsed.append((npc_a, npc_b, outcome))
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                print(f"rejected malformed avoidance ack: {exc}", file=sys.stderr)
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            for npc_a, npc_b, outcome in parsed:
+                _apply_avoidance_ack(avoidance_pair_states, npc_a, npc_b, outcome)
 
             self.send_response(204)
             self.end_headers()

@@ -512,6 +512,234 @@ def test_hydration_ack_endpoint_enforces_the_shared_secret(server_factory, grudg
     assert authed.status == 204
 
 
+def test_avoidance_endpoint_returns_empty_array_for_a_sub_threshold_grudge(server_factory, tmp_path, monkeypatch):
+    """A grudge that never clears the avoidance threshold must be
+    indistinguishable from "no grudge rows at all" -- not surfaced as a
+    spurious avoiding:false change."""
+    run_id = "listener-test-avoidance-subthreshold-run"
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=run_id,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(
+            ScheduleBlock(npc_id="nazeem", location_id="whiterun_market", start_tick=0, end_tick=50),
+            ScheduleBlock(npc_id="ysolda", location_id="whiterun_market", start_tick=0, end_tick=50),
+        ),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.run(0, 5)
+    relationship = driver.form_relationship(
+        id="r1", from_id="nazeem", to_id="ysolda",
+        basis="colocation", basis_id=None, strength=0.1, gamets=5.0,
+    )
+    driver.form_grudge(
+        id="g1", holder_id="nazeem", victim_id="ysolda", target_id="ysolda",
+        grievance_type="theft", source_belief_id="belief-nazeem-ysolda",
+        evidentiary_strength=0.1, relationship_to_victim=relationship, gamets=5.0,
+        forgiveness_threshold=0.2,
+    )
+    driver.close()
+
+    post = server_factory(live_run=run_id)
+    status, body = post.get("/whiterun/avoidance")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_avoidance_endpoint_returns_503_without_live_run(server_factory):
+    post = server_factory(live_run=None)
+    status, _ = post.get("/whiterun/avoidance")
+    assert status == 503
+
+
+def test_avoidance_endpoint_returns_empty_array_with_no_grudges(server_factory, live_run):
+    post = server_factory(live_run=_RUN)
+    status, body = post.get("/whiterun/avoidance")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_avoidance_endpoint_surfaces_a_severe_uncooled_grudge_between_named_cast(server_factory, grudge_run):
+    _driver, _tmp_path = grudge_run
+    post = server_factory(live_run=_GRUDGE_RUN)
+
+    status, body = post.get("/whiterun/avoidance")
+    assert status == 200
+    pairs = json.loads(body)
+    assert pairs == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": True}]
+
+
+def test_avoidance_endpoint_canonicalizes_pair_order_lexicographically(server_factory, tmp_path, monkeypatch):
+    """The grudge is held nazeem -> ysolda (holder, target), but the
+    response must always report npc_a/npc_b in lexicographic order
+    regardless of which NPC is the holder -- avoidance is symmetric,
+    unlike hydration's directed holder/target."""
+    run_id = "listener-test-avoidance-canonical-run"
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=run_id,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(
+            ScheduleBlock(npc_id="nazeem", location_id="whiterun_market", start_tick=0, end_tick=50),
+            ScheduleBlock(npc_id="ysolda", location_id="whiterun_market", start_tick=0, end_tick=50),
+        ),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.run(0, 5)
+    # Holder ysolda, target nazeem -- reversed from the usual grudge_run
+    # fixture, to prove canonicalization doesn't just happen to match
+    # holder/target order by coincidence.
+    relationship = driver.form_relationship(
+        id="r1", from_id="ysolda", to_id="nazeem",
+        basis="colocation", basis_id=None, strength=0.9, gamets=5.0,
+    )
+    driver.form_grudge(
+        id="g1", holder_id="ysolda", victim_id="nazeem", target_id="nazeem",
+        grievance_type="theft", source_belief_id="belief-ysolda-nazeem",
+        evidentiary_strength=0.9, relationship_to_victim=relationship, gamets=5.0,
+        forgiveness_threshold=0.2,
+    )
+    driver.close()
+
+    post = server_factory(live_run=run_id)
+    status, body = post.get("/whiterun/avoidance")
+    assert status == 200
+    assert json.loads(body) == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": True}]
+
+
+def test_avoidance_endpoint_is_idempotent_on_a_second_immediate_poll(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    first_status, first_body = post.get("/whiterun/avoidance")
+    assert first_status == 200
+    assert json.loads(first_body) != []
+
+    second_status, second_body = post.get("/whiterun/avoidance")
+    assert second_status == 200
+    assert json.loads(second_body) == []
+
+
+def test_avoidance_endpoint_reports_avoiding_false_once_the_grudge_cools(server_factory, grudge_run):
+    _driver, _tmp_path = grudge_run
+    post = server_factory(live_run=_GRUDGE_RUN)
+
+    first_status, first_body = post.get("/whiterun/avoidance")
+    assert first_status == 200
+    assert json.loads(first_body) == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": True}]
+
+    # Advance the run's max tick well past both grudge half-lives, same
+    # technique as the hydration cooling test.
+    death = post("/whiterun/events", {"event_type": "npc_died", "gamets": 2000.0, "npc_id": "brenuin"})
+    assert death.status == 204
+
+    third_status, third_body = post.get("/whiterun/avoidance")
+    assert third_status == 200
+    assert json.loads(third_body) == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": False}]
+
+
+def test_avoidance_ack_applied_means_not_reoffered_while_unchanged(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/avoidance")
+    assert json.loads(body) == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": True}]
+
+    ack = post(
+        "/whiterun/avoidance/ack",
+        [{"npc_a": "nazeem", "npc_b": "ysolda", "outcome": "applied"}],
+    )
+    assert ack.status == 204
+
+    status, body = post.get("/whiterun/avoidance")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_avoidance_ack_retry_is_reoffered_on_the_next_poll(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/avoidance")
+    assert json.loads(body) == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": True}]
+
+    ack = post(
+        "/whiterun/avoidance/ack",
+        [{"npc_a": "nazeem", "npc_b": "ysolda", "outcome": "retry"}],
+    )
+    assert ack.status == 204
+
+    status, body = post.get("/whiterun/avoidance")
+    assert status == 200
+    assert json.loads(body) == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": True}]
+
+
+def test_avoidance_pair_is_reoffered_if_its_ack_times_out(server_factory, grudge_run, monkeypatch):
+    """Same dropped-ack timeout coverage as
+    test_hydration_pair_is_reoffered_if_its_ack_times_out, applied to the
+    avoidance endpoint's own state machine."""
+    import listener as listener_module
+
+    fake_now = [1000.0]
+    monkeypatch.setattr(listener_module.time, "monotonic", lambda: fake_now[0])
+
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/avoidance")
+    assert json.loads(body) == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": True}]
+
+    # No ack sent. Immediately re-polling (still within the timeout
+    # window) must NOT re-offer.
+    status, body = post.get("/whiterun/avoidance")
+    assert json.loads(body) == []
+
+    # Advance past the timeout with no ack ever having arrived (same
+    # server, no restart). The pair must be re-offered even though its
+    # computed avoiding value hasn't changed.
+    fake_now[0] += listener_module._AWAITING_ACK_TIMEOUT_SECONDS + 1.0
+    status, body = post.get("/whiterun/avoidance")
+    assert status == 200
+    assert json.loads(body) == [{"npc_a": "nazeem", "npc_b": "ysolda", "avoiding": True}]
+
+
+def test_avoidance_ack_endpoint_returns_503_without_live_run(server_factory):
+    post = server_factory(live_run=None)
+    resp = post("/whiterun/avoidance/ack", [{"npc_a": "nazeem", "npc_b": "ysolda", "outcome": "applied"}])
+    assert resp.status == 503
+
+
+def test_avoidance_ack_endpoint_rejects_a_non_array_body(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post("/whiterun/avoidance/ack", {"npc_a": "nazeem", "npc_b": "ysolda", "outcome": "applied"})
+    assert resp.status == 400
+
+
+def test_avoidance_ack_endpoint_rejects_an_unknown_outcome(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post(
+        "/whiterun/avoidance/ack",
+        [{"npc_a": "nazeem", "npc_b": "ysolda", "outcome": "bogus"}],
+    )
+    assert resp.status == 400
+
+
+def test_avoidance_ack_endpoint_rejects_a_missing_field(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post("/whiterun/avoidance/ack", [{"npc_a": "nazeem", "outcome": "applied"}])
+    assert resp.status == 400
+
+
+def test_avoidance_ack_endpoint_enforces_the_shared_secret(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN, shared_secret="s3cret")
+    unauth = post("/whiterun/avoidance/ack", [{"npc_a": "nazeem", "npc_b": "ysolda", "outcome": "applied"}])
+    assert unauth.status == 401
+    authed = post(
+        "/whiterun/avoidance/ack",
+        [{"npc_a": "nazeem", "npc_b": "ysolda", "outcome": "applied"}],
+        token="s3cret",
+    )
+    assert authed.status == 204
+
+
 def test_unknown_path_is_404(server_factory):
     post = server_factory()
     resp = post("/not/a/real/path", {})

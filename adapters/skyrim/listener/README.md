@@ -57,18 +57,53 @@ a real, named gap (design doc §3), not solved here. A restart is handled
 identically to a `retry` ack: the pair is simply forgotten and
 re-evaluated fresh on the next poll.
 
+- **`GET /whiterun/avoidance`** -- the avoidance ("cold shoulder") slice's
+  pending queue (`docs/design/chronicle-bridge-avoidance-out.md`), for a
+  future C++ AI-package-override poller to consume (not built yet -- this
+  is Python-only, same split as hydration). Reads the live run's current
+  on-disk state the same way `/whiterun/hydration` does, groups every
+  grudge between two named-cast NPCs by its unordered pair, and computes
+  whether that pair is currently avoiding each other via
+  `chronicle.avoidance.is_avoiding` (reusing `chronicle.driver`'s own
+  rule-18 `_avoidance_thresholds` condition, never a second copy of it).
+  Returns only the `{npc_a, npc_b, avoiding}` pairs whose value differs
+  from what's currently tracked. **Symmetric, unlike hydration's directed
+  `holder_id`/`target_id`** -- rule 18 treats a grudge pair as mutual for
+  avoidance purposes, so `npc_a`/`npc_b` are always canonicalized
+  lexicographically (`sorted((a, b))`), never holder/target order. Gated
+  identically to `/whiterun/hydration` (503 without `--live-run`, same
+  auth).
+- **`POST /whiterun/avoidance/ack`** -- the same ack protocol as
+  `/whiterun/hydration/ack`, applied to avoidance's symmetric pair shape.
+  Body: a JSON array of `{"npc_a": str, "npc_b": str, "outcome":
+  "applied" | "retry"}` objects (`npc_a`/`npc_b` may be given in either
+  order; canonicalized before lookup). Only two outcomes, not hydration's
+  three: avoidance has no `no_relationship`-equivalent permanent-failure
+  case, since it depends only on both NPCs being named-cast (already
+  filtered) and a live game/actor reference being available (`retry`,
+  temporary) -- never on an authored vanilla record that may not exist.
+  `applied` settles the pair at its current `avoiding` value; `retry`, or
+  a dropped/timed-out ack, forgets the pair for fresh re-evaluation next
+  poll (`listener.py`'s `_AvoidancePairState`, same dropped-ack timeout
+  mechanism as hydration's `_HydrationPairState`).
+
+Like the hydration routes, neither avoidance route's in-memory state
+survives a listener restart -- same named gap, same "identical to a
+`retry` ack" restart behavior.
+
 Not part of `chronicle/` -- this is Skyrim-adapter-side plumbing, per
 `adapters/skyrim/README.md`'s charter. `/whiterun/events` does not import
 `chronicle/` either; it shells out to the same `chronicle inject` CLI
 write path a human uses at the console, the documented seam boundary.
-`/whiterun/hydration` is the one deliberate exception to that
-never-import boundary: it has no write path (it only reads a run's
-existing on-disk state and computes a pure function over it), so there is
-nothing for the CLI boundary to protect -- a fresh `python -m chronicle`
-subprocess would still pay interpreter startup on top of the same log
-replay a direct import already does, for no safety benefit in exchange.
-Write access to a run still goes through the CLI exclusively -- see the
-exception's full rationale in `listener.py`'s own module docstring.
+`/whiterun/hydration` and `/whiterun/avoidance` are the deliberate
+exceptions to that never-import boundary: neither has a write path (each
+only reads a run's existing on-disk state and computes a pure function
+over it), so there is nothing for the CLI boundary to protect -- a fresh
+`python -m chronicle` subprocess would still pay interpreter startup on
+top of the same log replay a direct import already does, for no safety
+benefit in exchange. Write access to a run still goes through the CLI
+exclusively -- see the exceptions' full rationale in `listener.py`'s own
+module docstring.
 
 ## Testing
 

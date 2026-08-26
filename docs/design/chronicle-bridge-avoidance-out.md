@@ -1,10 +1,42 @@
 # Design prep — ChronicleBridge, a fourth slice: avoidance ("cold shoulder")
 
-**Status:** design proposal for a Python-only first cut, mirroring
+**Status (2026-08-26): the Python-only first cut described below is now
+implemented.** `chronicle/avoidance.py`'s `is_avoiding(grudge, *,
+at_gamets, threshold=chronicle.driver.AVOIDANCE_GRUDGE_THRESHOLD)` reuses
+rule 18's own `_avoidance_thresholds` condition (decayed severity ≥
+threshold and not `grudge_cooled`) without duplicating it -- a new module
+rather than an addition to `chronicle/hydration.py`, since hydration.py's
+job is bucketing a continuous severity into Skyrim's integer rank scale
+and avoidance is a plain boolean gate with no bucketing involved (see
+`avoidance.py`'s own docstring for the fuller reasoning). `GET
+/whiterun/avoidance` and `POST /whiterun/avoidance/ack`
+(`adapters/skyrim/listener/listener.py`) are live, gated identically to
+`/whiterun/hydration` (503 without `--live-run`, same shared-secret
+auth), with the ack protocol built in from the start as directed -- no
+"delivered before confirmed" gap to retrofit later. Two differences from
+hydration's shape, both load-bearing: the response is symmetric
+(`{npc_a, npc_b, avoiding}`, canonicalized lexicographically, since rule
+18's own `frozenset((npc_a, npc_b))` treats a grudge pair as mutual for
+avoidance), and the ack has only two outcomes (`applied`/`retry`, not
+hydration's three) since avoidance has no `no_relationship`-equivalent
+permanent-failure case -- it never depends on an authored vanilla record
+that might not exist. Tests: `chronicle/tests/test_avoidance.py` (unit
+tests for `is_avoiding`) and 15 new cases in
+`adapters/skyrim/listener/test_listener.py` (endpoint behavior, symmetric
+canonicalization, idempotency, ack outcomes, dropped-ack timeout, 503
+gating, malformed-body rejection, shared-secret auth), mirroring the
+hydration test suite's own fixture/style patterns.
+
+**Still not built, same split as hydration:** the C++ half (an actual
+AI-package/behavior-override poller consuming this state) -- real,
+separate future work needing its own research pass on which
+CommonLibSSE-NG package-condition mechanism to use, per §0/§3 below.
+
+Original design proposal follows, unchanged except where noted above:
+Python-only first cut, mirroring
 `docs/design/chronicle-bridge-hydration-out.md`'s own precedent exactly.
-Nothing here is implemented yet. Produced from
-`docs/research/23-v03-hysteresis-and-action-verbs.md`'s Part B, ranked
-recommendation #3.
+Produced from `docs/research/23-v03-hysteresis-and-action-verbs.md`'s
+Part B, ranked recommendation #3.
 
 Sources: `chronicle/driver.py`'s rule 18 (`PairwiseEncounterWeightingRule`,
 `_grudge_severities`/`_avoidance_thresholds`/`_evaluate_avoidance`) — the
