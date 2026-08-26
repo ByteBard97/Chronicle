@@ -18,6 +18,10 @@ notes/skyrim-modlist-research/
 dashboard/node_modules/
 dashboard/dist/
 
+# ChronicleBridge listener's rolling live-position snapshot -- runtime
+# output, not a fixture; regenerated every session the listener runs.
+adapters/skyrim/listener/whiterun-positions.json
+
 # Sim run logs (chronicle/framelog.py output) -- never committed, see
 # docs/ui-spec.md's runs/ registry.
 runs/

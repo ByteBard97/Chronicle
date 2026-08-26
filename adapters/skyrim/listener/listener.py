@@ -1,15 +1,28 @@
-"""ChronicleBridge listener -- receives the spatial-streamer's outbound
-POSTs (adapters/skyrim/contracts/chronicle-bridge.openapi.yaml) and writes
-a rolling JSON snapshot file. Stdlib-only (matches the throwaway probe's own
-"http.server is enough" choice) plus pydantic for schema validation against
-the generated models.py -- never hand-parse the body, the whole point of
-the shared contract is that a malformed payload is rejected here, not
-silently misinterpreted.
+"""ChronicleBridge listener -- receives ChronicleBridge's outbound POSTs
+(adapters/skyrim/contracts/chronicle-bridge.openapi.yaml) and either
+writes a rolling JSON snapshot file (/whiterun/positions) or appends a
+canonical event to a live run (/whiterun/events,
+docs/design/chronicle-bridge-death-extraction.md). Stdlib-only (matches
+the throwaway probe's own "http.server is enough" choice) plus pydantic
+for schema validation against the generated models.py -- never hand-parse
+the body, the whole point of the shared contract is that a malformed
+payload is rejected here, not silently misinterpreted.
 
 Not part of chronicle/ -- see this directory's README.md for why, and for
-how to regenerate models.py when the contract changes.
+how to regenerate models.py when the contract changes. /whiterun/events
+does not import chronicle/ either; it shells out to the same
+`python -m chronicle inject` CLI write path a human uses at the console
+(chronicle/cli.py), the documented seam boundary, stamped
+`--origin-kind adapter` so it's never mislabeled as a console injection.
 
     uv run --with pydantic python adapters/skyrim/listener/listener.py --shared-secret <token>
+    uv run --with pydantic python adapters/skyrim/listener/listener.py --shared-secret <token> --live-run <run_id>
+
+/whiterun/events is unavailable (503) unless --live-run is given -- there
+is deliberately no default and no auto-selection of an existing run. Never
+point --live-run at a fixture/demo run the M7 release gate or the ladder's
+scenario tests depend on (e.g. runs/north-star-01); always a dedicated
+live-play run, since injected events are ordinary appends with no undo.
 
 Trust model: this binds 0.0.0.0 because the real topology is a separate
 Windows machine on the LAN POSTing in -- it can't be restricted to
@@ -23,6 +36,7 @@ this port beyond a trusted home LAN.
 import argparse
 import json
 import secrets
+import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,9 +45,15 @@ from pathlib import Path
 from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).parent))
-from models import PositionSnapshot
+from models import GameEvent, PositionSnapshot
 
 _write_lock = threading.Lock()
+
+# adapters/skyrim/listener/listener.py -> repo root, three parents up.
+# `python -m chronicle` needs cwd here to import the chronicle/ package
+# (not installed; a plain top-level package, same as every test/CLI
+# invocation in this repo already assumes).
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 # A snapshot with hundreds of NPCs at ~40 bytes/entry is still well under
 # 100KB -- 1MiB is generous headroom, not a real limit on legitimate
@@ -44,33 +64,89 @@ _write_lock = threading.Lock()
 _MAX_BODY_BYTES = 1 * 1024 * 1024
 
 
-def _make_handler(snapshot_path: Path, shared_secret: str | None) -> type[BaseHTTPRequestHandler]:
+def _inject_death_event(event: GameEvent, *, live_run: str) -> tuple[bool, str]:
+    """Shell out to ``python -m chronicle inject`` (never import chronicle/ --
+    the documented seam boundary, this directory's README.md). Returns
+    (ok, message) -- message is stdout on success, stderr on failure, so
+    the caller can log/relay chronicle's own reason for a rejection (e.g.
+    a historical-tick refusal) rather than swallowing it.
+    """
+    payload = {
+        "event_type": event.event_type.value,
+        "gamets": event.gamets,
+        "npc_id": event.npc_id,
+        "cause": event.cause if event.cause is not None else "unknown",
+    }
+    if event.killer_id is not None:
+        payload["killer_id"] = event.killer_id
+    if event.location_id is not None:
+        payload["location_id"] = event.location_id
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "chronicle",
+            "inject",
+            live_run,
+            "--event",
+            json.dumps(payload),
+            "--origin-kind",
+            "adapter",
+            "--origin-detail",
+            "chronicle-bridge death event",
+        ],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False, result.stderr.strip()
+    return True, result.stdout.strip()
+
+
+def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str | None) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:
-            if self.path != "/whiterun/positions":
-                self.send_response(404)
+        def _check_auth(self) -> bool:
+            if shared_secret is None:
+                return True
+            token = self.headers.get("X-Chronicle-Bridge-Token")
+            if token is None or not secrets.compare_digest(token, shared_secret):
+                self.send_response(401)
                 self.end_headers()
-                return
+                return False
+            return True
 
-            if shared_secret is not None:
-                token = self.headers.get("X-Chronicle-Bridge-Token")
-                if token is None or not secrets.compare_digest(token, shared_secret):
-                    self.send_response(401)
-                    self.end_headers()
-                    return
-
+        def _read_body(self) -> bytes | None:
+            """None means a response was already sent (bad/oversized length)."""
             try:
                 length = int(self.headers.get("Content-Length", 0))
             except ValueError:
                 self.send_response(400)
                 self.end_headers()
-                return
+                return None
             if length <= 0 or length > _MAX_BODY_BYTES:
                 self.send_response(413)
                 self.end_headers()
+                return None
+            return self.rfile.read(length)
+
+        def do_POST(self) -> None:
+            if self.path == "/whiterun/positions":
+                self._handle_positions()
+            elif self.path == "/whiterun/events":
+                self._handle_events()
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def _handle_positions(self) -> None:
+            if not self._check_auth():
+                return
+            raw = self._read_body()
+            if raw is None:
                 return
 
-            raw = self.rfile.read(length)
             try:
                 snapshot = PositionSnapshot.model_validate_json(raw)
             except ValidationError as exc:
@@ -88,6 +164,36 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None) -> type[BaseHT
                 tmp_path.write_text(json.dumps(snapshot.model_dump(), indent=None))
                 tmp_path.replace(snapshot_path)
 
+            self.send_response(204)
+            self.end_headers()
+
+        def _handle_events(self) -> None:
+            if live_run is None:
+                self.send_response(503)
+                self.end_headers()
+                return
+            if not self._check_auth():
+                return
+            raw = self._read_body()
+            if raw is None:
+                return
+
+            try:
+                event = GameEvent.model_validate_json(raw)
+            except ValidationError as exc:
+                print(f"rejected malformed event: {exc}", file=sys.stderr)
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            ok, message = _inject_death_event(event, live_run=live_run)
+            if not ok:
+                print(f"chronicle inject rejected event: {message}", file=sys.stderr)
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            print(f"[listener] {message}", file=sys.stderr)
             self.send_response(204)
             self.end_headers()
 
@@ -114,6 +220,17 @@ def main() -> None:
         "Strongly recommended once this listens on a real LAN interface -- "
         "omitting it accepts POSTs from anyone who can reach the port.",
     )
+    parser.add_argument(
+        "--live-run",
+        type=str,
+        default=None,
+        help="The run_id /whiterun/events appends detected deaths into, via "
+        "'python -m chronicle inject'. No default and no auto-selection of an "
+        "existing run -- omitting this makes /whiterun/events return 503. Never "
+        "point this at a fixture/demo run the M7 release gate or the ladder's "
+        "scenario tests depend on (e.g. runs/north-star-01); always a dedicated "
+        "live-play run.",
+    )
     args = parser.parse_args()
 
     if args.shared_secret is None:
@@ -123,8 +240,14 @@ def main() -> None:
             "test; set --shared-secret before leaving this running on a real network.",
             file=sys.stderr,
         )
+    if args.live_run is None:
+        print(
+            "[listener] /whiterun/events disabled (no --live-run given) -- only "
+            "/whiterun/positions is active.",
+            file=sys.stderr,
+        )
 
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), _make_handler(args.snapshot_path, args.shared_secret))
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), _make_handler(args.snapshot_path, args.shared_secret, args.live_run))
     print(f"ChronicleBridge listener on :{args.port}, writing {args.snapshot_path}", file=sys.stderr)
     server.serve_forever()
 

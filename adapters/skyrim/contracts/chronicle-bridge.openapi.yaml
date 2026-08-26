@@ -17,12 +17,43 @@ info:
   version: 0.1.0
   description: >
     The v0.2 spatial-streamer slice's wire format
-    (docs/design/chronicle-bridge-spatial-streamer.md). ChronicleBridge
-    (the SKSE plugin, running natively on Windows) POSTs this outbound,
-    ~1Hz, to a listener on the Chronicle host. Outbound only -- the
-    plugin never accepts inbound connections in this slice.
+    (docs/design/chronicle-bridge-spatial-streamer.md), plus the second
+    slice's death-event wire format
+    (docs/design/chronicle-bridge-death-extraction.md). ChronicleBridge
+    (the SKSE plugin, running natively on Windows) POSTs both outbound to
+    a listener on the Chronicle host. Outbound only -- the plugin never
+    accepts inbound connections.
 
 paths:
+  /whiterun/events:
+    post:
+      operationId: postWhiterunEvent
+      summary: >
+        A single discrete game event (currently: NPC death only --
+        docs/design/chronicle-bridge-death-extraction.md §2). Unlike
+        /whiterun/positions this is not a rolling snapshot -- each POST
+        is one occurrence, appended to a specific live run the listener
+        was started with (--live-run), never auto-selected or defaulted
+        to an existing fixture/demo run.
+      security:
+        - bridgeToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GameEvent"
+      responses:
+        "204":
+          description: Accepted and appended to the configured live run.
+        "400":
+          description: Malformed payload (failed schema validation).
+        "401":
+          description: Missing/incorrect X-Chronicle-Bridge-Token (only enforced when the listener is started with --shared-secret).
+        "413":
+          description: Body exceeds the listener's size cap.
+        "503":
+          description: Listener was started without --live-run -- this endpoint is unavailable until a target run is configured.
   /whiterun/positions:
     post:
       operationId: postWhiterunPositions
@@ -49,21 +80,59 @@ paths:
           description: Body exceeds the listener's size cap.
 
 components:
-  securitySchemes:
-    bridgeToken:
-      type: apiKey
-      in: header
-      name: X-Chronicle-Bridge-Token
-      description: >
-        A lightweight shared-secret bearer check, NOT real authentication
-        (no TLS, no per-client identity) -- meant to stop an accidental
-        LAN neighbor from writing to the snapshot file, not to withstand
-        a targeted attacker. Optional: the listener only enforces this
-        when started with --shared-secret (adapters/skyrim/listener/
-        listener.py); OutboundConfig.sharedSecret (ChronicleBridge/src/
-        OutboundClient.h) must match exactly when it is. Do not expose
-        this listener beyond a trusted home LAN regardless.
   schemas:
+    GameEvent:
+      type: object
+      required: [event_type, gamets, npc_id]
+      additionalProperties: false
+      properties:
+        event_type:
+          type: string
+          enum: [npc_died]
+          description: >
+            Only "npc_died" exists in this slice
+            (docs/design/chronicle-bridge-death-extraction.md §2) -- more
+            kinds get added here when their own slice lands, never
+            inferred from payload shape.
+        gamets:
+          type: number
+          format: double
+          description: >
+            Skyrim's in-game hours-elapsed clock (RE::Calendar's hours
+            passed since new-game start) at the moment of death -- 1 tick
+            = 1 gamets = 1 game-hour (ADR-0010). This, not wall_ts, is
+            what places the event on the live run's timeline via
+            `chronicle inject`'s existing --event JSON contract
+            (chronicle/cli.py), which requires tick or gamets, never
+            wall-clock time, for placement.
+        wall_ts:
+          type: number
+          format: double
+          description: >
+            Unix epoch seconds when the plugin observed this event --
+            auxiliary metadata only (staleness/observability, same idiom
+            as PositionSnapshot.wall_ts), never used for timeline
+            placement.
+        npc_id:
+          type: string
+          description: >
+            Same identity resolution as NpcPosition.id (design doc §2) --
+            a resolved Chronicle npc_id or the "<plugin>:<formid>"
+            fallback. Never a raw FormID.
+        cause:
+          type: string
+          default: unknown
+          description: >
+            Fixed "unknown" for this slice (design doc §2, D2) --
+            RE::TESDeathEvent carries no structured cause code that's been
+            verified against the compiled headers yet. NPCDied.cause is a
+            plain string, not an enum, so richer detection can land later
+            without a schema change.
+        killer_id:
+          type: [string, "null"]
+          description: Same identity resolution as npc_id, when RE::TESDeathEvent::actorKiller resolves to another actor. Null if absent.
+        location_id:
+          type: [string, "null"]
     PositionSnapshot:
       type: object
       required: [wall_ts, npcs]
@@ -106,3 +175,17 @@ components:
           type: number
           format: double
           description: WhiterunWorld raw world-space Y (no transform applied).
+  securitySchemes:
+    bridgeToken:
+      type: apiKey
+      in: header
+      name: X-Chronicle-Bridge-Token
+      description: >
+        A lightweight shared-secret bearer check, NOT real authentication
+        (no TLS, no per-client identity) -- meant to stop an accidental
+        LAN neighbor from writing to the snapshot file, not to withstand
+        a targeted attacker. Optional: the listener only enforces this
+        when started with --shared-secret (adapters/skyrim/listener/
+        listener.py); OutboundConfig.sharedSecret (ChronicleBridge/src/
+        OutboundClient.h) must match exactly when it is. Do not expose
+        this listener beyond a trusted home LAN regardless.

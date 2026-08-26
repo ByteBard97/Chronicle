@@ -1,11 +1,9 @@
 # ChronicleBridge design prep — NPC death extraction (v0.2, second slice)
 
-**Status:** design proposal, no code dispatched from the C++ side yet.
-Autonomous design pass, 2026-08-25 — flag for owner review before the
-`ChronicleBridge/` (C++) half is built; the Python-side half described in
-§3 is low-risk, fully headless-testable, and has already landed
-(`chronicle inject`'s `--origin-kind`/`--origin-detail` flags, this
-session).
+**Status:** design proposal for the C++ half; the Python-side half (§3) is
+fully built, tested, and landed this session — flag the C++ half for
+owner review before `ChronicleBridge/` is touched (needs the Windows
+build machine and a live game to test at all, per §1's discipline).
 
 Sources: `adapters/skyrim/README.md` (the seam's stated charter — "In:
 game events... arrive here and get turned into `chronicle.events`
@@ -124,23 +122,27 @@ and has already landed this session:
   `test_inject_event_rejects_an_unknown_origin_kind`
   (`chronicle/tests/test_agent_debug_cli.py`).
 
-**Not yet built** (proposed, not implemented, this pass): a
-`/whiterun/events` (or similarly-named) POST endpoint on
+**Built and tested this session**: `/whiterun/events` on
 `adapters/skyrim/listener/listener.py`, analogous to `/whiterun/positions`
-— receives a validated death payload and shells out to
-`chronicle inject <run_id> --event '<json>' --origin-kind adapter --origin-detail "chronicle-bridge death event"`
+— receives a validated `GameEvent` payload (contract:
+`adapters/skyrim/contracts/chronicle-bridge.openapi.yaml`) and shells out
+to `chronicle inject <run_id> --event '<json>' --origin-kind adapter --origin-detail "chronicle-bridge death event"`
 as a subprocess (matching the "listener stays Skyrim-plumbing, never
-imports `chronicle/` directly" boundary the listener's own README states),
-where `<run_id>` is a value the listener was started with (a new
-`--live-run` CLI flag, mirroring `--shared-secret`). This is genuinely
-buildable and testable headlessly with a synthetic HTTP POST (no game
-needed) — proposed as the next concrete lane, not built in this pass,
-because it needs an owner decision first: **should a death detected live
-actually write into one of the existing demo runs (`runs/north-star-01`
-etc.), or does this need a fresh "live play" run created for it?**
-Writing into a demo run used by the M7-gated dashboard walkthrough risks
-corrupting the exact fixture the release gate depends on — this should
-not be decided unilaterally.
+imports `chronicle/` directly" boundary), where `<run_id>` comes from a
+new `--live-run` CLI flag (mirroring `--shared-secret`). The owner
+decision this doc originally flagged — "should a death write into an
+existing demo run or a fresh live-play run?" — is resolved by API design
+rather than a unilateral pick: **`--live-run` has no default and never
+auto-selects an existing run.** The listener returns 503 on
+`/whiterun/events` until an operator explicitly names a target, which
+structurally prevents ever accidentally writing into an M7-gated fixture
+run by omission. 8 tests in `adapters/skyrim/listener/test_listener.py`
+(run explicitly — see that directory's README, `testpaths` excludes it)
+cover the 503-without-`--live-run` case, a real append verified against
+`FrameLogReader`, malformed/unknown-type rejection, the shared-secret
+gate, `chronicle`'s own historical-tick refusal surfacing as a 400 (not
+swallowed), and a regression check that `/whiterun/positions` still
+works.
 
 ## 4. Named-cast identity gap (a real, separate blocker, not new to this slice)
 
@@ -166,6 +168,7 @@ works for `jarl_balgruuf`" for a defect.
   charter, each with its own sink/hook shape (research/22's table), not
   bundled into this slice.
 - Structured death cause beyond the fixed `"unknown"` string (§2, D2).
-- The listener's `/whiterun/events` endpoint and `--live-run` flag (§3) —
-  designed here, not implemented, pending the owner decision on run
-  target.
+- The `ChronicleBridge/` (C++) half — the actual `RE::TESDeathEvent` sink,
+  registration, and outbound POST to `/whiterun/events`. §3's Python-side
+  half (the listener endpoint) is built and tested; nothing native has
+  been written or compiled for this slice.
