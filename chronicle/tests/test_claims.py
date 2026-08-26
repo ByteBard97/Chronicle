@@ -3,9 +3,14 @@ from dataclasses import replace
 import pytest
 
 from chronicle.claims import (
+    CONTESTED_CLAIM_CONFIDENCE_DENT,
     GIST_DECAY_HALF_LIFE,
+    RETELL_CONFIDENCE_DECAY,
+    RETELL_GIST_DECAY,
+    RETELL_VERBATIM_DECAY,
     RUMOR_DORMANT_AFTER,
     RUMOR_FORGOTTEN_GIST_THRESHOLD,
+    TRUST_FLOOR,
     BeliefInstance,
     ClaimStore,
     decay,
@@ -88,6 +93,84 @@ def test_retelling_mutates_exactly_one_slot_and_decays_confidence():
     assert variant2.parent_variant_id == "v1"
     assert variant2.slots["perpetrator"] == "the Thalmor"
     assert ysolda_belief.confidence < hulda_belief.confidence
+
+
+def _witness_the_death():
+    return witness(
+        claim_id="c1",
+        belief_id="b1",
+        evidence_id="e1",
+        kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1),
+        witness_id="proventus",
+        gamets=10.0,
+    )
+
+
+def test_retell_with_no_trust_reproduces_the_flat_decay_exactly():
+    """trust=None (the default) is byte-identical to omitting the parameter entirely."""
+    claim, witness_belief, _ = _witness_the_death()
+
+    _, with_default, _ = retell(
+        claim=claim, parent_variant=None, variant_id="v1", belief_id="b2", evidence_id="e2",
+        teller_id="proventus", teller_belief=witness_belief, hearer_id="hulda", gamets=12.0,
+    )
+    _, explicit_none, _ = retell(
+        claim=claim, parent_variant=None, variant_id="v1", belief_id="b3", evidence_id="e3",
+        teller_id="proventus", teller_belief=witness_belief, hearer_id="hulda", gamets=12.0, trust=None,
+    )
+    assert with_default.confidence == explicit_none.confidence == witness_belief.confidence * RETELL_CONFIDENCE_DECAY
+    assert with_default.verbatim_strength == witness_belief.verbatim_strength * RETELL_VERBATIM_DECAY
+    assert with_default.gist_strength == witness_belief.gist_strength * RETELL_GIST_DECAY
+
+
+def test_retell_with_trust_one_reproduces_the_flat_decay_too():
+    """T1.1's own constraint: maximal trust equals today's flat 0.8 exactly."""
+    claim, witness_belief, _ = _witness_the_death()
+
+    _, belief, _ = retell(
+        claim=claim, parent_variant=None, variant_id="v1", belief_id="b2", evidence_id="e2",
+        teller_id="proventus", teller_belief=witness_belief, hearer_id="hulda", gamets=12.0, trust=1.0,
+    )
+    assert belief.confidence == pytest.approx(witness_belief.confidence * RETELL_CONFIDENCE_DECAY)
+
+
+def test_retell_with_trust_zero_bottoms_out_at_the_trust_floor():
+    claim, witness_belief, _ = _witness_the_death()
+
+    _, belief, _ = retell(
+        claim=claim, parent_variant=None, variant_id="v1", belief_id="b2", evidence_id="e2",
+        teller_id="proventus", teller_belief=witness_belief, hearer_id="hulda", gamets=12.0, trust=0.0,
+    )
+    assert belief.confidence == pytest.approx(witness_belief.confidence * RETELL_CONFIDENCE_DECAY * TRUST_FLOOR)
+
+
+def test_retell_trust_never_affects_verbatim_or_gist_strength():
+    """The design doc's ruling: trust discounts confidence only, never memory-precision axes."""
+    claim, witness_belief, _ = _witness_the_death()
+
+    _, no_trust, _ = retell(
+        claim=claim, parent_variant=None, variant_id="v1", belief_id="b2", evidence_id="e2",
+        teller_id="proventus", teller_belief=witness_belief, hearer_id="hulda", gamets=12.0,
+    )
+    for trust in (0.0, 0.3, 0.7, 1.0):
+        _, belief, _ = retell(
+            claim=claim, parent_variant=None, variant_id="v1", belief_id=f"b-{trust}", evidence_id=f"e-{trust}",
+            teller_id="proventus", teller_belief=witness_belief, hearer_id="hulda", gamets=12.0, trust=trust,
+        )
+        assert belief.verbatim_strength == no_trust.verbatim_strength
+        assert belief.gist_strength == no_trust.gist_strength
+    # Confidence strictly increases with trust -- not flat, not inverted.
+    _, lo, _ = retell(
+        claim=claim, parent_variant=None, variant_id="v1", belief_id="b-lo", evidence_id="e-lo",
+        teller_id="proventus", teller_belief=witness_belief, hearer_id="hulda", gamets=12.0, trust=0.2,
+    )
+    _, hi, _ = retell(
+        claim=claim, parent_variant=None, variant_id="v1", belief_id="b-hi", evidence_id="e-hi",
+        teller_id="proventus", teller_belief=witness_belief, hearer_id="hulda", gamets=12.0, trust=0.8,
+    )
+    assert lo.confidence < hi.confidence
 
 
 def test_retelling_an_unknown_slot_raises_rather_than_adding_one():
@@ -670,3 +753,114 @@ def test_corroborate_rejects_gamets_preceding_either_beliefs_last_rehearsal():
     )
     with pytest.raises(ValueError, match="precede"):
         store.corroborate(belief_id=belief1.id, source_belief=belief2, evidence_id="e3", gamets=50.0)
+
+
+def _witness_then_contested_hearer():
+    """proventus witnesses the death; hulda hears a mutated (reported) variant of it.
+
+    Sets up resolve()'s challenger_wins branch: a later contest from
+    proventus (witnessed, ranks higher) against hulda's incumbent
+    (reported) always displaces her -- the shared fixture the trust
+    unit tests below build on.
+    """
+    store = ClaimStore()
+    claim, proventus_belief, _ = store.witness(
+        claim_id="c1", belief_id="b1", evidence_id="e1", kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1), witness_id="proventus", gamets=0.0,
+    )
+    store.retell(
+        claim=claim, parent_variant=None, variant_id="v-gossip", belief_id="b-hulda", evidence_id="e-hulda",
+        teller_id="proventus", teller_belief=proventus_belief, hearer_id="hulda",
+        gamets=1.0, mutate_slot="perpetrator", mutated_value="a bandit chief",
+    )
+    return store, claim, proventus_belief
+
+
+def test_resolve_with_no_trust_reproduces_the_flat_decay_exactly():
+    store, claim, proventus_belief = _witness_then_contested_hearer()
+    resolution = store.resolve(
+        claim=claim, holder_id="hulda", teller_id="proventus", teller_belief=proventus_belief,
+        evidence_id="e-contest", gamets=2.0,
+    )
+    after = store.belief_of("hulda", "c1")
+    assert after is not None
+    assert after.confidence == pytest.approx(
+        proventus_belief.confidence * RETELL_CONFIDENCE_DECAY * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT)
+    )
+    assert resolution.trust_applied is None
+
+
+def test_resolve_with_trust_one_reproduces_the_flat_decay_too():
+    store, claim, proventus_belief = _witness_then_contested_hearer()
+    resolution = store.resolve(
+        claim=claim, holder_id="hulda", teller_id="proventus", teller_belief=proventus_belief,
+        evidence_id="e-contest", gamets=2.0, trust=1.0,
+    )
+    after = store.belief_of("hulda", "c1")
+    assert after is not None
+    assert after.confidence == pytest.approx(
+        proventus_belief.confidence * RETELL_CONFIDENCE_DECAY * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT)
+    )
+    assert resolution.trust_applied == 1.0
+
+
+def test_resolve_with_trust_zero_bottoms_out_at_the_trust_floor():
+    store, claim, proventus_belief = _witness_then_contested_hearer()
+    resolution = store.resolve(
+        claim=claim, holder_id="hulda", teller_id="proventus", teller_belief=proventus_belief,
+        evidence_id="e-contest", gamets=2.0, trust=0.0,
+    )
+    after = store.belief_of("hulda", "c1")
+    assert after is not None
+    assert after.confidence == pytest.approx(
+        proventus_belief.confidence * RETELL_CONFIDENCE_DECAY * TRUST_FLOOR * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT)
+    )
+    assert resolution.trust_applied == 0.0
+
+
+def test_resolve_trust_never_affects_verbatim_or_gist_strength():
+    store, claim, proventus_belief = _witness_then_contested_hearer()
+    store.resolve(
+        claim=claim, holder_id="hulda", teller_id="proventus", teller_belief=proventus_belief,
+        evidence_id="e-contest", gamets=2.0, trust=0.0,
+    )
+    with_trust = store.belief_of("hulda", "c1")
+    assert with_trust is not None
+
+    store2, claim2, proventus_belief2 = _witness_then_contested_hearer()
+    store2.resolve(
+        claim=claim2, holder_id="hulda", teller_id="proventus", teller_belief=proventus_belief2,
+        evidence_id="e-contest", gamets=2.0,
+    )
+    without_trust = store2.belief_of("hulda", "c1")
+    assert without_trust is not None
+
+    assert with_trust.verbatim_strength == without_trust.verbatim_strength
+    assert with_trust.gist_strength == without_trust.gist_strength
+    assert with_trust.confidence < without_trust.confidence
+
+
+def test_resolve_trust_applied_is_none_on_the_challenge_repelled_branch():
+    """trust_applied names ONLY the challenger_wins branch (resolve()'s own docstring)."""
+    store = ClaimStore()
+    claim, proventus_belief, _ = store.witness(
+        claim_id="c1", belief_id="b1", evidence_id="e1", kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "assassination", "location": "dragonsreach"},
+        canonical_event_key=("s1", 0, 1), witness_id="proventus", gamets=0.0,
+    )
+    store.retell(
+        claim=claim, parent_variant=None, variant_id="v-gossip", belief_id="b-hulda", evidence_id="e-hulda",
+        teller_id="proventus", teller_belief=proventus_belief, hearer_id="hulda",
+        gamets=1.0, mutate_slot="perpetrator", mutated_value="a bandit chief",
+    )
+    hulda_belief = store.belief_of("hulda", "c1")
+    assert hulda_belief is not None
+    # The challenge direction is reversed here: hulda's reported belief
+    # challenges proventus's witnessed incumbent -- proventus (witnessed)
+    # always repels a reported challenger, so this hits the repelled branch.
+    resolution = store.resolve(
+        claim=claim, holder_id="proventus", teller_id="hulda", teller_belief=hulda_belief,
+        evidence_id="e-contest", gamets=2.0, trust=0.9,
+    )
+    assert resolution.trust_applied is None

@@ -81,6 +81,7 @@ from chronicle.rules import (
     SHARED_CLAIM_INVARIANT,
     TELL_DECISION_POLICY,
     TESTIMONY_TRANSFER,
+    TRUST_DISCOUNTED_RETELLING,
     VARIANT_RESOLUTION,
     WITNESS_CREATES_BELIEF,
     RuleContext,
@@ -147,6 +148,24 @@ AVOIDANCE_PROBABILITY = 0.0
 # load-bearing, not this number (design doc O2, coordinator-ruled
 # 2026-08-23).
 AVOIDANCE_GRUDGE_THRESHOLD = 0.5
+
+# Rule 20, trust-discounted retelling (docs/design/trust-discounted-
+# retelling.md): the trust value used when the hearer has no qualifying
+# relationship edge to the teller at all. The interval's midpoint, ruled
+# (not this driver's placeholder tunable, but the design doc's default) --
+# see claims.py's TRUST_FLOOR for the *floor* the formula bottoms out at,
+# a related but distinct 0.5 (that one shapes the trust->decay curve; this
+# one is the input fed into it when there's nothing to look up).
+NO_RELATIONSHIP_TRUST = 0.5
+
+# Rule 20's basis filter, ruled: only these bases encode real regard
+# (hand-set fixture strengths with intent, 0.85-0.95 for employer, 0.9 for
+# kinship) -- colocation is deliberately excluded (hand-seeded fixture
+# constants nothing ever updates, tracking no real signal; including it
+# would erase the no-relationship default as a side effect once the
+# encounter-sampling seam eventually populates it). Max strength across
+# bases when more than one qualifies.
+TRUST_RELATIONSHIP_BASES = ("kinship", "faction", "shared_employer")
 
 # The warning claim's kind matches the escalation_warning event type
 # (schema §3:95): the claim is the belief-layer shadow of that event, and
@@ -380,6 +399,35 @@ class Driver:
             },
         )
         return result
+
+    def _trust_for_retelling(self, tick: int, *, hearer_id: str, teller_id: str) -> float | None:
+        """Rule 20's lookup, gated: None when the rule is disabled (pre-rule-20 behavior, byte-identical).
+
+        Direction is hearer -> teller (Relationship edges are directed;
+        trust is the hearer's regard for the teller, never the reverse).
+        Only TRUST_RELATIONSHIP_BASES qualify (colocation excluded); max
+        strength across whichever of those bases has an edge. No
+        qualifying edge at all -> NO_RELATIONSHIP_TRUST, not None (None is
+        reserved for the rule being off entirely). Emits this call's
+        rule_evaluated row itself -- one per encounter-driven retelling/
+        resolution, same as every other driver-owned rule evaluation.
+        """
+        if not self.rules.enabled(TRUST_DISCOUNTED_RETELLING):
+            return None
+        strengths = [
+            rel.strength
+            for basis in TRUST_RELATIONSHIP_BASES
+            if (rel := self.social.relationship(hearer_id, teller_id, basis)) is not None
+        ]
+        has_relationship = bool(strengths)
+        trust = max(strengths) if has_relationship else NO_RELATIONSHIP_TRUST
+        self._evaluate_rule(
+            TRUST_DISCOUNTED_RETELLING,
+            tick=tick,
+            inputs={"hearer_id": hearer_id, "teller_id": teller_id, "has_relationship": has_relationship, "trust": trust},
+            outcome=RuleResult(fired=has_relationship, result={"trust": trust}),
+        )
+        return trust
 
     # -- canonical events ---------------------------------------------------
 
@@ -640,6 +688,10 @@ class Driver:
                     "mutated_slot": variant.mutated_slot,
                 },
                 "location_id": location_id,
+                # Rule 20 (docs/design/trust-discounted-retelling.md): the
+                # trust value this retelling used, or None for a caller who
+                # never passed one (pre-rule-20 callers, scripted tests).
+                "trust_applied": kwargs.get("trust"),
             },
         )
         self._evaluate_rule(
@@ -1137,6 +1189,11 @@ class Driver:
                         teller_belief = self.claims.belief_of(teller_id, claim_id)
                         assert teller_belief is not None  # conflicting_pair() resolved it a line ago
                         n = next(self._auto_ids)
+                        # Rule 20: trust is the HOLDER's (hearer's) regard for
+                        # the teller, so the lookup direction is
+                        # (holder_id=hearer, teller_id) here, not the
+                        # transmission pair's teller/hearer naming below.
+                        trust = self._trust_for_retelling(tick, hearer_id=hearer_id, teller_id=teller_id)
                         self.resolve(
                             claim=self.claims.claim(claim_id),
                             holder_id=hearer_id,
@@ -1144,6 +1201,7 @@ class Driver:
                             teller_belief=teller_belief,
                             evidence_id=f"evidence-auto-{n}",
                             gamets=float(tick),
+                            trust=trust,
                         )
                         continue
                 self._write_nothing_salient(
@@ -1205,6 +1263,12 @@ class Driver:
                     continue
             n = next(self._auto_ids)
             variant_id = f"variant-auto-{n}"
+            # Rule 20 (docs/design/trust-discounted-retelling.md): evaluated
+            # here, before the mutation policy's rule_evaluated/mutation_applied
+            # rows, so mutation_applied still directly precedes the
+            # transmitted record it evidences (test_driver_mutation.py's
+            # ordering assertion) -- rule 20's own row lands earlier still.
+            trust = self._trust_for_retelling(tick, hearer_id=hearer_id, teller_id=teller_id)
             # Tier-2 mutation policy (ladder T2.2): encounter-driven
             # retellings may mutate one slot, decided by keyed rolls; the
             # mutation_applied record (schema §4) is the roll evidence and
@@ -1267,6 +1331,7 @@ class Driver:
                 location_id=location_id,
                 mutate_slot=mutation.slot if mutation is not None else None,
                 mutated_value=mutation.new_value if mutation is not None else None,
+                trust=trust,
             )
 
     def _decide_mutation(

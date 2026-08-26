@@ -48,6 +48,20 @@ RETELL_VERBATIM_DECAY = 0.7
 RETELL_GIST_DECAY = 0.95
 WITNESS_CONFIDENCE = 0.95
 
+# Rule 20, trust-discounted retelling (docs/design/trust-discounted-retelling.md,
+# ruled and ready to implement -- see that doc for the two independent reviews
+# this went through). retell()/resolve() take an optional trust: float | None
+# in [0, 1]; None reproduces today's flat RETELL_CONFIDENCE_DECAY exactly
+# (byte-identical, migration-safe). When trust is given, the multiplier
+# becomes RETELL_CONFIDENCE_DECAY * (TRUST_FLOOR + (1 - TRUST_FLOOR) * trust)
+# -- at trust=1.0 this equals the flat 0.8 exactly (ladder T1.1's own
+# constraint); at trust=0.0 it bottoms out at TRUST_FLOOR's share of 0.8.
+# Confidence only: verbatim_strength/gist_strength are untouched by trust
+# regardless (the design doc's explicit ruling -- trust is a source-
+# credibility judgment, not a memory-precision one). Same tunable-not-
+# derived status as the decay constants above.
+TRUST_FLOOR = 0.5
+
 # Time-decay half-lives, in gamets units (rule 6). docs/decisions/0010-tick-
 # quantum.md pins the unit: 1 gamets = 1 tick = 1 game-hour, 24 gamets = 1
 # game-day. Verbatim strength decays faster than gist strength -- fuzzy-trace
@@ -93,6 +107,14 @@ _EVIDENCE_TYPE_RANK = {"reported": 0, "witnessed": 1}
 
 def _decay(value: float, elapsed: float, half_life: float) -> float:
     return value * 0.5 ** (elapsed / half_life)
+
+
+def _effective_retell_decay(trust: float | None) -> float:
+    """Rule 20: trust=None is the flat, pre-rule-20 multiplier; a trust float discounts it."""
+    if trust is None:
+        return RETELL_CONFIDENCE_DECAY
+    _require_unit_interval("trust", trust)
+    return RETELL_CONFIDENCE_DECAY * (TRUST_FLOOR + (1 - TRUST_FLOOR) * trust)
 
 
 def _frozen_slots(slots: Mapping[str, str | None]) -> Mapping[str, str | None]:
@@ -190,6 +212,13 @@ class Resolution(NamedTuple):
     teller_belief_id: str
     evidence_id: str
     winner_belief_id: str
+    # Rule 20 (docs/design/trust-discounted-retelling.md): the trust value
+    # applied to the challenger_wins adoption's confidence, or None when
+    # resolve() was called without one (pre-rule-20 callers, or the
+    # challenge-repelled branch, which never uses RETELL_CONFIDENCE_DECAY
+    # at all). Default None keeps existing Resolution(...) call sites (if
+    # any construct it positionally/by keyword without this field) working.
+    trust_applied: float | None = None
 
 
 @dataclass(frozen=True)
@@ -327,12 +356,20 @@ def retell(
     gamets: float,
     mutate_slot: str | None = None,
     mutated_value: str | None = None,
+    trust: float | None = None,
 ) -> tuple[Variant, BeliefInstance, Evidence]:
     """A retelling: at most one slot mutates (rule 4), confidence decays from the teller's.
 
     Passing mutate_slot=None carries the story on unmutated -- the
     Variant record still exists so the hearer's belief links to a
     specific retelling, distinct from a claim's original telling.
+
+    trust (rule 20, docs/design/trust-discounted-retelling.md): the
+    hearer's regard for the teller, [0, 1], caller-supplied (this
+    function does no lookup of its own -- the T2.3 lesson). None
+    reproduces today's flat RETELL_CONFIDENCE_DECAY exactly, byte-for-
+    byte, for every existing caller that never passes it.
+    verbatim_strength/gist_strength are unaffected by trust regardless.
     """
     _require_unit_interval("teller_belief.confidence", teller_belief.confidence)
     _require_unit_interval("teller_belief.verbatim_strength", teller_belief.verbatim_strength)
@@ -369,7 +406,7 @@ def retell(
         holder_id=hearer_id,
         claim_id=claim.id,
         variant_id=variant.id,
-        confidence=teller_belief.confidence * RETELL_CONFIDENCE_DECAY,
+        confidence=teller_belief.confidence * _effective_retell_decay(trust),
         verbatim_strength=teller_belief.verbatim_strength * RETELL_VERBATIM_DECAY,
         gist_strength=teller_belief.gist_strength * RETELL_GIST_DECAY,
         first_learned=gamets,
@@ -594,6 +631,7 @@ class ClaimStore:
                     teller_belief=teller_belief,
                     evidence_id=kwargs["evidence_id"],  # type: ignore[arg-type]
                     gamets=kwargs["gamets"],  # type: ignore[arg-type]
+                    trust=kwargs.get("trust"),  # type: ignore[arg-type]
                 )
             # Re-hearing (rule 7's exposure counting): the hearer already holds
             # this content -- mint no variant/belief/evidence, but the hearing
@@ -700,6 +738,7 @@ class ClaimStore:
         teller_belief: BeliefInstance,
         evidence_id: str,
         gamets: float,
+        trust: float | None = None,
     ) -> Resolution:
         """Conflicting-variant resolution (ladder T2.3): the holder's belief meets a differing telling.
 
@@ -724,6 +763,13 @@ class ClaimStore:
           - exact tie: the incumbent stands -- the challenger must be STRICTLY
             stronger to displace (the only reading consistent with the rung's
             rejection of keep-newer).
+
+        trust (rule 20, docs/design/trust-discounted-retelling.md):
+        caller-supplied, same meaning and formula as retell()'s -- applies
+        only to the challenger_wins adoption branch below (the only place
+        this function uses RETELL_CONFIDENCE_DECAY at all; the
+        challenge-repelled branch is a decay()-then-dent, untouched by
+        trust). None reproduces the pre-rule-20 flat multiplier exactly.
 
         Either way the winner takes the contested-claim dent (a challenged
         belief is held less certainly even when the challenge fails) and the
@@ -783,7 +829,7 @@ class ClaimStore:
             updated = replace(
                 incumbent,
                 variant_id=teller_belief.variant_id,
-                confidence=teller_belief.confidence * RETELL_CONFIDENCE_DECAY * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT),
+                confidence=teller_belief.confidence * _effective_retell_decay(trust) * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT),
                 verbatim_strength=teller_belief.verbatim_strength * RETELL_VERBATIM_DECAY,
                 gist_strength=teller_belief.gist_strength * RETELL_GIST_DECAY,
                 last_rehearsed=gamets,
@@ -826,6 +872,11 @@ class ClaimStore:
             teller_belief_id=teller_belief.id,
             evidence_id=evidence_id,
             winner_belief_id=incumbent.id,
+            # Recorded only for the branch that could have used it -- the
+            # repelled-challenge branch never applies RETELL_CONFIDENCE_DECAY,
+            # so a trust value passed in but irrelevant to that branch isn't
+            # misreported as "applied".
+            trust_applied=trust if challenger_wins else None,
         )
 
     def held_slots(self, belief: BeliefInstance) -> Mapping[str, str | None]:

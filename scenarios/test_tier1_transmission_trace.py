@@ -21,6 +21,7 @@ from chronicle.claims import RETELL_CONFIDENCE_DECAY, WITNESS_CONFIDENCE
 from chronicle.driver import Driver
 from chronicle.events import CrimeWitnessed, NPCDied
 from chronicle.framelog import FrameLogReader
+from chronicle.rules import TRUST_DISCOUNTED_RETELLING
 from chronicle.schedule import ScheduleBlock, npcs_present_at
 
 ORIGIN = {"kind": "scenario", "detail": "test_tier1_transmission_trace"}
@@ -61,8 +62,13 @@ def test_t11_tell_transmits_the_story_one_hop_through_a_sampled_encounter():
     """Ladder T1.1 (Tell): witness and neighbor share a location block -- the listener's
     belief exists, its source chain is [witness], and its confidence is the witness's
     confidence x 0.8 exactly (testimony-transfer rule: flat retell decay,
-    claims.py's RETELL_CONFIDENCE_DECAY; trust-discounted retelling is deliberately
-    deferred per the ladder's T1.1 note).
+    claims.py's RETELL_CONFIDENCE_DECAY). Rule 20 (trust-discounted
+    retelling, docs/design/trust-discounted-retelling.md) is explicitly
+    disabled for this fixture: this rung's own point is the flat-decay
+    baseline that rule 20 discounts away from once enabled (ladder T1.1
+    note) -- with rule 20 on, hulda/irileth have no qualifying
+    relationship edge, so the no-relationship default (trust=0.5) would
+    give 0.6, not 0.8, silently breaking this exact assertion.
     """
     driver = Driver(
         run_id="scenario-t11-tell",
@@ -74,6 +80,7 @@ def test_t11_tell_transmits_the_story_one_hop_through_a_sampled_encounter():
         # deterministic and assertable (same pinning as
         # test_jarl_death_encounter_driven_propagation.py).
         encounter_probability=1.0,
+        disabled_rules=(TRUST_DISCOUNTED_RETELLING,),
     )
     claim = _witness_the_theft(driver)
 

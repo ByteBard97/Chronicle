@@ -18,7 +18,7 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
     inputs is caller-assembled context -- rules never query stores
     themselves (the T2.3 lesson, docs/scenario-ladder.md:60).
   - Unlanded rules register as disabled stubs from day one (R12): they
-    exist by name so the registry lists all 19, but emit nothing and run
+    exist by name so the registry lists all 20, but emit nothing and run
     nothing until their tier's lane lands. Rules 11 (accumulation-
     threshold, lane 24), 12 (grudge-creation, the standalone self-victim
     twin of rule 14's cascade), 13 (grudge-decay, read-path wrapper
@@ -26,12 +26,14 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
     violation cascade, lane 25), 15 (tell-decision-policy, lane 23), 16
     (reputation-evidence-accumulation, lane 26), 17
     (schedule-write-back, lane 36), 18 (pairwise-encounter-weighting,
-    lane 43), and 19 (role-vacancy-succession, lane 48) are live; no
-    stubs remain.
+    lane 43), 19 (role-vacancy-succession, lane 48), and 20
+    (trust-discounted-retelling, docs/design/trust-discounted-retelling.md)
+    are live; no stubs remain.
   - Budget (O4 ruling): 9+10 are one state machine and 4 is
-    schema-not-rule -- 17/20 against the ceiling. The registry still lists
-    all 19 names; the table below is the vocabulary, slugified from §8's
-    leading tokens.
+    schema-not-rule -- 18/20 against the ceiling, landing exactly at the
+    ceiling with rule 20 (docs/scenario-ladder.md §8). The registry still
+    lists all 20 names; the table below is the vocabulary, slugified from
+    §8's leading tokens.
 
 Two rule flavors fall out of R2's no-refactor ruling:
 
@@ -42,6 +44,13 @@ Two rule flavors fall out of R2's no-refactor ruling:
     driver-owned steps that ARE discrete rule behaviors -- the encounter
     sweep (rule 6) and the mutation decision (rule 7) -- are also gated
     behaviorally in driver.py, so disabling them is a real what-if probe.
+  - Rule 20 (trust-discounted-retelling) is a third flavor: a real
+    behavioral toggle like rules 6/7 above, not instrumentation-only, but
+    with no natural fired/not-fired EVENT the way rules 12/15/17/18/19
+    have -- every enabled encounter-driven retelling/resolution gets a
+    trust value, never zero of them. Its ``fired`` names WHICH trust value:
+    True when a qualifying relationship existed, False when the
+    no-relationship default was used. See TrustDiscountedRetellingRule.
   - Read-path rules (2, 9, 10, 13): decay and the rumor stage machine are
     pure derivations evaluated at READ time (claims.decay / claims.
     stage_at / social.grudge_at / social.grudge_cooled), never during the
@@ -80,6 +89,7 @@ REPUTATION_ACCUMULATION = "reputation-evidence-accumulation"  # 16, tier 3 (obse
 SCHEDULE_WRITE_BACK = "schedule-write-back"  # 17, tier 4a
 PAIRWISE_ENCOUNTER_WEIGHTING = "pairwise-encounter-weighting"  # 18, tier 4b
 ROLE_VACANCY_SUCCESSION = "role-vacancy-succession"  # 19, tier 5
+TRUST_DISCOUNTED_RETELLING = "trust-discounted-retelling"  # 20, tier 1 (docs/design/trust-discounted-retelling.md)
 
 
 class RuleContext(NamedTuple):
@@ -403,8 +413,46 @@ class RoleVacancySuccessionRule:
         return RuleResult(fired=has_candidate)
 
 
+class TrustDiscountedRetellingRule:
+    """Rule 20, trust-discounted retelling (ladder row 20; design doc
+    docs/design/trust-discounted-retelling.md, ruled and ready).
+
+    A real behavioral toggle, in the rules-6/7 family this file's module
+    docstring names (disabling it is a real what-if probe, not just
+    suspended instrumentation): the driver only looks up the hearer's
+    relationship to the teller and threads a trust float into
+    retell()/resolve() when ``self.rules.enabled(TRUST_DISCOUNTED_RETELLING)``
+    is true; disabled, both call sites pass trust=None, reproducing the
+    pre-rule-20 flat RETELL_CONFIDENCE_DECAY behavior exactly (this is
+    what keeps ladder T1.1's own flat-0.8 baseline intact when this rule
+    is disabled for that fixture).
+
+    Unlike rules 12/15/17/18/19, there is no natural "declined" outcome
+    here -- every enabled encounter-driven retelling or resolution gets
+    A trust value, never zero of them, so "fired = the rule's effect"
+    doesn't fit. Instead fired names WHICH trust value was used: True
+    when the driver found a qualifying relationship (basis in
+    {kinship, faction, shared_employer}, max strength across bases --
+    colocation excluded per the design doc's ruled basis filter) and
+    used its strength; False when no such edge existed and the
+    no-relationship default (trust=0.5) was used instead. Either way
+    inputs/result carry the trust value applied, so a provenance
+    drill-down can see the exact discount without re-deriving it
+    (docs/architecture.md's inspectability doctrine).
+    """
+
+    name = TRUST_DISCOUNTED_RETELLING
+    tier = 1
+
+    def evaluate(self, ctx: RuleContext) -> RuleResult:
+        has_relationship = ctx.inputs["has_relationship"]
+        trust = ctx.inputs["trust"]
+        assert isinstance(has_relationship, bool) and isinstance(trust, float)
+        return RuleResult(fired=has_relationship, result={"trust": trust})
+
+
 def _default_rules() -> tuple[Rule, ...]:
-    """All 19 §8 rules live: 1-19 are wrappers/read-path/real rules; no stubs remain."""
+    """All 20 §8 rules live: 1-20 are wrappers/read-path/real rules; no stubs remain."""
     return (
         RecordedRule(WITNESS_CREATES_BELIEF, 0),
         BeliefDecayRule(),
@@ -425,6 +473,7 @@ def _default_rules() -> tuple[Rule, ...]:
         ScheduleWriteBackRule(),
         PairwiseEncounterWeightingRule(),
         RoleVacancySuccessionRule(),
+        TrustDiscountedRetellingRule(),
     )
 
 

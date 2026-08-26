@@ -878,6 +878,11 @@ class FrameLogReader:
                     gamets=float(record["tick"]),
                     mutate_slot=mutate_slot,
                     mutated_value=variant["slots"][mutate_slot] if mutate_slot is not None else None,
+                    # Rule 20 (docs/design/trust-discounted-retelling.md):
+                    # re-executing from the trace alone means re-applying
+                    # whatever trust the live run used -- .get() rather than
+                    # [] since pre-rule-20 trace records have no such key.
+                    trust=payload.get("trust_applied"),
                 )
             elif record_type == "belief_corroborated":
                 claims.corroborate(
@@ -901,6 +906,9 @@ class FrameLogReader:
                     teller_belief=claims.chain_for(payload["teller_belief_id"])[0][0],
                     evidence_id=payload["evidence_id"],
                     gamets=float(record["tick"]),
+                    # Rule 20: same re-execution-from-trace-alone requirement
+                    # as transmitted above -- .get() for pre-rule-20 records.
+                    trust=payload.get("trust_applied"),
                 )
             elif record_type == "relationship_formed":
                 # The payload carries the full Relationship fields except

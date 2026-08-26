@@ -2,7 +2,7 @@
 
 Covers the packet's contract: every evaluation of an enabled rule emits a
 rule_evaluated record with the schema §4:122 fields (fired or not); a
-disabled rule emits nothing and doesn't run; all 19 §8 names are
+disabled rule emits nothing and doesn't run; all 20 §8 names are
 registered (1-10 enabled, 11-19 disabled stubs); and a real scenario-style
 run shows rule_evaluated rows in its trace with zero edits to the existing
 suite (the unedited battery itself is the migration regression proof).
@@ -85,14 +85,14 @@ def _rule_rows(tmp_path, run_id: str) -> list[dict]:
     return [r["payload"] for r in reader.records("trace") if r["payload"].get("record_type") == "rule_evaluated"]
 
 
-def test_registry_lists_all_nineteen_ladder_rules_with_no_stubs_remaining():
+def test_registry_lists_all_twenty_ladder_rules_with_no_stubs_remaining():
     registry = RuleRegistry()
     names = registry.names()
-    assert len(names) == 19  # §8's table, all names present (O4: the registry lists 19; the budget counts 17)
+    assert len(names) == 20  # §8's table, all names present (O4: the registry lists 20; the budget counts 18)
     enabled = {name for name in names if registry.enabled(name)}
     # No stubs remain (rule 12, grudge-creation, was the last one): every
     # registered rule is enabled by default.
-    assert len(enabled) == 19
+    assert len(enabled) == 20
     assert TELL_DECISION_POLICY in names
     assert registry.enabled(TELL_DECISION_POLICY)
     assert registry.enabled(ACCUMULATION_THRESHOLD)

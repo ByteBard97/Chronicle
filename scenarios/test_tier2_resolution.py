@@ -61,6 +61,11 @@ _SUPERSESSION_FIELDS = {
     "teller_belief_id",
     "evidence_id",
     "winner_belief_id",
+    # Rule 20 (docs/design/trust-discounted-retelling.md), amended into the
+    # schema row alongside the field set above: the trust value applied to
+    # the challenger_wins branch, or None (not applicable to the
+    # challenge-repelled branch, or when resolve() was called with none).
+    "trust_applied",
 }
 
 
