@@ -8,6 +8,22 @@ checklist for closing that gap, so "verify it works" isn't a vague
 ask. Written so a session with in-game access (or the owner, playing
 directly) can follow it step by step.
 
+**Update (2026-08-26): most of this can likely be driven by an agent, not
+a human.** `docs/research/25-devbench-skse-mcp-verification.md` confirms
+`alandtse/devbench` — a real, actively-maintained, MIT/GPL-3
+CommonLibSSE-NG plugin — runs console-command execution (with captured
+output), save/load + enumeration, and state inspection over MCP/REST on
+`127.0.0.1:8920`. Once installed alongside ChronicleBridge in the same
+game session, sections 1-3 below (movement/kill triggers via `console`,
+`getrelationshiprank` checks, save/reload persistence checks) become
+scriptable from an agent session via an SSH port-forward to the Windows
+box's loopback port — no human clicking required for those steps. It does
+**not** eliminate: launching the Skyrim process itself, the one-time
+DevBench+ChronicleBridge install into the MO2 profile, or the tunnel
+setup — those remain real one-time setup work. Treat this doc's steps
+below as still accurate for a human tester; a DevBench-driven agent
+runbook is real future work, not yet built.
+
 **Safety first — read before doing anything else:** slices 3 and 4
 write persistent state into the save (`RE::BGSRelationship::level`).
 **Back up the save file before testing any hydration/avoidance

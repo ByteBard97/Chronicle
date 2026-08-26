@@ -97,6 +97,27 @@ avoidance-pair state a future C++ slice would consume.
   AI package condition reading this state) is real future work, same
   split as hydration-out.
 
+## 2c. Correction to §2b (2026-08-26): the CK-GUI blocker was unresearched and wrong
+
+`docs/research/24-programmatic-esp-authoring.md` (dispatched to check this
+claim rather than accept it) confirms **Mutagen**
+(`Mutagen-Modding/Mutagen`, MIT-licensed C#/.NET, the library behind the
+Synthesis patcher ecosystem) can create a brand-new `PACK` record with a
+typed `Conditions` list (including a dedicated `ConditionGlobal` type) and
+link it into an NPC's/faction's `AIPackages` list, entirely via a headless
+`dotnet` console program — no Creation Kit, no GUI, fully reachable over
+SSH. §2b's "needs someone with CK authoring access... not a headless
+session" conclusion is **retracted**: the CK genuinely has no headless
+content-authoring mode (that half was correct), but it was never the only
+avenue. The remaining real gap (per that research doc's own caveats): no
+end-to-end Mutagen program has actually been built/run against a live
+Skyrim install yet, and the exact CTDA function for "avoid this specific
+other NPC" (as opposed to the generic conditions surveyed) hasn't been
+pinned down — both are ordinary implementation-time work, not a new kind
+of blocker. This slice's C++ half is therefore reclassified from
+"blocked, needs owner/CK access" back to "real, unblocked, unbuilt" —
+same status as vendor-markup's and hydration's own game-side halves.
+
 ## 2b. A real finding that changes this slice's remaining scope
 
 Checked against the real CommonLibSSE-NG headers before assuming the C++
