@@ -36,6 +36,15 @@ Each read subcommand accepts two invocation forms (both are tested):
     ``dashboard/src/components/InjectionConsole.vue`` composes and displays;
     see ``inject_command``'s docstring for the verified match/mismatch
     findings against the original flag sketch.
+
+``sync-check <run_id> --manifest '<json>'`` classifies a co-save manifest
+(``chronicle.sync.Manifest``'s fields) against the run's on-disk state via
+``chronicle.sync.resolve()`` (docs/design/chronicle-sync-cli-integration.md).
+CONTINUE is fully supported (exit 0); FORK/ADOPT are computed and reported
+but not applied -- no on-disk fork mechanism exists yet (exit 3);
+LEGACY_IMPORT is report-only (exit 0); invalid input, a run/save_uuid
+mismatch, or an unknown run all exit 1. See ``sync_check_command``'s
+docstring for the full decision table.
 """
 
 from __future__ import annotations
@@ -58,6 +67,15 @@ from chronicle.framelog import (
     FrameLogWriter,
     default_runs_dir,
     event_payload,
+)
+from chronicle.sync import (
+    SUPPORTED_FORMAT_VERSION,
+    BranchState,
+    Manifest,
+    Resolution,
+    ResolveDecision,
+    legacy_import_resolution,
+    resolve,
 )
 
 # ---------------------------------------------------------------------------
@@ -781,6 +799,240 @@ def inject_command(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# sync-check
+# ---------------------------------------------------------------------------
+
+# chronicle.sync.Manifest's field set, verbatim (docs/decisions/0005-sync-handshake.md's
+# schema table). `parent_generation` is the only nullable field (a root
+# generation legitimately carries `null`, per chronicle.sync.resolve()'s ADOPT
+# comment); everything else is mandatory, matching Manifest's own dataclass
+# (no field has a default).
+_SYNC_MANIFEST_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
+    "format_version": int,
+    "save_uuid": str,
+    "generation": int,
+    "parent_generation": (int, type(None)),
+    "head_seq": int,
+    "gamets": (int, float),
+    "wall_ts": (int, float),
+}
+
+
+def _parse_manifest_json(raw: str) -> dict[str, Any] | str:
+    """Parse ``--manifest``'s raw text into a JSON object, or return an error message string.
+
+    Deliberately split from ``_validate_sync_manifest_fields`` below: the
+    format_version gate (ADR-0005's tolerant-read rule -- see
+    ``sync_check_command``'s docstring) must run on the raw dict BEFORE any
+    field-shape validation, so a manifest from a newer shim with fields
+    this build doesn't recognize yet still reaches LEGACY_IMPORT instead
+    of being rejected as "unknown field(s)".
+    """
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return f"chronicle: --manifest is not valid JSON: {exc}"
+    if not isinstance(data, dict):
+        return "chronicle: --manifest must be a JSON object (chronicle.sync.Manifest's fields)"
+    return data
+
+
+def _validate_sync_manifest_fields(data: dict[str, Any]) -> Manifest | str:
+    """Validate an already-parsed manifest dict into a ``chronicle.sync.Manifest``, or an error message string.
+
+    Only called once the format_version gate (see ``_parse_manifest_json``'s
+    docstring and ``sync_check_command``) has already confirmed this
+    manifest's format_version is one this build understands. Mirrors
+    ``_inject_write``'s ``--event`` validation style: missing/unknown
+    fields and wrong field types all produce a single clear message rather
+    than a traceback.
+    """
+    missing = [name for name in _SYNC_MANIFEST_FIELD_TYPES if name not in data]
+    if missing:
+        return f"chronicle: missing required field(s) in --manifest: {', '.join(missing)}"
+    unknown = [name for name in data if name not in _SYNC_MANIFEST_FIELD_TYPES]
+    if unknown:
+        allowed = ", ".join(_SYNC_MANIFEST_FIELD_TYPES)
+        return f"chronicle: unknown field(s) in --manifest: {', '.join(unknown)} (allowed: {allowed})"
+
+    for name, expected in _SYNC_MANIFEST_FIELD_TYPES.items():
+        value = data[name]
+        if isinstance(value, bool) or not isinstance(value, expected):
+            want = expected.__name__ if isinstance(expected, type) else " or ".join(t.__name__ for t in expected)
+            return f"chronicle: --manifest field {name!r} must be {want}, got {value!r}"
+
+    try:
+        return Manifest(
+            format_version=data["format_version"],
+            save_uuid=data["save_uuid"],
+            generation=data["generation"],
+            parent_generation=data["parent_generation"],
+            head_seq=data["head_seq"],
+            gamets=float(data["gamets"]),
+            wall_ts=float(data["wall_ts"]),
+        )
+    except ValueError as exc:
+        return f"chronicle: --manifest is invalid: {exc}"
+
+
+def sync_check_command(args: argparse.Namespace) -> int:
+    """``sync-check <run_id> --manifest '<json>'``: classify a co-save manifest against a run's on-disk state.
+
+    Wires ``chronicle.sync.resolve()`` (docs/design/chronicle-sync-cli-
+    integration.md §1) to a real run, read the same way ``_inject_write``
+    already reads one: ``_branch_identity`` for the run's baked-in
+    ``(save_uuid, generation)``, the events-stream seq set for ``head_seq``
+    (same source ``_inject_write`` uses for its own next-seq computation),
+    and ``_max_tick`` for ``head_gamets`` (ADR-0010: 1 tick = 1 gamets = 1
+    game-hour, so a run's max tick doubles as its max gamets).
+
+    A run directory on disk today bakes in exactly one ``(save_uuid,
+    generation)`` pair (docs/design/chronicle-sync-cli-integration.md §0:
+    ``chronicle/framelog.py``'s on-disk format stores a single-element
+    ``"branches"`` list, and ``chronicle/events.py``'s ``EventLog.fork()``
+    has no on-disk counterpart at all) -- so the ``BranchState`` built here
+    always has a single-element ``known_generations``, and this command can
+    only fully *act on* one of ``resolve()``'s six decisions:
+
+      - ``CONTINUE``: the manifest matches this run -- fully supported.
+        Prints the ``Resolution`` as JSON to stdout, exit 0.
+      - ``FORK``/``ADOPT``: ``resolve()`` can still correctly *decide*
+        these (the manifest's gamets is behind this run's head, or it
+        names a generation this run has never recorded), but nothing here
+        can *act* on them -- no on-disk fork mechanism exists yet. Prints
+        the raw decision JSON (nothing is hidden) plus a stderr message
+        naming the limitation, exit 3 -- a distinct code so a caller can
+        tell "computed but unsupported" apart from "invalid input" (exit
+        1) or an argparse usage error (argparse's own exit 2).
+      - ``LEGACY_IMPORT``: the manifest's format_version is newer than
+        this build understands (``chronicle.sync.SUPPORTED_FORMAT_VERSION``)
+        -- the only way this command can reach it, since ``known=True`` is
+        always true for a run that exists on disk by definition
+        (``NEW_TIMELINE``, which needs ``known=False``, is therefore
+        structurally unreachable here -- named below rather than silently
+        dropped). Checked BEFORE field validation or the save_uuid check
+        below (ADR-0005's tolerant-read rule, mirrored by
+        ``chronicle.sync.resolve()`` itself: a manifest stamped with a
+        newer format_version must not have any other field interpreted --
+        not validated, not compared -- since those may be exactly the
+        additions a newer shim introduced). Report-only for this lane (per
+        the design doc's §1 lean) -- prints the decision and a stderr note
+        that no new run was created, exit 0.
+      - ``DEGRADED`` is not reachable from ``resolve()`` for any real
+        manifest -- only ``chronicle.sync.degraded_resolution()``, which
+        nothing in this CLI path calls, produces it (that decision
+        describes the *shim* being unable to reach the service at all,
+        which is a fact this command's own successful execution disproves)
+        -- so it is not handled as a real branch below.
+
+    The ``BranchState`` assembled here is scoped to the named run: before
+    classifying, this command checks that ``manifest.save_uuid`` actually
+    matches the run's own save_uuid (from ``_branch_identity``) and refuses
+    (exit 1) on a mismatch -- ``resolve()`` has no save_uuid field on
+    ``BranchState`` to cross-check itself, so a caller handing it state for
+    the wrong save would otherwise get a confident but meaningless
+    CONTINUE, exactly the wrong-branch outcome ``chronicle.sync`` exists to
+    prevent.
+    """
+    run_id = _resolve_positional_run(args, command="sync-check")
+    run_dir = _run_dir(run_id, runs_dir=args.runs_dir)
+    reader = _reader_for(run_id, runs_dir=args.runs_dir)
+
+    data_or_error = _parse_manifest_json(args.manifest)
+    if isinstance(data_or_error, str):
+        print(data_or_error, file=sys.stderr)
+        return 1
+    data = data_or_error
+
+    # The format_version gate runs on the raw dict, before any field
+    # validation or the save_uuid check below -- see this function's
+    # docstring and _parse_manifest_json's. A missing/non-int
+    # format_version falls through to normal validation, which will
+    # report it as a missing/wrong-type field.
+    format_version = data.get("format_version")
+    if isinstance(format_version, int) and not isinstance(format_version, bool) and format_version > SUPPORTED_FORMAT_VERSION:
+        hint = data.get("save_uuid") if isinstance(data.get("save_uuid"), str) else None
+        resolution = legacy_import_resolution(save_uuid_hint=hint)
+        print(json.dumps(_sync_resolution_payload(resolution), indent=2, sort_keys=False))
+        print(
+            f"chronicle: sync-check computed LEGACY_IMPORT -- the manifest's format_version ({format_version}) is "
+            f"newer than this build supports (chronicle.sync.SUPPORTED_FORMAT_VERSION={SUPPORTED_FORMAT_VERSION}); "
+            "report-only for this lane, no new run was created, and no other manifest field was interpreted "
+            "(docs/design/chronicle-sync-cli-integration.md §1).",
+            file=sys.stderr,
+        )
+        return 0
+
+    manifest_or_error = _validate_sync_manifest_fields(data)
+    if isinstance(manifest_or_error, str):
+        print(manifest_or_error, file=sys.stderr)
+        return 1
+    manifest = manifest_or_error
+
+    _seed_id, run_save_uuid, generation = _branch_identity(reader, run_dir.parent, run_id)
+    if manifest.save_uuid != run_save_uuid:
+        print(
+            f"chronicle: --manifest save_uuid {manifest.save_uuid!r} does not match run {run_id!r}'s own "
+            f"save_uuid {run_save_uuid!r} -- refusing to classify a manifest against the wrong run's state",
+            file=sys.stderr,
+        )
+        return 1
+
+    event_seqs = {r["seq"] for r in reader.records(EVENTS_STREAM) if "event_type" in r["payload"]}
+    head_seq = max(event_seqs, default=-1)
+    max_tick = _max_tick(reader)
+    head_gamets = float(max_tick) if max_tick is not None else 0.0
+
+    branch_state = BranchState(
+        known=True,
+        head_generation=generation,
+        head_seq=head_seq,
+        head_gamets=head_gamets,
+        known_generations=frozenset({generation}),
+    )
+    resolution = resolve(manifest, branch_state)
+    payload = json.dumps(_sync_resolution_payload(resolution), indent=2, sort_keys=False)
+
+    if resolution.decision is ResolveDecision.CONTINUE:
+        print(payload)
+        return 0
+
+    if resolution.decision in (ResolveDecision.FORK, ResolveDecision.ADOPT):
+        print(payload)
+        print(
+            f"chronicle: sync-check computed {resolution.decision.value} for run {run_id!r}, but no fork-on-disk "
+            "mechanism exists yet to act on it -- chronicle/framelog.py's on-disk format bakes in exactly one "
+            "(save_uuid, generation) pair per run, and EventLog.fork() (chronicle/events.py) has no on-disk "
+            "counterpart (docs/design/chronicle-sync-cli-integration.md §0). The decision above is real -- only "
+            "the write side is unbuilt.",
+            file=sys.stderr,
+        )
+        return 3
+
+    # Unreachable in practice: NEW_TIMELINE needs known=False (never true
+    # here -- the run exists on disk by definition), LEGACY_IMPORT is
+    # already handled above, pre-resolve(), on the raw format_version
+    # (manifest.format_version is <= SUPPORTED_FORMAT_VERSION by the time
+    # resolve() sees it), and DEGRADED is never produced by resolve() at
+    # all (see its docstring). A defensive fallback, not a real branch --
+    # if this ever fires it means resolve()'s contract changed underneath
+    # this command.
+    raise AssertionError(f"chronicle: sync-check: resolve() returned an unexpected decision {resolution.decision!r}")
+
+
+def _sync_resolution_payload(resolution: Resolution) -> dict[str, Any]:
+    """The JSON-serializable form of a ``chronicle.sync.Resolution`` printed to stdout."""
+    return {
+        "decision": resolution.decision.value,
+        "branch_generation": resolution.branch_generation,
+        "fork_parent_generation": resolution.fork_parent_generation,
+        "fork_at_gamets": resolution.fork_at_gamets,
+        "replay_from_seq": resolution.replay_from_seq,
+        "save_uuid_hint": resolution.save_uuid_hint,
+    }
+
+
+# ---------------------------------------------------------------------------
 # argparse wiring
 # ---------------------------------------------------------------------------
 
@@ -836,6 +1088,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="override the injected event's origin.detail; defaults to 'chronicle inject'",
     )
     p_inject.set_defaults(func=inject_command)
+
+    p_sync_check = sub.add_parser(
+        "sync-check",
+        help=(
+            "classify a co-save manifest against a run's state (chronicle.sync.resolve); CONTINUE is the only "
+            "decision this can act on today -- FORK/ADOPT are computed and reported but not applied (no on-disk "
+            "fork mechanism exists yet, docs/design/chronicle-sync-cli-integration.md); NEW_TIMELINE/LEGACY_IMPORT "
+            "are report-only"
+        ),
+    )
+    p_sync_check.add_argument("pos_run", nargs="?", metavar="run_id", help="the run id (positional form)")
+    p_sync_check.add_argument("--run", default=None, help="the run id (flag form)")
+    p_sync_check.add_argument(
+        "--manifest",
+        required=True,
+        help=(
+            "the co-save manifest as JSON (chronicle.sync.Manifest's fields: format_version, save_uuid, "
+            "generation, parent_generation, head_seq, gamets, wall_ts)"
+        ),
+    )
+    p_sync_check.set_defaults(func=sync_check_command)
 
     return parser
 
