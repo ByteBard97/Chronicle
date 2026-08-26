@@ -3,6 +3,19 @@
 **Status:** working plan, not an ADR or a ladder amendment — informal
 coordination doc, revise freely as work lands.
 
+**Course correction (advisor-caught):** everything in §0 below is real,
+tested, headless plumbing — and every bit of it is invisible in Skyrim.
+This doc had been sequencing off what the *ladder* had left unbuilt, not
+off what closes the distance to the actual goal (`docs/vision-v2.2.md`):
+a Skyrim world that visibly reacts to the player. Two concrete blockers
+for that, now promoted to the top of this doc: the seam's **"out"**
+direction (sim state → game, `adapters/skyrim/README.md`'s charter)
+doesn't exist at all — only "in" (positions, deaths) has ever been built
+— and the **named-cast gap** means almost none of the rules just landed
+apply to any NPC the player can actually meet (verified: `IdentityMap.
+cpp`'s `kNamedCast` has exactly one entry against 28 live-captured
+Whiterun NPCs in `whiterun-positions.json`).
+
 ## 0. Landed
 
 - Rules 12 (grudge-creation) and 13 (grudge-decay) — the scenario
