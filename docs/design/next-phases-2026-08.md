@@ -28,7 +28,7 @@ can go headlessly.** What's left there — the C++ shim side and the
 dashboard UI for triggering a fork (`ui-spec.md` §3.1) — needs the
 Windows build machine, a live game, or dashboard-lane work respectively.
 
-## 1. In progress: trust-discounted retelling (rule 20)
+## 1. Landed: trust-discounted retelling (rule 20, `472f3f8`)
 
 Every design question is ruled — via Kimi + advisor, code-verified, not
 owner opinion (session policy: a domain/tuning disagreement gets
@@ -54,12 +54,17 @@ ruling it never absorbed (rules 9+10 are one rule, per `chronicle/
 rules.py`'s own docstring) is now recorded, and rule 20 lands exactly at
 the ~20 ceiling with no further consolidation or ceiling raise needed.
 
-`docs/design/trust-discounted-retelling.md` is the full spec (not a
-proposal). Implementation is dispatched; review its actual diff before
-trusting the report, per the playbook, especially the T1.1
-backward-compatibility fix it was told to apply (`disabled_rules=
-(TRUST_DISCOUNTED_RETELLING,)` on any fixture asserting the old exact
-flat-0.8 behavior).
+Reviewed and committed. `claims.py`'s `retell()`/`resolve()` take an
+optional `trust` (confidence only, `None` byte-identical to before);
+`driver.py` gates the relationship lookup on the new rule, disabled by
+default reproducing exact prior behavior; T1.1's fixture explicitly
+disables rule 20, preserving its flat-0.8 assertion. The implementing
+agent also caught and fixed a real bug on its own: `framelog.py`'s
+post-keyframe replay path wasn't forwarding `trust_applied`, which would
+have silently diverged live-vs-replayed confidence values. 312/312 tests
+pass. This is the ladder's 20th and last rule at the current ~20
+ceiling — any future new mechanism needs a fresh consolidation ruling or
+an explicit ceiling raise.
 
 ## 2. Flagged, not scheduled: v0.3's real remaining gaps
 
