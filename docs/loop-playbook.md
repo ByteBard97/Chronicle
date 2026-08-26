@@ -9,12 +9,32 @@ surface).
 ## What one loop iteration does
 
 1. **Check `docs/design/next-phases-2026-08.md`** for the next unblocked
-   item. If the top candidate needs owner sign-off (spends the ladder's
-   last rule-budget slot, touches a frozen document, needs the Windows
-   build machine / a live game) — don't do it. Move to the next
-   candidate and say why the blocked one was skipped, once, in your
-   summary; don't ask the question again next iteration if nothing has
-   changed.
+   item. Distinguish two different kinds of "blocked" (the owner has
+   said, repeatedly, that they don't have opinions on the first kind and
+   the loop must stop routing it back to them):
+   - **A domain/tuning question** — a constant, a curve shape, which of
+     two defensible readings of a schema, a tie-break between two AI
+     reviewers who disagree: **resolve it yourself.** Consult Kimi and
+     advisor, verify the discriminating fact in the code if there is
+     one (prefer whichever answer is grounded in something you can check
+     — a type constraint, an existing convention — over the one that's
+     merely better-argued in prose), make an executive call, write the
+     rationale down in the design doc, and proceed. Do not present two
+     options and wait; a design doc that ends in "the owner should
+     decide X vs Y" for a question like this is unfinished, not done.
+   - **A genuinely irreversible-or-preference question** — pushing to
+     the remote, deleting data, a product-direction call with no
+     technical answer (do we want feature A or B at all): this is the
+     only kind that should actually stop the loop and wait.
+   A frozen document (`docs/ui-spec.md`, `docs/scenario-ladder.md`,
+   `docs/ui-doctrines.md`) being touched is not automatically the second
+   kind — "frozen" means "don't edit casually on a whim," not "never
+   edit." A design doc that has been through real review and rules
+   cleanly on its open questions may amend a frozen doc's stale count or
+   add a properly-scoped new row; report the amendment afterward rather
+   than asking permission first. Needing the Windows build machine or a
+   live game to *test* something is a real, first-kind-of-blocked stop —
+   that one has no workaround from this session.
 2. **If the next item has no design-prep doc yet**, write one first
    (`docs/design/*.md`, modeled on the existing ones — name the real
    dependency it doesn't build, scope the smallest real slice, cite

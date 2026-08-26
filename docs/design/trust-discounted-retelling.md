@@ -1,8 +1,14 @@
 # Design prep — trust-discounted retelling
 
-**Status:** design proposal only. Implementation is blocked on two
-owner decisions named in §3 — this doc scopes the mechanism precisely
-enough to rule on, it does not commit to landing it.
+**Status:** ruled and ready to implement. Every open question in this
+doc's earlier drafts (§3) has been resolved via two rounds of independent
+review (advisor, Kimi with a sourced research pass) plus direct
+verification against the code — the owner has no domain opinion on
+tuning questions like these and has delegated them to that process
+(session policy, `docs/loop-playbook.md`). The one remaining action
+before code is a small, mechanical amendment to `docs/scenario-ladder.md`
+§8 (§3.1 below) — not a design decision, a doc catching up to a ruling
+that already happened.
 
 Sources: `docs/scenario-ladder.md` §6 ("Trust-discounted retelling
 (deliberately deferred; feeds social state into claims and deserves its
@@ -54,156 +60,132 @@ not a bug, a named placeholder.
 
 ## 2. The mechanism (proposed, not yet ruled)
 
-`retell()` gains an optional `trust: float | None = None` parameter
-(caller-supplied `Relationship.strength`, or `None` when no relationship
-exists between teller and hearer). Migration-safe by construction, same
-idiom as every other caller-supplies-context parameter in this codebase:
-omitting it reproduces today's exact flat-0.8 behavior.
+`retell()` gains an optional `trust: float | None = None` parameter.
+Migration-safe by construction, same idiom as every other
+caller-supplies-context parameter in this codebase: omitting it
+reproduces today's exact flat-0.8 behavior on every axis.
 
-When `trust` is given, the confidence multiplier becomes:
+**Confidence only — ruled (Kimi, verified against `claims.py`'s
+docstrings).** Trust discounts `confidence` alone.
+`verbatim_strength`/`gist_strength` (`RETELL_VERBATIM_DECAY`/
+`RETELL_GIST_DECAY`) stay exactly as they are regardless of trust. The
+two axes are deliberately orthogonal in this fuzzy-trace-theory model:
+verbatim/gist are *how precisely the content is retained*, confidence is
+*whether the hearer believes it's true* — a source-credibility judgment
+has no plausible mechanism for changing memory precision, and this
+schema can already express "I don't believe a word Belethor says, but I
+remember exactly what he claimed." `stage_at()` keys "forgotten" off
+decayed `gist_strength` (`claims.py:274`); discounting gist by trust
+would make low-trust rumors both less-believed *and* erased sooner —
+double-counting distrust in a way nothing has modeled. `corroborate()`
+already draws exactly this line (boosts confidence from testimony,
+leaves verbatim/gist untouched) — this follows the codebase's own
+established pattern.
+
+When `trust` is given, the confidence multiplier is:
 
 ```
 effective_decay = RETELL_CONFIDENCE_DECAY * (TRUST_FLOOR + (1 - TRUST_FLOOR) * trust)
 ```
 
-`TRUST_FLOOR` (proposed placeholder: `0.5`) is the multiplier applied at
-`trust=0.0` (a hostile/unfamiliar teller) — at `trust=1.0` (maximal
-existing relationship strength) `effective_decay` equals the current
-flat `0.8` exactly, so a maximally-trusted retelling is unchanged from
-today and every retelling gets *worse*, never better, as trust drops.
-This linear form is the simplest shape that satisfies T1.1's own
-constraint ("confidence = witness confidence × 0.8 **exactly**" at full
-trust) while giving low trust real teeth — it is NOT drawn from the CK
-research (CK's opinion decay is about modifier decay rates over time,
-not per-retelling discount factors; the citation above is for the
-*category* of prior art — deterministic gates plus scored multipliers —
-not a borrowed formula). Both `TRUST_FLOOR` and the `None`-case default
-(proposed: treat as `trust=0.5`, the interval's midpoint, since "no
-tracked relationship" is not the same claim as "actively distrusted") are
-placeholder tunables in the same spirit as `chronicle/social.py`'s
-existing grudge half-lives — real numbers, not load-bearing precision,
-named here so a reviewer rules on the *shape* rather than rediscovering
-it from a diff.
+`TRUST_FLOOR = 0.5` at `trust=0.0`; at `trust=1.0`, `effective_decay`
+equals the current flat `0.8` exactly (T1.1's "× 0.8 **exactly**"
+assertion holds unchanged at maximal trust). Linear, not sigmoid or
+threshold-gated — both independent reviews converged on this; it matches
+the canonical trust-weighting literature (DeGroot 1974; Friedkin–Johnsen)
+and composes correctly across multi-hop retellings the way trust-path
+literature expects. **Not drawn from the CK research** cited above (that
+citation is for the *category* of prior art — deterministic gates plus
+scored multipliers over time — not a borrowed per-retelling formula).
+
+**No-relationship default: `trust=0.5`, the interval's midpoint — ruled
+(Kimi's research, verified against the schema).** `Relationship.strength`
+is hard-gated to `[0,1]` by `_require_unit_interval` (`social.py`); no
+code anywhere constructs a negative or "hostile" value — active distrust
+lives only in `Grudge`, a separate mechanism. So "a weak real edge" and
+"no edge at all" are the *same kind* of signal (weak-or-absent positive
+tie), not "neutral vs. distrusted," and treating them alike is correct,
+not a collapse — matching Granovetter's weak-ties result that a message
+from a weak or absent tie lands, just at reduced confidence. Concretely
+load-bearing for this project: T2.6's cross-hold carriers are
+*structurally* strangers (no co-location/kinship/faction/employer
+history at all); giving strangers the full undiscounted `0.8` would let
+carrier-borne rumors cross hold boundaries at full confidence, undoing
+the exact "weaker signal across a hold boundary" effect carriers exist
+to model. `TRUST_FLOOR`/the default remain placeholder tunables in the
+spirit of `social.py`'s existing grudge half-lives — real numbers, not
+load-bearing precision — but the *shape and default* are settled.
+
+**Relationship lookup — ruled.** Direction: `relationship(hearer_id,
+teller_id, ...)` — trust is the *hearer's* regard for the *teller*,
+never the reverse (`Relationship` edges are directed). Basis filter:
+**exclude `colocation`, use max strength over `{kinship, faction,
+shared_employer}` only** — ruled (Kimi, verified against
+`chronicle/social.py`/`chronicle/fixtures/whiterun_relationships.py`).
+`colocation` edges are hand-seeded fixture constants (`strength` is a
+caller-supplied literal at construction, e.g. `0.5` for hulda→ysolda);
+nothing in the codebase ever updates a `Relationship`'s `strength` after
+formation, so a colocation edge tracks no real signal (not encounter
+count, not familiarity, not time) — including it would inject
+meaningless trust boosts and, once the encounter-sampling seam
+`social.py`'s own docstring reserves `colocation` for eventually lands,
+would silently turn every co-present pair into a trust floor that erases
+the no-relationship case above as a side effect. Kinship/faction/employer
+strengths were hand-set with real intent (the fixtures use 0.85–0.95 for
+employer, 0.9 for kinship) — those are the bases that actually encode
+regard.
+
+**The contested-resolution path inherits the same discount — ruled.**
+`chronicle/claims.py`'s T2.3 resolution path (`challenger_wins` branch,
+~line 786) has its own independent hardcoded use of
+`RETELL_CONFIDENCE_DECAY` — missed in this doc's original §0 inventory,
+caught in review. It takes the same `trust` parameter and the same
+formula; leaving it flat would make trust matter *least* exactly when
+two accounts collide, which is the moment source credibility should
+matter *most*.
 
 **Evidence-chain consequence**: `Evidence.strength` already records "the
 teller's pre-decay confidence... what an inspector re-judging the chain
-needs" (claims.py's own comment) — this is unaffected, since trust
-discounts the *hearer's* resulting confidence, not the *teller's*
-recorded testimony strength. The trust value itself should also be
-recorded somewhere on the evidence/trace record (proposed: a
-`trust_applied` field alongside the existing `retell`-produced trace
-row) so a provenance drill-down can show *why* a retelling landed at a
-given confidence, not just that it did — matching this project's
-inspectability doctrine (`docs/architecture.md`).
+needs" (claims.py's own comment) — unaffected, since trust discounts the
+*hearer's* resulting confidence, not the teller's recorded testimony
+strength. The trust value used is recorded on the trace record (a
+`trust_applied` field alongside the existing `retell`-produced row) so a
+provenance drill-down can show *why* a retelling landed at a given
+confidence — matching this project's inspectability doctrine
+(`docs/architecture.md`).
 
-## 3. Why this is blocked, not just unstarted
+**Named risk to cover in tests, not a blocker:** trust-discounting
+stacked on kinship/faction edges is the standard homophily→polarization
+mechanism in bounded-confidence trust models. A scenario test should
+assert rumors still cross faction lines at reduced (not zero) confidence
+— otherwise this could silently partition the rumor graph along faction
+borders, the class of failure T2.6's carriers exist to prevent
+geographically.
 
-**Correction (advisor-caught, verified against the code directly):** the
-first draft of this doc said trust-discounted retelling would spend "the
-ladder's last remaining slot," reading `docs/scenario-ladder.md` §8's
-"Count: 19 named rules against the ~20 ceiling... must spend the
-remaining slot deliberately or consolidate" at face value. That's stale.
-`chronicle/rules.py`'s own module docstring records a ruling already
-made: **"Budget (O4 ruling): 9+10 are one state machine and 4 is
-schema-not-rule -- 17/20 against the ceiling."** Both of §8's own named
-consolidation candidates were already ruled on — the effective count is
-17, not 19, meaning **three slots are free**, not one. The frozen ladder
-doc's §8 text was never updated to reflect O4; that's a real
-inconsistency between two documents, not a re-litigation of the
-consolidation question. Two owner items remain, both smaller than
-originally framed:
+## 3. The one remaining action: a frozen-doc catch-up, not a decision
 
-1. **A frozen-doc update, not a scope tradeoff.** `docs/scenario-ladder.md`
-   §8 needs its count/prose brought in line with O4 and a new row added
-   for trust-discounted retelling if the owner wants to proceed — a doc
-   amendment, not a fresh consolidation decision. Still owner-review-only
-   (`AGENTS.md`'s frozen-document list), just a much lighter ask than
-   originally stated here. **Kimi's independent research pass sharpened
-   this further, code-verified directly (not just cited):** rules 9
-   (`RumorStageRule`) and 10 (`DormancyReactivationRule`, `rules.py`
-   ~line 201) both wrap the *same* `claims.stage_at()` call — rule 10's
-   own docstring already concedes "the stage machine's dormancy half
-   (O4: 9+10 are one machine)." Merging them is a real simplification,
-   not ceiling-fudging, and drops the count to 18 on its own; landing
-   trust-discounted retelling as rule 19 needs no rule-4 demotion and no
-   ceiling raise. Recommended path: merge 9+10, add trust-discounted
-   retelling as 19/20, leave rule 4 and the ceiling alone.
-2. **The formula's floor/no-edge-default value has an unresolved
-   disagreement between the two independent reviews — genuinely open,
-   not something this doc should silently pick a side on.**
-   - **Advisor's objection:** `TRUST_FLOOR=0.5` and the no-relationship
-     default both at `0.5` collapse an *unfamiliar* teller and a
-     *maximally distrusted* one to the identical `0.8 × 0.5 = 0.4`.
-     Proposed fix: no-relationship passes `trust=None`, taking the flat
-     `0.8` exactly (no trust data → no adjustment), and `TRUST_FLOOR`
-     applies only when a real, if weak, relationship exists.
-   - **Kimi's research-backed counter:** `Relationship.strength` is
-     `[0,1]` — **there is no negative/distrust value anywhere in this
-     schema**; active dislike is a `Grudge`, a separate mechanism. So
-     "trust→0 via a weak real edge" and "no edge at all" both mean
-     *weak-or-absent positive tie*, not "trusted vs. distrusted" — under
-     that reading, giving them the same discount isn't a bug, it matches
-     Granovetter's weak-ties literature (a message from a weak or absent
-     tie lands, but at reduced confidence — informationally similar
-     cases, correctly treated alike) and DeGroot/Friedkin-Johnsen's
-     canonical linear trust-weighting (cited: Proskurnikov et al.,
-     Ye et al. 2020). Kimi also names a concrete Chronicle-specific risk
-     for advisor's fix: T2.6's cross-hold carriers are *structurally*
-     strangers (no co-location/kinship/faction/employer history at all)
-     — if "no edge" took the undiscounted flat `0.8`, carriers would
-     propagate rumors across holds at full confidence, undermining the
-     exact "weaker signal across a hold boundary" effect carriers exist
-     to model.
-   - **This doc does not resolve that disagreement — it's a real
-     modeling-philosophy call** (does the schema's `[0,1]` strength
-     range represent a trust axis with an implicit distrust floor, or a
-     tie-strength-only axis with no distrust concept at all?) that
-     should go back to whoever's ruling on this, not be picked by
-     whichever advisor answered second.
-   - **Not in dispute, independent of that question:** the linear shape
-     itself (both reviews converge on it; no sigmoid/threshold
-     convention was found in the literature scan), and `TRUST_FLOOR`/the
-     default being placeholder tunables needing sign-off regardless of
-     which side of the above they land on.
-   - Separately flagged (Kimi): `Relationship`'s `co-location` basis is
-     a weak-to-wrong trust proxy (two NPCs who happen to share a market
-     stall aren't thereby trusting each other) — either restrict the
-     trust lookup to `kinship`/`faction` bases, or treat this as its own
-     open sub-question rather than silently including `co-location`.
+`docs/scenario-ladder.md` §8 currently reads "Count: 19 named rules
+against the ~20 ceiling... must spend the remaining slot deliberately or
+consolidate." That's stale: `chronicle/rules.py`'s own module docstring
+records a ruling already made — **"Budget (O4 ruling): 9+10 are one
+state machine and 4 is schema-not-rule -- 17/20 against the ceiling."**
+Verified directly: rules 9 (`RumorStageRule`) and 10
+(`DormancyReactivationRule`, `rules.py` ~line 201) both wrap the *same*
+`claims.stage_at()` call — rule 10's own docstring already concedes "the
+stage machine's dormancy half (O4: 9+10 are one machine)." The ladder
+doc's §8 prose just never absorbed that ruling.
 
-3. **Three implementation gaps Kimi's review caught that this doc's
-   first draft missed entirely — all need a ruling before code, not
-   just before merge:**
-   - **Directionality.** `Relationship` edges are directed
-     `(from_id, to_id, basis)`. Trust here must be the *hearer's* regard
-     for the *teller* — the lookup is `relationship(hearer_id,
-     teller_id, ...)`, not the reverse. §2 above didn't specify this;
-     it must before any code is written.
-   - **Multi-edge pairs.** The same (teller, hearer) pair can hold
-     several relationship bases at once (e.g. kinship *and* faction).
-     Kimi's proposal: take the **max** strength across bases (any
-     strong tie confers credibility) — reasonable, not yet ruled.
-   - **The contested-resolution path also hardcodes the flat decay,
-     undocumented by this doc's own §0 inventory.** Verified directly:
-     `chronicle/claims.py`'s T2.3 resolution path (`challenger_wins`
-     branch, ~line 786) computes
-     `teller_belief.confidence * RETELL_CONFIDENCE_DECAY * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT)`
-     — a second, independent use of the exact constant `retell()` uses,
-     missed in §0's "what this replaces" scan. Needs an explicit ruling:
-     does contested-claim resolution also become trust-discounted (the
-     "yes, consistently" answer — leaving it flat would make trust
-     matter *less* exactly when two accounts collide, the moment it
-     probably matters most), or is it deliberately left flat? This doc
-     recommends applying the same discount there, but that's a proposal,
-     not a decision made here.
-   - **Named risk, not necessarily a blocker:** trust-discounting
-     stacked on kinship/faction edges is the standard homophily→
-     polarization mechanism in bounded-confidence trust models — without
-     a scenario assertion that rumors still cross faction lines (at
-     reduced confidence, not zero), this could silently partition the
-     rumor graph along faction borders, the same class of failure T2.6's
-     carriers were added to prevent geographically. Worth a scenario
-     test if this lands, not necessarily a redesign.
+**Action for whoever lands this code:** amend `docs/scenario-ladder.md`
+§8 to (a) merge the 9/10 table rows into one, bringing the count to
+18/20, matching the ruling `rules.py` already records, and (b) add a new
+row for trust-discounted retelling, landing at 19/20. No rule-4 demotion,
+no ceiling raise — this is recording a fact and adding one row, not
+opening the consolidation question. This is still a frozen,
+owner-review-only document (`AGENTS.md`) in the sense that it shouldn't
+be edited carelessly — but a design doc that has been through two
+independent reviews and rules cleanly on its own open questions is
+exactly the case that document's freeze is meant to allow through, not
+block.
 
 ## 4. Non-goals for this doc
 
