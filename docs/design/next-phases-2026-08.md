@@ -76,7 +76,21 @@ ChronicleBridge slices); the C++ shim side (`g_isLoading`, the co-save
 read/write, the two load hooks) — needs the Windows machine and a live
 game, not attemptable headless.
 
-## 1b. New candidate: fork-on-disk support
+## 1c. Landed: fork-on-disk support
+
+`chronicle fork <run_id> --at-tick T` (commit `d3f2e6c`) — copy-forward
+per §1b's ruling. Caught one real bug in review before committing:
+`cli._branch_identity()` (used by `inject`/`sync-check`) used to trust a
+run's first record's envelope for its generation, which broke the moment
+a forked run's copied prefix legitimately carries the *parent's*
+generation on its earliest records — every forked run's own identity was
+silently misreported as its parent's. Fixed (registry-first, record
+fallback) with a regression test. Not yet done: wiring `sync-check`'s
+FORK/ADOPT paths to actually call `fork_run()` instead of exiting 3
+(deliberately deferred, §1b's own note) — that's the natural next slice
+if this thread continues.
+
+## 1b. New candidate: fork-on-disk support (superseded by §1c above)
 
 What §0b surfaced. Needed before `sync-check`'s FORK/ADOPT paths (or any
 real reload-to-an-earlier-save case) can do anything but report. Not yet
