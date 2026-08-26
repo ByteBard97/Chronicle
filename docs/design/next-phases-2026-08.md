@@ -202,24 +202,37 @@ opened:
 
 - **Rule 11's latch is one-directional** — trips but never untrips. Fine
   for "four thefts escalate," not sufficient for CK-style relationship
-  *demotion*, which needs separate entry/exit thresholds. No surveyed
-  research or existing code solves two-way hysteresis — the hardest real
-  open design problem beyond what's landed.
-- **No inventory of NPC action verbs.** Avoidance (rule 18) is the only
-  built "NPC acts differently because of accumulated social state"
-  mechanism. Dialogue, package overrides, quest hooks are unresearched
-  for this purpose.
-- **A ready model to crib, not invent, for propensity scoring:**
-  `docs/research/comparative-systems/ck-opinion-decay-and-threshold-tables.md`'s
-  `ai_chance = base + Σ situational + Σ personality×coef` idiom.
-- **Named-cast identity gap** (`HANDOFF-2026-08-25-1930.md`):
-  live-observed Whiterun NPCs mostly aren't in the fixture cast, so any
-  of the above is only demonstrable for the ~6 NPCs already fixtured.
+  *demotion*, which needs separate entry/exit thresholds.
+  `docs/research/23-v03-hysteresis-and-action-verbs.md`'s Part A found no
+  literature (CK, Dwarf Fortress, RimWorld, academic bounded-confidence
+  models) with a purpose-built bidirectional model either — the
+  transferable pattern is generic control-theory hysteresis (a separate,
+  lower de-escalation threshold plus a dwell count) layered onto the
+  existing rule-family idiom, not a new subsystem. Still the hardest real
+  open design problem beyond what's landed; not implemented.
+- **NPC action verbs — no longer just a gap, partially built.**
+  `docs/research/23-...md`'s Part B ranked three real options. #1
+  (dialogue-gating on `GetRelationshipRank`) is effectively already
+  delivered by the hydration-out slice's `SetRelationshipRank` writes
+  (§0f) once verified in-game — no new engineering needed. #3 (a "cold
+  shoulder" tier extending rule 18's avoidance) has its Python-only half
+  built (§0g), but its C++/game-side half hit a real, different-in-kind
+  blocker: `RE::Actor::EvaluatePackage()` can only re-evaluate an
+  *existing* CK-authored package, it can't create avoidance behavior
+  from nothing — the actual mechanism needs a real AI package authored
+  in the Creation Kit's GUI, conditioned on something Chronicle can
+  toggle. See §3's new CK-authoring category. #2 (vendor refusal/price
+  markup) needs new Chronicle-side state that doesn't exist yet — not
+  started.
+- **Named-cast identity gap — closed.** Grown from 6 to 19 NPCs matching
+  real live-observed Whiterun actors (§0c), independently verified
+  against source data.
 
-This would need its own rule-budget slot (the ceiling is now exactly at
-20 once rule 20 lands — a future mechanism here needs a fresh
-consolidation ruling or an explicit ceiling raise) and its own
-design-prep doc. Not scheduled; no action pending.
+Two-way hysteresis and vendor-refusal mechanics would still need a
+fresh rule-budget consolidation ruling or ceiling raise (the ladder is
+at its full 20-rule ceiling) before landing as new Chronicle-side
+mechanisms — researching them further is not blocked; implementing them
+is a heads-up-worthy scope spend, not a stop.
 
 ## 3. Genuinely stops the loop (narrow — most things don't belong here)
 
@@ -228,6 +241,13 @@ design-prep doc. Not scheduled; no action pending.
   the SSH build machine (§0b2) closes the "can't compile C++" gap, but
   running the game is still the owner's own interactive session, not
   reachable from here.
+- **Creation Kit content authoring** (new, found via the avoidance
+  slice, `docs/design/chronicle-bridge-avoidance-out.md` §2b) — a GUI
+  editing tool, not batch-scriptable the way C++ compilation is. Making
+  an NPC actually avoid another needs a real AI package/condition/
+  quest-alias authored in the CK; SSH shell access does not reach an
+  interactive GUI editor. Different in kind from the SSH-solved
+  build-machine gap — don't conflate the two.
 - Spending a rule-budget slot on new scope (§2) deserves a heads-up in
   the commit message, not a stop — but committing to it silently, with
   no note, would be the wrong kind of quiet.
