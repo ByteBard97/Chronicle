@@ -1,11 +1,13 @@
 # ChronicleBridge -- the Chronicle project's SKSE plugin (adapters/skyrim/README.md's
 # "only place in the repo allowed to know Skyrim exists"). Design: docs/design/
-# chronicle-bridge-spatial-streamer.md. Built on Windows (native, no Proton/Wine) --
-# see README.md in this directory for the build setup.
+# chronicle-bridge-spatial-streamer.md (slice 1), docs/design/
+# chronicle-bridge-death-extraction.md (slice 2). Built on Windows (native, no
+# Proton/Wine) -- see README.md in this directory for the build setup.
 #
-# First slice only (per the design doc): sample every actor currently outdoors in
-# WhiterunWorld at ~1Hz and push their positions out to a Linux-side listener.
-# Nothing else yet -- no event sinks, no hydration, no save/reload sync.
+# Slice 1: sample every actor currently outdoors in WhiterunWorld at ~1Hz and
+# push their positions out to a Linux-side listener.
+# Slice 2: sink RE::TESDeathEvent and push a discrete death event to the same
+# listener. No hydration, no save/reload sync yet -- still real future work.
 
 cmake_minimum_required(VERSION 3.21)
 
@@ -31,6 +33,7 @@ add_commonlibsse_plugin(${PROJECT_NAME} SOURCES
     src/IdentityMap.cpp
     src/OutboundClient.cpp
     src/Config.cpp
+    src/DeathEventSink.cpp
 )
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_23)
 target_precompile_headers(${PROJECT_NAME} PRIVATE src/PCH.h)

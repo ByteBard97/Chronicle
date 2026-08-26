@@ -1,9 +1,11 @@
 # ChronicleBridge design prep — NPC death extraction (v0.2, second slice)
 
-**Status:** design proposal for the C++ half; the Python-side half (§3) is
-fully built, tested, and landed this session — flag the C++ half for
-owner review before `ChronicleBridge/` is touched (needs the Windows
-build machine and a live game to test at all, per §1's discipline).
+**Status:** the Python-side half (§3) is fully built, tested, and landed.
+The C++ half (`ChronicleBridge/`) is now written and compiles cleanly
+against the real CommonLibSSE-NG headers on the Windows build machine
+(see §5's "built (2026-08-26)" note for exactly what that does and does
+not confirm) — it has never run against a live game. Flag for owner
+review/live-game testing before treating this slice as fully done.
 
 Sources: `adapters/skyrim/README.md` (the seam's stated charter — "In:
 game events... arrive here and get turned into `chronicle.events`
@@ -168,7 +170,36 @@ works for `jarl_balgruuf`" for a defect.
   charter, each with its own sink/hook shape (research/22's table), not
   bundled into this slice.
 - Structured death cause beyond the fixed `"unknown"` string (§2, D2).
-- The `ChronicleBridge/` (C++) half — the actual `RE::TESDeathEvent` sink,
-  registration, and outbound POST to `/whiterun/events`. §3's Python-side
-  half (the listener endpoint) is built and tested; nothing native has
-  been written or compiled for this slice.
+
+### The C++ half is now built (2026-08-26) — what "built" precisely means
+
+`ChronicleBridge/src/DeathEventSink.h`/`.cpp` (the `RE::TESDeathEvent` sink,
+registered at `SKSE::MessagingInterface::kDataLoaded`) and
+`OutboundClient::PostGameEvent` (the outbound POST to `/whiterun/events`,
+on its own dedicated sender thread — never the main thread) are written
+and **compile cleanly (zero errors, zero warnings under `/W4`) against the
+real CommonLibSSE-NG 3.6.0 headers** on the project's Windows build
+machine, confirmed by an actual `cmake --build` run, not by inspection.
+`gamets` is sourced from `RE::Calendar::GetSingleton()->GetHoursPassed()`
+(a real, compiled-against API — see `DeathEventSink.cpp`'s comment for why
+that field, not `GetDay()`/`GetMonth()`/`GetYear()` or `GetTimescale()`,
+matches ADR-0010's "one monotonic hours-elapsed number" requirement).
+`actorDying`/`actorKiller` are `RE::TESObjectREFRPtr` (verified by
+`.get()` compiling against `IdentityMap::ResolveFormRef(RE::TESForm*)`
+with no cast needed).
+
+**"Built" does NOT mean "tested."** No part of this has run against an
+actual Skyrim process — no live death has ever been observed, no POST has
+ever actually reached a running listener from this code, and the
+identity-resolution/`gamets` logic has never been exercised end-to-end.
+"Verified" here means exactly: the code matches the design in this doc,
+the payload shape matches `chronicle-bridge.openapi.yaml`'s `GameEvent`
+schema field-for-field, and it compiles against the real engine headers.
+It does NOT mean: a death was ever triggered in-game, a POST was ever
+received by `adapters/skyrim/listener/listener.py`, or any runtime
+behavior (thread safety under real load, correctness of `GetHoursPassed()`
+across a save load, cell/location resolution on an actual `RE::TESObjectCELL`)
+has been observed even once. That live-game verification needs the
+owner's own interactive desktop session (Skyrim/MO2) and is out of scope
+for a headless/SSH-only pass — a future session with that access should
+do it before this slice is considered done in the fuller sense.

@@ -1,11 +1,20 @@
 # ChronicleBridge
 
 The Chronicle project's SKSE plugin (`adapters/skyrim/README.md`'s "only
-place in the repo allowed to know Skyrim exists"). **First slice only**
-(`docs/design/chronicle-bridge-spatial-streamer.md`): samples every actor
-currently outdoors in Whiterun at ~1Hz and pushes their positions to a
-listener running on the Chronicle host (`adapters/skyrim/listener/`). No
-event sinks, no hydration, no save/reload sync yet.
+place in the repo allowed to know Skyrim exists"). Two slices so far:
+
+- **Slice 1** (`docs/design/chronicle-bridge-spatial-streamer.md`):
+  samples every actor currently outdoors in Whiterun at ~1Hz and pushes
+  their positions to a listener running on the Chronicle host
+  (`adapters/skyrim/listener/`).
+- **Slice 2** (`docs/design/chronicle-bridge-death-extraction.md`): sinks
+  `RE::TESDeathEvent` and POSTs a discrete death event to the same
+  listener's `/whiterun/events`. Compiles cleanly against the real
+  CommonLibSSE-NG headers (see that doc's §5) but has never run against a
+  live game — do not treat it as verified beyond "compiles and matches
+  the design."
+
+No hydration, no save/reload sync yet — both real future work.
 
 Wire format: `adapters/skyrim/contracts/chronicle-bridge.openapi.yaml` --
 if you change the payload shape, update that file first; the C++

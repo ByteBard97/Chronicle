@@ -90,7 +90,59 @@ namespace ChronicleBridge {
             return body.str();
         }
 
+        // Matches chronicle-bridge.openapi.yaml's GameEvent schema exactly.
+        // `event_type` is always the literal "npc_died" -- this slice has
+        // no other event kind (design doc §2). Optional fields
+        // (killer_id/location_id) serialize as JSON null, not an omitted
+        // key, matching the schema's `type: [string, "null"]`.
+        std::string BuildGameEventJson(const PendingGameEvent& event) {
+            std::ostringstream body;
+            body << std::format(
+                R"({{"event_type":"npc_died","gamets":{},"wall_ts":{},"npc_id":"{}","cause":"{}","killer_id":)",
+                SanitizeFinite(event.gamets), SanitizeFinite(event.wallTs), EscapeJsonString(event.npcId),
+                EscapeJsonString(event.cause));
+            if (event.killerId) {
+                body << std::format(R"("{}")", EscapeJsonString(*event.killerId));
+            } else {
+                body << "null";
+            }
+            body << ",\"location_id\":";
+            if (event.locationId) {
+                body << std::format(R"("{}")", EscapeJsonString(*event.locationId));
+            } else {
+                body << "null";
+            }
+            body << "}";
+            return body.str();
+        }
+
     }  // namespace
+
+    bool PostGameEvent(const OutboundConfig& config, const PendingGameEvent& event) {
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        const auto body = BuildGameEventJson(event);
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Post(config.eventsPath, headers, body, "application/json");
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} failed: {}", config.host, config.port, config.eventsPath,
+                             httplib::to_string(result.error()));
+            return false;
+        }
+        if (result->status < 200 || result->status >= 300) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} returned status {}", config.host, config.port,
+                             config.eventsPath, result->status);
+            return false;
+        }
+        return true;
+    }
 
     bool PostPositionSnapshot(const OutboundConfig& config, double wallTimestamp, const std::vector<NpcPosition>& npcs) {
         httplib::Client client(config.host, config.port);
