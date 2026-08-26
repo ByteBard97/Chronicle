@@ -25,16 +25,32 @@ surface).
    - **A genuinely irreversible-or-preference question** — pushing to
      the remote, deleting data, a product-direction call with no
      technical answer (do we want feature A or B at all): this is the
-     only kind that should actually stop the loop and wait.
+     only kind that should actually stop the loop and wait. This
+     category is narrow and shrinking, not a default — checked again
+     and re-narrowed 2026-08-26 after repeated, escalating owner
+     feedback ("stop asking stupid questions... do not halt like this
+     again"). **Researching whether something is feasible, what prior
+     art says, or writing a design doc is never in this category** —
+     only actually spending a scarce, ceiling-limited resource (the
+     ladder's rule budget) on new implementation is, and even that only
+     needs a heads-up in the commit message, not a pause for
+     permission. When in doubt, the default is: research it (Kimi,
+     advisor, or a fresh research agent — Kimi being temporarily out of
+     quota is not a reason to fall back to asking the owner instead),
+     decide, and proceed.
    A frozen document (`docs/ui-spec.md`, `docs/scenario-ladder.md`,
    `docs/ui-doctrines.md`) being touched is not automatically the second
    kind — "frozen" means "don't edit casually on a whim," not "never
    edit." A design doc that has been through real review and rules
    cleanly on its open questions may amend a frozen doc's stale count or
    add a properly-scoped new row; report the amendment afterward rather
-   than asking permission first. Needing the Windows build machine or a
-   live game to *test* something is a real, first-kind-of-blocked stop —
-   that one has no workaround from this session.
+   than asking permission first. SSH access to the owner's Windows
+   build machine exists (`.claude/windows-build-machine.md`, gitignored
+   — read it) and retires the "needs the Windows build machine" excuse
+   for ChronicleBridge C++ work entirely — compiling and iterating
+   against real CommonLibSSE-NG headers is reachable from this session.
+   Only *actually running the game* (a live save, real player input)
+   remains a genuine, first-kind-of-blocked stop.
 2. **If the next item has no design-prep doc yet**, write one first
    (`docs/design/*.md`, modeled on the existing ones — name the real
    dependency it doesn't build, scope the smallest real slice, cite
@@ -74,19 +90,26 @@ surface).
 
 ## Standing constraints (don't relitigate these each iteration)
 
-- Frozen, owner-review-only: `docs/ui-spec.md`, `docs/scenario-ladder.md`,
-  `docs/ui-doctrines.md`. Findings route to the owner, never edited in a
-  lane.
-- The scenario ladder's rule-budget is at its ceiling minus one slot.
-  Don't spend it without being told to.
+- Frozen, owner-review-only in the sense of "don't edit casually":
+  `docs/ui-spec.md`, `docs/scenario-ladder.md`, `docs/ui-doctrines.md`.
+  A design doc that went through real review and rules cleanly on its
+  own questions may amend one (report afterward); don't rewrite one on
+  a whim or without that review trail.
+- The scenario ladder is at its full ~20-rule ceiling as of rule 20
+  (2026-08-26) — zero slots free. A new mechanism needs a fresh
+  consolidation ruling or an explicit ceiling raise before landing, not
+  before *researching* — see the narrowed rule above.
 - Other sessions work this repo concurrently (a Kimi coordinator
   lineage, the owner's own game-modding session). If you see an
   unexpected diff in a file you didn't touch (this session hit this with
   `docs/work-packets/reviews/README.md` more than once) — leave it
   alone, it's not yours to revert or resolve.
-- `adapters/skyrim/`'s native (C++) half and anything needing a live
-  game session or the Windows build machine: name it, design around it,
-  don't attempt it from here.
+- `adapters/skyrim/ChronicleBridge/`'s native (C++) half is now directly
+  reachable: SSH build access to the owner's Windows machine exists
+  (`.claude/windows-build-machine.md`) and this session verified real
+  compile-iteration works. Only actually running the game against a
+  live save is out of reach from here — compiling, iterating on real
+  compiler errors, and landing C++ changes is not.
 - `runs/` is gitignored; never commit run data. Determinism is
   load-bearing — same seed must produce byte-identical logs modulo
   `wall_ts`.

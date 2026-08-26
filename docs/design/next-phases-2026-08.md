@@ -196,18 +196,30 @@ This would need its own rule-budget slot (the ceiling is now exactly at
 consolidation ruling or an explicit ceiling raise) and its own
 design-prep doc. Not scheduled; no action pending.
 
-## 3. Genuinely stops the loop (irreversible or preference, not domain/tuning)
+## 3. Genuinely stops the loop (narrow — most things don't belong here)
 
 - `git push` to the remote — always ask first, no exception.
-- The ChronicleBridge C++ half of anything, or the named-cast identity
-  gap's `IdentityMap.cpp` table — needs the Windows build machine and a
-  live game to even test; not attemptable from this session.
-- Opening a genuinely new tier/rung of scope (§2) versus staying within
-  what's already ladder-scoped — a real product-direction call, not a
-  tuning question.
+- Actually testing anything against a live Skyrim process/real save —
+  the SSH build machine (§0b2) closes the "can't compile C++" gap, but
+  running the game is still the owner's own interactive session, not
+  reachable from here.
+- Spending a rule-budget slot on new scope (§2) deserves a heads-up in
+  the commit message, not a stop — but committing to it silently, with
+  no note, would be the wrong kind of quiet.
+
+**Narrowed per repeated, explicit owner feedback (this session): researching**
+**whether a mechanism is feasible, what the literature/prior art says, or**
+**producing a design doc is NOT "opening new scope" and does not stop**
+**anything** — only actually spending the rule-budget ceiling on
+implementation does, and even that only needs a heads-up, not a pause.
+When domain-expertise is missing (a modeling choice, an API's real
+behavior, a literature question) the answer is Kimi/advisor/a research
+agent followed by an executive decision, every time — not a question
+back to the owner. Kimi being temporarily out of quota (2026-08-26) is
+not a reason to fall back to asking; use a research agent instead.
 
 Frozen documents (`docs/ui-spec.md`, `docs/scenario-ladder.md`,
-`docs/ui-doctrines.md`) are not automatically in this list — see §1's
-rule-20 amendment for the standard: a reviewed design doc that rules
-cleanly on its own questions may amend a frozen doc's stale content,
-reported afterward rather than asked about first.
+`docs/ui-doctrines.md`) are not automatically stop-and-ask either — see
+§1's rule-20 amendment for the standard: a reviewed design doc that
+rules cleanly on its own questions may amend a frozen doc's stale
+content, reported afterward rather than asked about first.
