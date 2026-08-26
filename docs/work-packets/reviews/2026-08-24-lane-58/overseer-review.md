@@ -12,7 +12,7 @@ build` clean; `npm run check-range --both` 206 dev+preview.
 ## Claim verified against the repo
 
 `dashboard/src/components/feed/FeedFilterBar.vue:74` now renders
-`{{ o }}` directly — the `.replace("_", "-")` cosmetic transform is
+{% raw %}`{{ o }}`{% endraw %} directly — the `.replace("_", "-")` cosmetic transform is
 gone, confirmed by direct read. The dropdown label and the
 URL-serialized value are now the same string for every option
 (`rolled_against`, `nothing_salient`, etc.) — approach (a) from the
