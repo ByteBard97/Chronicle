@@ -17,11 +17,34 @@ Receives ChronicleBridge's outbound POSTs
   auto-selection of an existing run -- **never point it at a fixture/demo
   run the M7 release gate or the ladder's scenario tests depend on** (e.g.
   `runs/north-star-01`), always a dedicated live-play run.
+- **`GET /whiterun/hydration`** -- the Python-only first cut of the "Out"
+  direction (`docs/design/chronicle-bridge-hydration-out.md` §3b): the
+  pending-hydration queue a not-yet-built C++ poller would call to drive
+  `Actor.SetRelationshipRank`. Reads the live run's current on-disk state
+  (`FrameLogReader.state_at()` at the run's max tick, same pattern
+  `chronicle sync-check`/`chronicle inspect` use), buckets every grudge
+  between two named-cast NPCs via `chronicle.hydration.relationship_rank_for`
+  (reputation is deferred for this first cut -- grudge-only), and returns
+  only the `{holder_id, target_id, relationship_rank}` pairs whose bucket
+  changed since the last poll. The "last pushed" dedupe cache is
+  in-memory only and does **not** survive a listener restart -- a real,
+  named gap (design doc §3), not solved here. Disabled (503) unless the
+  listener is started with `--live-run <run_id>`, the same gating
+  `/whiterun/events` uses. Nothing calls this endpoint yet; the C++
+  poller and any `SetRelationshipRank` calls are still to be built.
 
 Not part of `chronicle/` -- this is Skyrim-adapter-side plumbing, per
 `adapters/skyrim/README.md`'s charter. `/whiterun/events` does not import
 `chronicle/` either; it shells out to the same `chronicle inject` CLI
 write path a human uses at the console, the documented seam boundary.
+`/whiterun/hydration` is the one deliberate exception to that
+never-import boundary: it has no write path (it only reads a run's
+existing on-disk state and computes a pure function over it), so there is
+nothing for the CLI boundary to protect -- a fresh `python -m chronicle`
+subprocess would still pay interpreter startup on top of the same log
+replay a direct import already does, for no safety benefit in exchange.
+Write access to a run still goes through the CLI exclusively -- see the
+exception's full rationale in `listener.py`'s own module docstring.
 
 ## Testing
 

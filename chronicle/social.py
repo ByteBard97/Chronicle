@@ -566,3 +566,14 @@ class SocialStateStore:
 
     def reputation(self, observer_id: str, subject_id: str, context: str) -> Reputation | None:
         return self._reputations.get((observer_id, subject_id, context))
+
+    def reputations(self) -> tuple[Reputation, ...]:
+        """Every reputation in the store, regardless of observer/subject/context.
+
+        Mirrors grudges()'s bulk-scan shape (Tier 4b, design doc O3): a
+        caller wanting every reputation record -- e.g. the hydration seam's
+        read-only export (docs/design/chronicle-bridge-hydration-out.md
+        §3b) -- has no single observer/subject to key off, the same
+        situation grudges() already solves for the grudge side.
+        """
+        return tuple(self._reputations.values())

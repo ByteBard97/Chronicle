@@ -31,6 +31,26 @@ accounts) -- `--shared-secret` is a lightweight bearer-token check meant
 to stop an accidental/opportunistic LAN neighbor from writing garbage into
 the snapshot file, not to withstand a targeted attacker. Do not expose
 this port beyond a trusted home LAN.
+
+Read-only exception, /whiterun/hydration (docs/design/chronicle-bridge-
+hydration-out.md §3b): this one route DOES import chronicle/ directly
+(`chronicle.framelog.FrameLogReader`/`state_at`, `chronicle.social`,
+`chronicle.hydration.relationship_rank_for`), unlike every write path in
+this file. The house rule above -- "shell out to `python -m chronicle`,
+never import chronicle/ directly" -- exists to keep *writes* going
+through the CLI's own validation/refusal logic (fork-territory checks,
+origin stamping) so this listener can never silently corrupt a run. This
+endpoint has no write path at all: it only reconstructs a run's existing
+on-disk state (the same `FrameLogReader.state_at()` read `chronicle
+sync-check`/`chronicle inspect` already do from inside the CLI process)
+and computes a pure function over it. There is nothing for the CLI
+boundary to protect here -- a direct import can't corrupt a run it never
+writes to -- and shelling out to a fresh `python -m chronicle` subprocess
+would still have to pay interpreter startup on top of the same
+`state_at()` log replay the direct import already does, buying no safety
+in exchange. Write access to a run still goes through the CLI
+exclusively -- this exception is scoped to this one GET handler and must
+not be used as precedent for adding new write paths that skip the CLI.
 """
 
 import argparse
@@ -46,6 +66,42 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).parent))
 from models import GameEvent, PositionSnapshot
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+from chronicle.framelog import FrameLogReader, default_runs_dir
+from chronicle.hydration import RANK_NO_GRUDGE, relationship_rank_for
+
+# Mirrors adapters/skyrim/ChronicleBridge/src/IdentityMap.cpp's kNamedCast
+# table exactly (chronicleNpcId column) -- the same 19-entry set
+# chronicle/tests/test_fixtures.py's NAMED_CAST_NPC_IDS already hardcodes
+# for its own sync check. Only NPCs in this set have a resolvable in-game
+# actor reference `SetRelationshipRank` could ever be called on (design
+# doc §3), so /whiterun/hydration filters grudges down to pairs entirely
+# within this set. Keep this in sync with IdentityMap.cpp by hand -- there
+# is no shared source of truth between C++ and Python for this table.
+NAMED_CAST_NPC_IDS = frozenset(
+    {
+        "ysolda",
+        "idolaf_battle_born",
+        "saffir",
+        "carlotta_valentia",
+        "amren",
+        "adrianne_avenicci",
+        "lars_battle_born",
+        "braith",
+        "fralia_gray_mane",
+        "nazeem",
+        "lillith_maiden_loom",
+        "brenuin",
+        "anoriath",
+        "lucia",
+        "heimskr",
+        "sigurd",
+        "olava_the_feeble",
+        "danica_pure_spring",
+        "olfina_gray_mane",
+    }
+)
 
 _write_lock = threading.Lock()
 
@@ -105,7 +161,60 @@ def _inject_death_event(event: GameEvent, *, live_run: str) -> tuple[bool, str]:
     return True, result.stdout.strip()
 
 
+def _max_tick(reader: FrameLogReader) -> int | None:
+    """The run's current max tick across both streams -- mirrors chronicle/cli.py's own helper of the same name."""
+    index = reader.read_index()
+    ticks = [int(t) for stream in index["streams"].values() for t in stream["tick_offsets"]]
+    return max(ticks) if ticks else None
+
+
+def _hydration_pairs(live_run: str, last_pushed: dict[tuple[str, str], int]) -> list[dict[str, object]]:
+    """Compute changed (holder, target, rank) pairs for the live run's named-cast grudges.
+
+    Reads the run's current on-disk state at its max tick (the same
+    FrameLogReader/state_at pattern `chronicle sync-check`/`chronicle
+    inspect` use), buckets every grudge whose holder and target are both
+    in the named cast via relationship_rank_for(), and returns only the
+    pairs whose bucketed rank differs from `last_pushed` -- updating
+    `last_pushed` in place as it goes (idempotency, design doc §3b).
+    """
+    reader = FrameLogReader(default_runs_dir() / live_run)
+    max_tick = _max_tick(reader)
+    if max_tick is None:
+        return []
+    state = reader.state_at(max_tick)
+    at_gamets = float(max_tick)
+
+    changed: list[dict[str, object]] = []
+    for grudge in state.social.grudges():
+        if grudge.holder_id not in NAMED_CAST_NPC_IDS or grudge.target_id not in NAMED_CAST_NPC_IDS:
+            continue
+        rank = relationship_rank_for(grudge, at_gamets=at_gamets)
+        key = (grudge.holder_id, grudge.target_id)
+        # A pair absent from the cache defaults to rank 0 (no discount),
+        # not "unknown" -- 0 is the game's own default relationship rank,
+        # so a pair that has always bucketed to 0 must never be reported
+        # as a spurious "changed to 0" push on its very first poll.
+        if last_pushed.get(key, RANK_NO_GRUDGE) == rank:
+            continue
+        last_pushed[key] = rank
+        changed.append({"holder_id": grudge.holder_id, "target_id": grudge.target_id, "relationship_rank": rank})
+    return changed
+
+
 def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str | None) -> type[BaseHTTPRequestHandler]:
+    # Idempotency cache (design doc §3b): the last rank pushed for each
+    # (holder_id, target_id) pair, so a poll cycle with no state change is
+    # a no-op. In-memory only, scoped to this one handler-class closure --
+    # it does NOT persist across listener restarts. That is a real, named
+    # gap (design doc §3's "Idempotency/staleness" open question): a
+    # restarted listener re-announces every currently-nonzero rank (a
+    # missing cache entry defaults to comparing against rank 0, see
+    # _hydration_pairs) on its first poll after restart, since it has no
+    # memory of what a not-yet-built C++ poller previously received. Not
+    # solved here.
+    last_pushed_rank: dict[tuple[str, str], int] = {}
+
     class Handler(BaseHTTPRequestHandler):
         def _check_auth(self) -> bool:
             if shared_secret is None:
@@ -196,6 +305,32 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
             print(f"[listener] {message}", file=sys.stderr)
             self.send_response(204)
             self.end_headers()
+
+        def do_GET(self) -> None:
+            if self.path == "/whiterun/hydration":
+                self._handle_hydration()
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def _handle_hydration(self) -> None:
+            # Same gating convention as /whiterun/events: 503 if no
+            # --live-run was given at startup, never a default/auto-selected
+            # run (design doc §3b).
+            if live_run is None:
+                self.send_response(503)
+                self.end_headers()
+                return
+            if not self._check_auth():
+                return
+
+            pairs = _hydration_pairs(live_run, last_pushed_rank)
+            body = json.dumps(pairs).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, format: str, *args: object) -> None:
             print(f"[listener] {self.address_string()} {format % args}", file=sys.stderr)

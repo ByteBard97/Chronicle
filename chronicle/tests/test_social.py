@@ -245,6 +245,24 @@ def test_reputation_uncertainty_shrinks_as_evidence_accumulates():
     assert second.uncertainty < first.uncertainty
 
 
+def test_reputations_lists_every_reputation_regardless_of_key():
+    """Mirrors test_grudges_lists_every_grudge_regardless_of_holder --
+    reputations() is the bulk-scan twin of grudges() for the reputation
+    side (docs/design/chronicle-bridge-hydration-out.md §3b)."""
+    store = SocialStateStore()
+    assert store.reputations() == ()
+
+    first = store.update_reputation(
+        observer_id="proventus", subject_id="the_thalmor", context="violence",
+        kind="witnessed", positive=False, gamets=1000.0,
+    )
+    second = store.update_reputation(
+        observer_id="hulda", subject_id="ysolda", context="commerce",
+        kind="reported", positive=True, gamets=1000.0,
+    )
+    assert set(store.reputations()) == {first, second}
+
+
 def test_obligation_lifecycle_fulfill():
     store = SocialStateStore()
     obligation = issue_obligation(

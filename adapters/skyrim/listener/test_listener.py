@@ -26,13 +26,14 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from listener import _make_handler  # noqa: E402
+from listener import NAMED_CAST_NPC_IDS, _make_handler  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from chronicle.driver import Driver  # noqa: E402
 from chronicle.events import NPCDied  # noqa: E402
 from chronicle.framelog import FrameLogReader  # noqa: E402
 from chronicle.schedule import ScheduleBlock  # noqa: E402
+from chronicle.tests.test_fixtures import NAMED_CAST_NPC_IDS as _CHRONICLE_NAMED_CAST_NPC_IDS  # noqa: E402
 
 from http.server import ThreadingHTTPServer  # noqa: E402
 
@@ -85,6 +86,18 @@ def server_factory(tmp_path):
             conn.close()
             return resp
 
+        def get(path: str, *, token: str | None = None) -> tuple[int, bytes]:
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            headers = {}
+            if token is not None:
+                headers["X-Chronicle-Bridge-Token"] = token
+            conn.request("GET", path, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+            conn.close()
+            return resp.status, data
+
+        post.get = get
         return post
 
     yield start
@@ -160,6 +173,150 @@ def test_positions_endpoint_still_works_after_the_events_route_was_added(server_
     resp = post("/whiterun/positions", {"wall_ts": 123.0, "npcs": [{"id": "nazeem", "name": "Nazeem", "x": 1.0, "y": 2.0}]})
     assert resp.status == 204
     assert json.loads(snapshot_path.read_text())["npcs"][0]["name"] == "Nazeem"
+
+
+_GRUDGE_RUN = "listener-test-grudge-run"
+
+
+@pytest.fixture()
+def grudge_run(tmp_path, monkeypatch):
+    """A run with two named-cast NPCs (nazeem, ysolda) and a severe grudge
+    between them, for exercising /whiterun/hydration. Both ids are in
+    listener.NAMED_CAST_NPC_IDS."""
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=_GRUDGE_RUN,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(
+            ScheduleBlock(npc_id="nazeem", location_id="whiterun_market", start_tick=0, end_tick=1000),
+            ScheduleBlock(npc_id="ysolda", location_id="whiterun_market", start_tick=0, end_tick=1000),
+        ),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.run(0, 5)
+    relationship = driver.form_relationship(
+        id="r1", from_id="nazeem", to_id="ysolda",
+        basis="colocation", basis_id=None, strength=0.9, gamets=5.0,
+    )
+    driver.form_grudge(
+        id="g1", holder_id="nazeem", victim_id="ysolda", target_id="ysolda",
+        grievance_type="theft", source_belief_id="belief-nazeem-ysolda",
+        evidentiary_strength=0.9, relationship_to_victim=relationship, gamets=5.0,
+        forgiveness_threshold=0.2,
+    )
+    driver.run(5, 6)
+    driver.close()
+    return driver, tmp_path
+
+
+def test_named_cast_mirror_matches_chronicles_own_mirror():
+    """listener.py hardcodes its own copy of IdentityMap.cpp's kNamedCast
+    (it cannot import chronicle.tests.test_fixtures.NAMED_CAST_NPC_IDS --
+    that lives under chronicle/tests/, not a shared importable location).
+    Ties the two independently-maintained mirrors together so a future
+    edit to one that forgets the other is caught immediately, the same
+    discipline test_fixtures.py already applies against IdentityMap.cpp
+    itself."""
+    assert NAMED_CAST_NPC_IDS == _CHRONICLE_NAMED_CAST_NPC_IDS
+
+
+def test_hydration_endpoint_returns_empty_array_for_a_sub_threshold_grudge(server_factory, tmp_path, monkeypatch):
+    """A grudge that exists but never crosses the mild-band threshold
+    (relationship_rank_for -> 0) must be indistinguishable from "no
+    grudge rows at all" in the response -- not surfaced as a spurious
+    rank-0 change."""
+    run_id = "listener-test-subthreshold-run"
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=run_id,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(
+            ScheduleBlock(npc_id="nazeem", location_id="whiterun_market", start_tick=0, end_tick=50),
+            ScheduleBlock(npc_id="ysolda", location_id="whiterun_market", start_tick=0, end_tick=50),
+        ),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.run(0, 5)
+    relationship = driver.form_relationship(
+        id="r1", from_id="nazeem", to_id="ysolda",
+        basis="colocation", basis_id=None, strength=0.1, gamets=5.0,
+    )
+    driver.form_grudge(
+        id="g1", holder_id="nazeem", victim_id="ysolda", target_id="ysolda",
+        grievance_type="theft", source_belief_id="belief-nazeem-ysolda",
+        evidentiary_strength=0.1, relationship_to_victim=relationship, gamets=5.0,
+        forgiveness_threshold=0.2,
+    )
+    driver.close()
+
+    post = server_factory(live_run=run_id)
+    status, body = post.get("/whiterun/hydration")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_hydration_endpoint_returns_503_without_live_run(server_factory):
+    post = server_factory(live_run=None)
+    status, _ = post.get("/whiterun/hydration")
+    assert status == 503
+
+
+def test_hydration_endpoint_returns_empty_array_with_no_grudges(server_factory, live_run):
+    post = server_factory(live_run=_RUN)
+    status, body = post.get("/whiterun/hydration")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_hydration_endpoint_surfaces_a_severe_grudge_between_named_cast(server_factory, grudge_run):
+    _driver, _tmp_path = grudge_run
+    post = server_factory(live_run=_GRUDGE_RUN)
+
+    status, body = post.get("/whiterun/hydration")
+    assert status == 200
+    pairs = json.loads(body)
+    assert pairs == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+
+def test_hydration_endpoint_is_idempotent_on_a_second_immediate_poll(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    first_status, first_body = post.get("/whiterun/hydration")
+    assert first_status == 200
+    assert json.loads(first_body) != []
+
+    second_status, second_body = post.get("/whiterun/hydration")
+    assert second_status == 200
+    assert json.loads(second_body) == []
+
+
+def test_hydration_endpoint_reverts_toward_zero_once_the_grudge_cools(server_factory, grudge_run):
+    _driver, _tmp_path = grudge_run
+    post = server_factory(live_run=_GRUDGE_RUN)
+
+    first_status, first_body = post.get("/whiterun/hydration")
+    assert first_status == 200
+    assert json.loads(first_body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+    # Advance the run's max tick well past both grudge half-lives
+    # (GRUDGE_EMOTIONAL_HALF_LIFE=672, GRUDGE_EVIDENTIARY_HALF_LIFE=336
+    # ticks) so the decayed severity has fallen back below the mild
+    # threshold by the time of the next poll. Reuses the already-tested
+    # /whiterun/events write path (an unrelated NPC's death) purely to
+    # push the run's max tick forward -- inject() appends a bare canonical
+    # event with no rule processing, so it does not touch the
+    # nazeem/ysolda grudge itself.
+    death = post("/whiterun/events", {"event_type": "npc_died", "gamets": 2000.0, "npc_id": "brenuin"})
+    assert death.status == 204
+
+    third_status, third_body = post.get("/whiterun/hydration")
+    assert third_status == 200
+    assert json.loads(third_body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": 0}]
 
 
 def test_unknown_path_is_404(server_factory):
