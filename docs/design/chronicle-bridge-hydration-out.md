@@ -152,6 +152,36 @@ calls, anything on the game side. This Python half has no effect on a
 live game until that exists — it's the same "prove the smallest real
 thing headless, name what's deferred" discipline as every other slice.
 
+## 3c. A real finding that narrows the C++ poller's first cut
+
+Checked against the actual CommonLibSSE-NG headers (via this session's
+SSH build access) before writing any code, since §2 assumed
+`SetRelationshipRank` was a simple runtime setter — it isn't.
+`Actor.SetRelationshipRank`'s underlying engine state is
+`RE::BGSRelationship`, a persistent `TESForm`-derived record living in
+`TESNPC::relationships` (a `BSTArray<BGSRelationship*>*`), found via the
+real, reverse-engineered `BGSRelationship::GetRelationship(TESNPC*
+a_npc1, TESNPC* a_npc2)`. Setting a rank on a pair that already has an
+authored relationship is a simple field write (`relationship->level =
+...`); **creating a new relationship record for a pair that has none is
+form-registration territory this project doesn't yet understand well
+enough to do safely** — unclear whether it needs explicit registration
+into `TESNPC::relationships`, save-serialization bookkeeping, or other
+steps a naive `new BGSRelationship` wouldn't get right, and getting this
+wrong risks actual save-file integrity, a materially different risk
+class than everything built so far (pure observation/telemetry).
+
+**Ruling: the first C++ poller cut only sets `.level` on an EXISTING
+`BGSRelationship`.** A named-cast pair with a computed rank change but
+no existing relationship record is skipped (logged, not attempted) —
+this is the honest "smallest real slice" cut, not a workaround. Most
+Chronicle-relevant pairs (grudge holders/targets) won't have an
+authored vanilla relationship anyway, so this scopes down coverage
+significantly for the first cut; expanding to relationship *creation*
+is real, separate future work needing its own research pass (how the
+game's own runtime `SetRelationshipRank` console command actually
+creates one, if it does) before any code.
+
 ## 4. Non-goals for this slice
 
 - AI-package overrides (behavior/schedule changes) — a real, separate,
