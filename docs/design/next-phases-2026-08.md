@@ -85,10 +85,14 @@ run's first record's envelope for its generation, which broke the moment
 a forked run's copied prefix legitimately carries the *parent's*
 generation on its earliest records — every forked run's own identity was
 silently misreported as its parent's. Fixed (registry-first, record
-fallback) with a regression test. Not yet done: wiring `sync-check`'s
-FORK/ADOPT paths to actually call `fork_run()` instead of exiting 3
-(deliberately deferred, §1b's own note) — that's the natural next slice
-if this thread continues.
+fallback) with a regression test. Also landed: `sync-check --apply`
+(commit `c10c71a`) now actually calls `fork_run()` for FORK/ADOPT
+instead of only reporting them; without `--apply` it still just reports
+(exit 3), the prior default unchanged. This closes out the ADR-0005
+sync-handshake thread as far as it can go headlessly — everything left
+(the C++ shim side, the dashboard UI for triggering a fork per ui-spec
+§3.1) needs the Windows machine, a live game, or dashboard-lane work,
+not this thread.
 
 ## 1b. New candidate: fork-on-disk support (superseded by §1c above)
 
