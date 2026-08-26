@@ -29,6 +29,7 @@
 
 #include "Config.h"
 #include "DeathEventSink.h"
+#include "HydrationPoller.h"
 #include "OutboundClient.h"
 #include "SpatialStreamer.h"
 
@@ -150,8 +151,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SetupLog();
 
     SKSE::log::info(
-        "ChronicleBridge loaded -- spatial streamer + death-event slices (see docs/design/"
-        "chronicle-bridge-spatial-streamer.md, docs/design/chronicle-bridge-death-extraction.md)");
+        "ChronicleBridge loaded -- spatial streamer + death-event + hydration-poll slices (see docs/design/"
+        "chronicle-bridge-spatial-streamer.md, docs/design/chronicle-bridge-death-extraction.md, docs/design/"
+        "chronicle-bridge-hydration-out.md)");
 
     // Data/SKSE/Plugins/ChronicleBridge.ini overrides host/port/sharedSecret
     // when present (Config.cpp); a fresh install with no ini yet keeps
@@ -164,6 +166,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     std::thread(TimerThreadLoop).detach();
     std::thread(SenderThreadLoop, config).detach();
     std::thread(EventSenderThreadLoop, config).detach();
+    // Third slice (docs/design/chronicle-bridge-hydration-out.md): polls
+    // the listener for pending relationship-rank pushes and applies them to
+    // live game objects. Same config (host/port/sharedSecret) as the other
+    // two loops -- no second config path. See HydrationPoller.h for why
+    // this write path is unverified beyond "it compiles."
+    std::thread(ChronicleBridge::HydrationPollerThreadLoop, config).detach();
 
     // Death-event sink registration is deferred to kDataLoaded (see
     // OnSkseMessage's own comment) -- RegisterListener must be called here,

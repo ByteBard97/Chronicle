@@ -1,10 +1,44 @@
 # Design prep — ChronicleBridge, the "Out" direction (first slice)
 
-**Status:** design proposal for the C++ half; nothing here has been
-implemented or tested — it needs the Windows build machine and a live
-game, per every prior ChronicleBridge doc's discipline. Written because
-the design work itself is headless and this is currently the single
-biggest gap between what Chronicle simulates and what a player can see.
+**Status (2026-08-26):** the C++ half described in §3c is now written and
+compiles cleanly against the real CommonLibSSE-NG headers on the Windows
+build machine (`IdentityMap.{h,cpp}`'s new `ResolveChronicleNpcId`
+reverse table, `OutboundClient.{h,cpp}`'s new `FetchHydrationPairs` +
+hand-rolled hydration-pair parser, and the new
+`HydrationPoller.{h,cpp}`, wired into `plugin.cpp` as a third
+detached thread alongside the spatial-streamer and death-event loops).
+**"Compiles cleanly" is the ONLY claim being made.** This is a WRITE to a
+live game object (`RE::BGSRelationship::level`) — the first write path
+in ChronicleBridge; every prior slice only ever read/observed. It has
+**never been exercised against a live game or a real save** — no game
+ran during this development pass. Scope is exactly the §3c ruling: only
+sets `.level` on an EXISTING `BGSRelationship`; if `GetRelationship()`
+returns null (no authored vanilla relationship for that pair — expected
+to be the common case for Chronicle-relevant grudge pairs), the pair is
+skipped, logged, never created. Do not treat this as tested or safe
+until someone confirms it manually in an actual play session.
+
+Two further gaps named explicitly rather than fixed here: (1) the write
+does call `TESForm::AddChange(BGSRelationship::ChangeFlags::
+kRelationshipData)` to mark the record dirty for save serialization (the
+documented API for that), but whether that alone is *sufficient* for a
+correct save/reload round-trip of a `BGSRelationship` record is
+unverified; (2) the listener's `/whiterun/hydration` dedupe cache marks
+a pair "delivered" the instant it hands it out, not once the poller
+actually applies it — so any pair this poller skips (unresolvable NPC,
+no active game, or the common no-existing-relationship case) is a
+silent, permanent drop from the listener's perspective. Given most
+Chronicle-relevant pairs have no authored vanilla relationship at all,
+the expected steady state is that most computed pushes never actually
+land in-game. See `HydrationPoller.h`'s header comment for the full
+detail on both.
+
+Original status below, still true for everything not covered above:
+design proposal for the C++ half; nothing here has been implemented or
+tested — it needs the Windows build machine and a live game, per every
+prior ChronicleBridge doc's discipline. Written because the design work
+itself is headless and this is currently the single biggest gap between
+what Chronicle simulates and what a player can see.
 
 Sources: `adapters/skyrim/README.md`'s charter (names "Out" — AI-package
 overrides on cell hydration, and prompt context for dialogue mods — but

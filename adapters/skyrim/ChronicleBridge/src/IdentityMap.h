@@ -33,6 +33,16 @@ namespace ChronicleBridge {
     // the caller falls back to FallbackIdentity, not an error).
     std::optional<std::string> ResolveNamedCast(const FormRef& ref);
 
+    // The inverse of ResolveNamedCast: chronicle npc_id -> (pluginName,
+    // localFormId), for the same kNamedCast table. Added for the hydration
+    // slice (docs/design/chronicle-bridge-hydration-out.md), which needs to
+    // go from a Chronicle npc_id (received from the listener) back to a live
+    // game actor -- the direction nothing before this needed. Implemented as
+    // a reverse scan over the existing table (IdentityMap.cpp), never a
+    // second hand-typed table -- this table's own doctrine comment above
+    // warns against exactly that transcription risk.
+    std::optional<FormRef> ResolveChronicleNpcId(std::string_view npcId);
+
     // The generic fallback identity for anyone not in the named-cast table.
     std::string FallbackIdentity(const FormRef& ref);
 

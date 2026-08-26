@@ -2,6 +2,7 @@
 
 #include <httplib.h>
 
+#include <cctype>
 #include <cmath>
 #include <format>
 #include <sstream>
@@ -116,7 +117,145 @@ namespace ChronicleBridge {
             return body.str();
         }
 
+        // Hand-rolled parser for exactly one known, narrow shape: a JSON
+        // array of flat 3-field objects, `[{"holder_id":"...",
+        // "target_id":"...","relationship_rank":-2}, ...]` -- the listener's
+        // GET /whiterun/hydration response (adapters/skyrim/listener/
+        // listener.py's _hydration_pairs). Same reasoning as
+        // EscapeJsonString above: this file deliberately has no JSON
+        // library for a payload this small. This is NOT a general JSON
+        // parser -- it has no recursion, no nesting support, no support for
+        // any shape other than this exact one, and it is not meant to grow
+        // into one. If the response shape ever changes, this function
+        // should be rewritten for the new shape, not generalized.
+        //
+        // Tolerates the two things std::format-based emission on the Python
+        // side can actually produce for these three fields: string values
+        // with `\"`/`\\` escapes (mirrors EscapeJsonString's own escape
+        // set -- holder_id/target_id are Chronicle npc_ids, never expected
+        // to contain more exotic control characters, but handled anyway
+        // since escaping is cheap), and plain (possibly negative) integers
+        // for relationship_rank. Any object that doesn't parse cleanly is
+        // skipped, not fatal -- one malformed entry must not lose every
+        // other pair in the same response.
+        std::optional<std::string> ParseJsonStringField(std::string_view body, std::size_t& pos, std::string_view key) {
+            auto keyPos = body.find(std::format(R"("{}")", key), pos);
+            if (keyPos == std::string_view::npos) return std::nullopt;
+            auto colon = body.find(':', keyPos);
+            if (colon == std::string_view::npos) return std::nullopt;
+            auto quoteStart = body.find('"', colon);
+            if (quoteStart == std::string_view::npos) return std::nullopt;
+
+            std::string value;
+            std::size_t i = quoteStart + 1;
+            for (; i < body.size() && body[i] != '"'; ++i) {
+                if (body[i] == '\\' && i + 1 < body.size()) {
+                    ++i;
+                    switch (body[i]) {
+                        case 'n': value += '\n'; break;
+                        case 't': value += '\t'; break;
+                        case 'r': value += '\r'; break;
+                        case '"': value += '"'; break;
+                        case '\\': value += '\\'; break;
+                        default: value += body[i]; break;
+                    }
+                } else {
+                    value += body[i];
+                }
+            }
+            if (i >= body.size()) return std::nullopt;  // unterminated string.
+            pos = i + 1;
+            return value;
+        }
+
+        std::optional<int> ParseJsonIntField(std::string_view body, std::size_t& pos, std::string_view key) {
+            auto keyPos = body.find(std::format(R"("{}")", key), pos);
+            if (keyPos == std::string_view::npos) return std::nullopt;
+            auto colon = body.find(':', keyPos);
+            if (colon == std::string_view::npos) return std::nullopt;
+
+            std::size_t i = colon + 1;
+            while (i < body.size() && (body[i] == ' ' || body[i] == '\t')) ++i;
+            std::size_t start = i;
+            if (i < body.size() && body[i] == '-') ++i;
+            while (i < body.size() && std::isdigit(static_cast<unsigned char>(body[i]))) ++i;
+            if (i == start) return std::nullopt;
+
+            try {
+                int value = std::stoi(std::string(body.substr(start, i - start)));
+                pos = i;
+                return value;
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
+
+        std::vector<HydrationPair> ParseHydrationPairsJson(std::string_view body) {
+            std::vector<HydrationPair> out;
+            std::size_t pos = 0;
+            while (true) {
+                auto objStart = body.find('{', pos);
+                if (objStart == std::string_view::npos) break;
+                auto objEnd = body.find('}', objStart);
+                if (objEnd == std::string_view::npos) break;
+
+                std::size_t fieldPos = objStart;
+                auto holderId = ParseJsonStringField(body, fieldPos, "holder_id");
+                fieldPos = objStart;
+                auto targetId = ParseJsonStringField(body, fieldPos, "target_id");
+                fieldPos = objStart;
+                auto rank = ParseJsonIntField(body, fieldPos, "relationship_rank");
+
+                if (holderId && targetId && rank) {
+                    out.push_back(HydrationPair{.holderId = *holderId, .targetId = *targetId, .relationshipRank = *rank});
+                } else {
+                    SKSE::log::warn("ChronicleBridge: skipping unparseable hydration pair object");
+                }
+
+                pos = objEnd + 1;
+            }
+            return out;
+        }
+
     }  // namespace
+
+    std::vector<HydrationPair> FetchHydrationPairs(const OutboundConfig& config) {
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Get(config.hydrationPath, headers);
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: GET {}:{}{} failed: {}", config.host, config.port, config.hydrationPath,
+                             httplib::to_string(result.error()));
+            return {};
+        }
+        if (result->status < 200 || result->status >= 300) {
+            // 503 specifically means "the listener wasn't started with
+            // --live-run" (listener.py's own gating convention, matching
+            // /whiterun/events) -- an expected, common, non-error steady
+            // state for any session not deliberately targeting a live run
+            // (design doc §3b: "never default-enabled against a
+            // fixture/demo run"). Logging that at warn every ~8s for the
+            // life of such a session would be pure noise; trace it instead.
+            // Any other non-2xx status is unexpected and stays at warn.
+            if (result->status == 503) {
+                SKSE::log::trace("ChronicleBridge: GET {}:{}{} returned 503 (no --live-run configured)", config.host,
+                                  config.port, config.hydrationPath);
+            } else {
+                SKSE::log::warn("ChronicleBridge: GET {}:{}{} returned status {}", config.host, config.port,
+                                 config.hydrationPath, result->status);
+            }
+            return {};
+        }
+        return ParseHydrationPairsJson(result->body);
+    }
 
     bool PostGameEvent(const OutboundConfig& config, const PendingGameEvent& event) {
         httplib::Client client(config.host, config.port);

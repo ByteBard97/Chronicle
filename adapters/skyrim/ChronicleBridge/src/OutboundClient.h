@@ -29,6 +29,11 @@ namespace ChronicleBridge {
         // field rather than reusing `path` so positions and events can
         // never accidentally collide on one endpoint.
         std::string eventsPath = "/whiterun/events";
+        // Third slice (docs/design/chronicle-bridge-hydration-out.md §3b):
+        // the ONE inbound-ish path this plugin ever calls -- a GET, not a
+        // POST, but same host/port/sharedSecret, not a second config block,
+        // matching eventsPath's own precedent above.
+        std::string hydrationPath = "/whiterun/hydration";
         // Sent as the X-Chronicle-Bridge-Token header when set -- must match
         // the listener's --shared-secret exactly (adapters/skyrim/listener/
         // listener.py). Not real authentication (no TLS) -- a lightweight
@@ -55,5 +60,28 @@ namespace ChronicleBridge {
     // sender thread is the mitigation this slice does take, see plugin.cpp).
     // Returns true if the listener responded 2xx.
     bool PostGameEvent(const OutboundConfig& config, const PendingGameEvent& event);
+
+    // One changed (holder, target, bucketed rank) pair, matching the
+    // listener's GET /whiterun/hydration response shape exactly (see
+    // adapters/skyrim/listener/listener.py's _hydration_pairs): a JSON array
+    // of {"holder_id": str, "target_id": str, "relationship_rank": int}.
+    // Both ids are Chronicle npc_ids (IdentityMap's stable identity space),
+    // not FormIDs.
+    struct HydrationPair {
+        std::string holderId;
+        std::string targetId;
+        int relationshipRank = 0;
+    };
+
+    // GETs the listener's pending-hydration queue and parses the response.
+    // The listener already dedupes (only pairs whose bucketed rank actually
+    // changed since the last poll are returned), so an empty result is the
+    // common, expected case, not a failure signal -- and this function
+    // deliberately can't distinguish "nothing changed" from "the request
+    // failed" (both return empty), because the caller's response to either
+    // is identical: do nothing and try again next poll (this is low-
+    // frequency, non-critical state -- see HydrationPoller.h). Failures are
+    // logged here, not surfaced to the caller as an error type.
+    std::vector<HydrationPair> FetchHydrationPairs(const OutboundConfig& config);
 
 }  // namespace ChronicleBridge

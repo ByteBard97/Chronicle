@@ -78,6 +78,15 @@ namespace ChronicleBridge {
         return std::nullopt;
     }
 
+    std::optional<FormRef> ResolveChronicleNpcId(std::string_view npcId) {
+        for (const auto& entry : kNamedCast) {
+            if (entry.chronicleNpcId == npcId) {
+                return FormRef{.pluginName = std::string{entry.pluginName}, .localFormId = entry.localFormId};
+            }
+        }
+        return std::nullopt;
+    }
+
     std::string FallbackIdentity(const FormRef& ref) {
         return std::format("{}:{:06x}", ref.pluginName, ref.localFormId);
     }
