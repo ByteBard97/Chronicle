@@ -114,30 +114,96 @@ consolidation question. Two owner items remain, both smaller than
 originally framed:
 
 1. **A frozen-doc update, not a scope tradeoff.** `docs/scenario-ladder.md`
-   §8 needs its count/prose brought in line with O4 (17/20, three free
-   slots) and a new row added for trust-discounted retelling if the
-   owner wants to proceed — a doc amendment recording a fact and a new
-   rule, not a fresh consolidation decision. Still owner-review-only
+   §8 needs its count/prose brought in line with O4 and a new row added
+   for trust-discounted retelling if the owner wants to proceed — a doc
+   amendment, not a fresh consolidation decision. Still owner-review-only
    (`AGENTS.md`'s frozen-document list), just a much lighter ask than
-   originally stated here.
-2. **The formula/constants in §2 have a real defect** (advisor-caught):
-   `TRUST_FLOOR=0.5` and the no-relationship default both being `0.5`
-   means an *unfamiliar* teller and a *maximally distrusted* one produce
-   the identical `0.8 × 0.5 = 0.4` — collapsing two semantically
-   different states into one. **Revised proposal:** the no-relationship
-   case passes `trust=None` and takes the current flat `0.8` exactly,
-   full stop — "no tracked relationship" means "no trust information to
-   apply," not "assume mistrust." This also keeps T1.1's own assertion
-   ("confidence = witness confidence × 0.8 **exactly**") literally true
-   for every pair with no relationship edge, rather than only for pairs
-   with a maximal one. `TRUST_FLOOR` itself (proposed: lower to `0.4`,
-   now that it only ever applies when a real, if weak, relationship
-   exists) is still a placeholder needing sign-off, not a settled number.
-   Separately flagged: `Relationship`'s `co-location` basis is a weak-to-
-   wrong trust proxy (two NPCs who happen to share a market stall aren't
-   thereby trusting each other) — either restrict the trust lookup to
-   `kinship`/`faction` bases, or treat this as its own open sub-question
-   for the owner rather than silently including `co-location`.
+   originally stated here. **Kimi's independent research pass sharpened
+   this further, code-verified directly (not just cited):** rules 9
+   (`RumorStageRule`) and 10 (`DormancyReactivationRule`, `rules.py`
+   ~line 201) both wrap the *same* `claims.stage_at()` call — rule 10's
+   own docstring already concedes "the stage machine's dormancy half
+   (O4: 9+10 are one machine)." Merging them is a real simplification,
+   not ceiling-fudging, and drops the count to 18 on its own; landing
+   trust-discounted retelling as rule 19 needs no rule-4 demotion and no
+   ceiling raise. Recommended path: merge 9+10, add trust-discounted
+   retelling as 19/20, leave rule 4 and the ceiling alone.
+2. **The formula's floor/no-edge-default value has an unresolved
+   disagreement between the two independent reviews — genuinely open,
+   not something this doc should silently pick a side on.**
+   - **Advisor's objection:** `TRUST_FLOOR=0.5` and the no-relationship
+     default both at `0.5` collapse an *unfamiliar* teller and a
+     *maximally distrusted* one to the identical `0.8 × 0.5 = 0.4`.
+     Proposed fix: no-relationship passes `trust=None`, taking the flat
+     `0.8` exactly (no trust data → no adjustment), and `TRUST_FLOOR`
+     applies only when a real, if weak, relationship exists.
+   - **Kimi's research-backed counter:** `Relationship.strength` is
+     `[0,1]` — **there is no negative/distrust value anywhere in this
+     schema**; active dislike is a `Grudge`, a separate mechanism. So
+     "trust→0 via a weak real edge" and "no edge at all" both mean
+     *weak-or-absent positive tie*, not "trusted vs. distrusted" — under
+     that reading, giving them the same discount isn't a bug, it matches
+     Granovetter's weak-ties literature (a message from a weak or absent
+     tie lands, but at reduced confidence — informationally similar
+     cases, correctly treated alike) and DeGroot/Friedkin-Johnsen's
+     canonical linear trust-weighting (cited: Proskurnikov et al.,
+     Ye et al. 2020). Kimi also names a concrete Chronicle-specific risk
+     for advisor's fix: T2.6's cross-hold carriers are *structurally*
+     strangers (no co-location/kinship/faction/employer history at all)
+     — if "no edge" took the undiscounted flat `0.8`, carriers would
+     propagate rumors across holds at full confidence, undermining the
+     exact "weaker signal across a hold boundary" effect carriers exist
+     to model.
+   - **This doc does not resolve that disagreement — it's a real
+     modeling-philosophy call** (does the schema's `[0,1]` strength
+     range represent a trust axis with an implicit distrust floor, or a
+     tie-strength-only axis with no distrust concept at all?) that
+     should go back to whoever's ruling on this, not be picked by
+     whichever advisor answered second.
+   - **Not in dispute, independent of that question:** the linear shape
+     itself (both reviews converge on it; no sigmoid/threshold
+     convention was found in the literature scan), and `TRUST_FLOOR`/the
+     default being placeholder tunables needing sign-off regardless of
+     which side of the above they land on.
+   - Separately flagged (Kimi): `Relationship`'s `co-location` basis is
+     a weak-to-wrong trust proxy (two NPCs who happen to share a market
+     stall aren't thereby trusting each other) — either restrict the
+     trust lookup to `kinship`/`faction` bases, or treat this as its own
+     open sub-question rather than silently including `co-location`.
+
+3. **Three implementation gaps Kimi's review caught that this doc's
+   first draft missed entirely — all need a ruling before code, not
+   just before merge:**
+   - **Directionality.** `Relationship` edges are directed
+     `(from_id, to_id, basis)`. Trust here must be the *hearer's* regard
+     for the *teller* — the lookup is `relationship(hearer_id,
+     teller_id, ...)`, not the reverse. §2 above didn't specify this;
+     it must before any code is written.
+   - **Multi-edge pairs.** The same (teller, hearer) pair can hold
+     several relationship bases at once (e.g. kinship *and* faction).
+     Kimi's proposal: take the **max** strength across bases (any
+     strong tie confers credibility) — reasonable, not yet ruled.
+   - **The contested-resolution path also hardcodes the flat decay,
+     undocumented by this doc's own §0 inventory.** Verified directly:
+     `chronicle/claims.py`'s T2.3 resolution path (`challenger_wins`
+     branch, ~line 786) computes
+     `teller_belief.confidence * RETELL_CONFIDENCE_DECAY * (1 - CONTESTED_CLAIM_CONFIDENCE_DENT)`
+     — a second, independent use of the exact constant `retell()` uses,
+     missed in §0's "what this replaces" scan. Needs an explicit ruling:
+     does contested-claim resolution also become trust-discounted (the
+     "yes, consistently" answer — leaving it flat would make trust
+     matter *less* exactly when two accounts collide, the moment it
+     probably matters most), or is it deliberately left flat? This doc
+     recommends applying the same discount there, but that's a proposal,
+     not a decision made here.
+   - **Named risk, not necessarily a blocker:** trust-discounting
+     stacked on kinship/faction edges is the standard homophily→
+     polarization mechanism in bounded-confidence trust models — without
+     a scenario assertion that rumors still cross faction lines (at
+     reduced confidence, not zero), this could silently partition the
+     rumor graph along faction borders, the same class of failure T2.6's
+     carriers were added to prevent geographically. Worth a scenario
+     test if this lands, not necessarily a redesign.
 
 ## 4. Non-goals for this doc
 
