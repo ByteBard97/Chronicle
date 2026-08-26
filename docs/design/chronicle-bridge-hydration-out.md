@@ -103,6 +103,55 @@ already-precedented limitation**, not a new one.
   CONTINUE state. This slice should refuse to push anything until that
   wiring exists, rather than pushing blind.
 
+## 3b. Split, per the "In" slices' own precedent: a Python-only first cut
+
+Both existing ChronicleBridge slices split cleanly into a headless
+Python half (buildable and tested now) and a C++ half (needs the
+Windows machine + a live game). This slice splits the same way — ruling
+on §3's "poll vs. push" question now rather than leaving it open:
+**poll.** Matches the reasoning already in §3: no new inbound network
+surface on the game side, and ChronicleBridge's existing pattern is
+already outbound-only (it POSTs; nothing currently flows the other
+way).
+
+**Python-only scope, buildable today:**
+
+- `SocialStateStore` has `grudges()` (enumerates all grudges) but no
+  equivalent for reputations — only single-key `reputation(observer_id,
+  subject_id, context)` lookup. Add `reputations() -> tuple[Reputation,
+  ...]`, mirroring `grudges()`'s exact shape, in `chronicle/social.py`.
+- A pure bucketing function, `chronicle/hydration.py` (new module,
+  headless, no adapter dependency — same "chronicle/ never imports
+  adapter-specific concerns" boundary `chronicle/sync.py` follows):
+  `relationship_rank_for(reputation: Reputation | None, grudge: Grudge | None, *, at_gamets: float) -> int`,
+  implementing §2's placeholder bands (decayed grudge severity `<0.2` →
+  0, `0.2-0.5` → -1, `>0.5` and not cooled → -2; reputation's Beta-mean
+  folded in only if you find a clean way to combine the two signals —
+  otherwise grudge alone for this first cut, reputation deferred, and
+  say so explicitly rather than inventing a combination formula).
+- A pending-hydration endpoint on the listener
+  (`adapters/skyrim/listener/listener.py`), `GET /whiterun/hydration`,
+  gated behind the same `--live-run` requirement `/whiterun/events`
+  already uses (never default-enabled against a fixture/demo run):
+  computes the current bucketed rank for every named-cast NPC pair with
+  a grudge, diffs against a "last pushed" cache (in-memory is fine for
+  a first cut — the idempotency requirement from §3, "must not
+  repeatedly re-apply the same value every poll" — persisting the cache
+  across listener restarts is a real gap to name, not solve, here), and
+  returns only the pairs whose bucket actually changed. This is the
+  shape a not-yet-built C++ poller would call; nothing calls it yet.
+- Tests: `reputations()`'s enumeration; `relationship_rank_for()`'s
+  bucket boundaries and decay-awareness (a grudge that's cooled by
+  `at_gamets` returns 0 even if its stored severity was once high); the
+  endpoint's diff/dedupe behavior (a second poll with no state change
+  returns nothing; a real change surfaces once, and only once, until it
+  changes again).
+
+**Still explicitly not built:** the C++ poller itself, `SetRelationshipRank`
+calls, anything on the game side. This Python half has no effect on a
+live game until that exists — it's the same "prove the smallest real
+thing headless, name what's deferred" discipline as every other slice.
+
 ## 4. Non-goals for this slice
 
 - AI-package overrides (behavior/schedule changes) — a real, separate,
