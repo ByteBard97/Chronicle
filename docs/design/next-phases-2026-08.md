@@ -16,6 +16,53 @@ apply to any NPC the player can actually meet (verified: `IdentityMap.
 cpp`'s `kNamedCast` has exactly one entry against 28 live-captured
 Whiterun NPCs in `whiterun-positions.json`).
 
+## 0i. Landed: vendor-markup slice, Python-only cut (`f1b1873`, fifth ChronicleBridge slice)
+
+`docs/research/23-v03-hysteresis-and-action-verbs.md`'s ranked #2 action
+verb. `chronicle/vendor_markup.py`'s `markup_multiplier_for()`: `1.0`
+below a severity floor of `0.2` or once cooled, linear ramp to a
+placeholder ceiling of `1.5` otherwise — never below `1.0`, so it can
+never imply a price under `fBarterBuyMin`'s real 1.05 floor (enforcing
+that floor is the eventual game-side consumer's job). `GET
+/whiterun/vendor-markup` + `POST /whiterun/vendor-markup/ack` mirror the
+poll/ack protocol, directed like hydration (not symmetric like
+avoidance), two-outcome like avoidance (no `no_relationship`-equivalent
+case — a vendor-markup write has no dependency on a pre-existing
+authored vanilla record). Independently re-verified before commit: both
+test suites re-run (340 + 57 passing), ruff re-checked against the
+pre-existing baseline (1 pre-existing finding, zero new). **No C++ half
+yet** — same split as hydration/avoidance, needs its own research pass
+on the barter-menu-open price-write hook.
+
+## 0h. Research: CK-GUI avoidance blocker retracted; DevBench verified as a real test-automation path (`d60cb95`)
+
+Two research docs dispatched in response to a standing instruction not to
+accept my own unverified "needs X, out of reach" claims without actually
+checking:
+
+- `docs/research/24-programmatic-esp-authoring.md` retracts §0g/`chronicle-
+  bridge-avoidance-out.md` §2b's "needs Creation Kit GUI access" claim.
+  **Mutagen** (MIT C#/.NET, the Synthesis-patcher library) creates
+  brand-new `PACK`+`CTDA` records and links them to NPCs/factions entirely
+  headlessly (`dotnet run` over SSH, no Bethesda tool). Avoidance's C++
+  half is reclassified from "blocked, needs owner/CK access" back to
+  "real, unblocked, unbuilt" — same status as hydration's/vendor-markup's
+  own game-side halves. The CK genuinely has no headless authoring mode
+  (that half of the original claim held), it just was never the only
+  route.
+- `docs/research/25-devbench-skse-mcp-verification.md` verifies a
+  secondhand claim the owner surfaced from a separate conversation:
+  `alandtse/devbench` is real, active, and does run console-command
+  execution + save/load + state inspection over MCP/REST on
+  `127.0.0.1:8920` (GPL-3, not MIT as claimed, aside from a small
+  MIT-licensed C-ABI shim). Could drive most of `chronicle-bridge-
+  verification-runbook.md`'s steps from an agent session once a live game
+  exists with both plugins loaded — doesn't eliminate launching the game,
+  one-time install, or tunnel setup.
+
+Neither doc changes any shipped code. Both close a "genuinely blocked"
+claim this project had been carrying without ever checking it.
+
 ## 0. Landed
 
 - Rules 12 (grudge-creation) and 13 (grudge-decay) — the scenario
