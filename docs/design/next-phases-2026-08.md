@@ -17,6 +17,23 @@ edited here) and should be updated by the owner when convenient.
 (`chronicle/driver.py`) — the first case of a grudge forming without a
 scenario/console script explicitly calling `form_grudge()`.
 
+## 0b. Also landed since this doc was first written
+
+`chronicle/sync.py` (ADR-0005's RESOLVE table, epoch fencing, dedup —
+§1 below) and `chronicle sync-check <run_id> --manifest '<json>'`
+(`docs/design/chronicle-sync-cli-integration.md`) are both built and
+tested (commits `c5aa674`, `eea96c1`). `sync-check` classifies a real
+run's state fully for CONTINUE; FORK/ADOPT compute correctly but exit 3
+with an explicit "no fork-on-disk mechanism exists yet" message, because
+that finding turned out to be real: `chronicle/framelog.py`'s on-disk
+format bakes in exactly one `(save_uuid, generation)` per run, and
+`EventLog.fork()` (`chronicle/events.py`) has no on-disk counterpart.
+**Fork-on-disk support is now the actual blocking dependency** for
+finishing the sync handshake beyond the simple-reload case — it's real,
+new, undesigned scope (nobody has specified what a forked branch's
+directory/records/index layout looks like), not a small follow-up. See
+§1b.
+
 ## 1. Highest-leverage next lane: ADR-0005's Python-side sync handshake
 
 **Why this one first:** every future ChronicleBridge extraction slice
@@ -58,6 +75,21 @@ its own design-prep doc first, same discipline as the two existing
 ChronicleBridge slices); the C++ shim side (`g_isLoading`, the co-save
 read/write, the two load hooks) — needs the Windows machine and a live
 game, not attemptable headless.
+
+## 1b. New candidate: fork-on-disk support
+
+What §0b surfaced. Needed before `sync-check`'s FORK/ADOPT paths (or any
+real reload-to-an-earlier-save case) can do anything but report. Not yet
+scoped at all — open questions a design-prep doc would need to answer:
+how a forked branch's run directory/records/index actually look on disk
+(a new directory? a second `(save_uuid, generation)` inside the existing
+one, mirroring `EventLog`'s in-memory shape?); how `chronicle inject`'s
+existing historical-tick refusal (`_inject_write`, "fork territory, a
+deliberately deferred milestone") changes once fork *is* built; whether
+the dashboard's run-registry/index needs to learn about multiple
+generations per `save_uuid`. This is real, undesigned scope — worth a
+design-prep doc of its own before any code, same discipline as
+everything else in this doc.
 
 ## 2. Second candidate: trust-discounted retelling design-prep
 
