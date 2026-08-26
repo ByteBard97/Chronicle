@@ -64,6 +64,21 @@ interactive desktop session (see root `HANDOFF-*.md` files,
 a live game" are two different claims; keep them distinct in every
 future report on ChronicleBridge C++ work.
 
+## 0e. Landed: hydration-out's Python-only slice (`e3e4b20`, `3044e14`)
+
+`SocialStateStore.reputations()`, the pure `chronicle/hydration.py`
+bucketing function (grudge severity → Skyrim relationship-rank scale,
+decay-aware, reputation deliberately deferred), and `GET
+/whiterun/hydration` on the listener — the one documented, narrowly-
+scoped exception to "never import chronicle/ directly" (justified
+because this route has no write path to protect). In-memory idempotency
+cache, explicitly doesn't survive a listener restart (named gap, not
+silent). 323 + 15 tests pass. **Still nothing on the C++ side** — no
+poller exists yet to call this endpoint or actually invoke
+`SetRelationshipRank` in-game; that's the natural next slice now that
+both this and death-extraction have proven the "In"/"Out" split works
+and the build machine is reachable.
+
 ## 0d. Landed: death-extraction's C++ half (`6ec2406`)
 
 `DeathEventSink`, wired into `plugin.cpp` and `OutboundClient`, compiles
