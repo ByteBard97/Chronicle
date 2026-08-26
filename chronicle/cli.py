@@ -1049,15 +1049,44 @@ def sync_check_command(args: argparse.Namespace) -> int:
 
     if resolution.decision in (ResolveDecision.FORK, ResolveDecision.ADOPT):
         print(payload)
+        if not getattr(args, "apply", False):
+            print(
+                f"chronicle: sync-check computed {resolution.decision.value} for run {run_id!r} but did not act on "
+                "it -- pass --apply to actually fork (chronicle/fork.py now exists; this was report-only before "
+                "it landed, docs/design/chronicle-sync-cli-integration.md §0/docs/design/fork-on-disk-support.md).",
+                file=sys.stderr,
+            )
+            return 3
+        # --apply: fork_run() takes an integer tick (ADR-0010: 1 tick = 1
+        # gamets), so the resolution's gamets-typed fork point is truncated
+        # here, not inside fork_run() itself (that module stays tick-only,
+        # per its own design doc -- this CLI boundary is where a gamets
+        # value from the sync protocol becomes a tick).
+        if resolution.fork_at_gamets is None:
+            # Not reachable today -- chronicle.sync.resolve() always sets
+            # fork_at_gamets for FORK and the head_seq-ahead ADOPT case
+            # (chronicle/sync.py). Defensive, not a real branch: fail loudly
+            # rather than guess a tick if that contract ever changes.
+            print(
+                f"chronicle: sync-check computed {resolution.decision.value} with no fork_at_gamets -- cannot "
+                "apply (chronicle.sync.resolve()'s contract may have changed underneath this command)",
+                file=sys.stderr,
+            )
+            return 1
+        fork_at_tick = int(resolution.fork_at_gamets)
+        new_run_id = args.new_run_id if getattr(args, "new_run_id", None) else f"{run_id}-{resolution.decision.value.lower()}-{fork_at_tick}"
+        try:
+            forked = fork_run(run_id, at_tick=fork_at_tick, new_run_id=new_run_id, runs_dir=run_dir.parent)
+        except (FileNotFoundError, FileExistsError, ValueError) as exc:
+            print(f"chronicle: sync-check --apply failed to fork: {exc}", file=sys.stderr)
+            return 1
+        forked.close()
         print(
-            f"chronicle: sync-check computed {resolution.decision.value} for run {run_id!r}, but no fork-on-disk "
-            "mechanism exists yet to act on it -- chronicle/framelog.py's on-disk format bakes in exactly one "
-            "(save_uuid, generation) pair per run, and EventLog.fork() (chronicle/events.py) has no on-disk "
-            "counterpart (docs/design/chronicle-sync-cli-integration.md §0). The decision above is real -- only "
-            "the write side is unbuilt.",
+            f"chronicle: sync-check applied {resolution.decision.value} -- forked run {run_id!r} at tick "
+            f"{fork_at_tick} into new run {new_run_id!r} (generation {forked.generation}).",
             file=sys.stderr,
         )
-        return 3
+        return 0
 
     # Unreachable in practice: NEW_TIMELINE needs known=False (never true
     # here -- the run exists on disk by definition), LEGACY_IMPORT is
@@ -1157,10 +1186,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_check = sub.add_parser(
         "sync-check",
         help=(
-            "classify a co-save manifest against a run's state (chronicle.sync.resolve); CONTINUE is the only "
-            "decision this can act on today -- FORK/ADOPT are computed and reported but not applied (no on-disk "
-            "fork mechanism exists yet, docs/design/chronicle-sync-cli-integration.md); NEW_TIMELINE/LEGACY_IMPORT "
-            "are report-only"
+            "classify a co-save manifest against a run's state (chronicle.sync.resolve); CONTINUE always applies "
+            "itself (nothing to write); FORK/ADOPT are computed and reported only, unless --apply is given, in "
+            "which case they actually fork the run (chronicle.fork.fork_run); NEW_TIMELINE/LEGACY_IMPORT stay "
+            "report-only regardless of --apply (docs/design/chronicle-sync-cli-integration.md)"
         ),
     )
     p_sync_check.add_argument("pos_run", nargs="?", metavar="run_id", help="the run id (positional form)")
@@ -1172,6 +1201,17 @@ def build_parser() -> argparse.ArgumentParser:
             "the co-save manifest as JSON (chronicle.sync.Manifest's fields: format_version, save_uuid, "
             "generation, parent_generation, head_seq, gamets, wall_ts)"
         ),
+    )
+    p_sync_check.add_argument(
+        "--apply",
+        action="store_true",
+        help="for a FORK/ADOPT decision, actually fork the run (chronicle fork) instead of only reporting it",
+    )
+    p_sync_check.add_argument(
+        "--new-run-id",
+        default=None,
+        dest="new_run_id",
+        help="id for the forked run when --apply is used (default: '<run_id>-<decision>-<tick>')",
     )
     p_sync_check.set_defaults(func=sync_check_command)
 

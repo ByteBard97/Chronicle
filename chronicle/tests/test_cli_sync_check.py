@@ -1,10 +1,11 @@
 """chronicle/cli.py: the ``sync-check`` subcommand (docs/design/chronicle-sync-cli-integration.md).
 
 Wires ``chronicle.sync.resolve()`` to a real run's on-disk state.
-CONTINUE is the only decision this command can fully act on -- FORK/ADOPT
-are computed and reported (exit 2) but not applied, since no on-disk fork
-mechanism exists yet (§0 of the design doc). Runs are built with the real
-Driver in a tmp CHRONICLE_RUNS_DIR, the same pattern as
+CONTINUE always applies itself (nothing to write). FORK/ADOPT are
+computed and reported (exit 3) but NOT applied unless ``--apply`` is
+given, in which case they call ``chronicle.fork.fork_run()``
+(docs/design/fork-on-disk-support.md) for real. Runs are built with the
+real Driver in a tmp CHRONICLE_RUNS_DIR, the same pattern as
 chronicle/tests/test_agent_debug_cli.py's ``run_dir`` fixture.
 """
 
@@ -126,6 +127,47 @@ def test_sync_check_adopt_on_unknown_generation_is_reported_but_not_applied(run_
     assert result["decision"] == "ADOPT"
     assert result["branch_generation"] == 99
     assert "fork-on-disk" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# FORK / ADOPT with --apply -- actually forks (chronicle.fork.fork_run)
+# ---------------------------------------------------------------------------
+
+
+def test_sync_check_apply_forks_a_stale_gamets_manifest(run_dir, tmp_path, capsys):
+    # fork_at_gamets on a stale-gamets FORK is the manifest's own gamets
+    # (chronicle/sync.py's resolve()) -- here 0.0, so fork_run() forks at
+    # tick 0, the run's very first tick.
+    rc = main(["sync-check", _RUN, "--manifest", _manifest(gamets=0.0), "--apply"])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    result = json.loads(captured.out)
+    assert result["decision"] == "FORK"
+    assert "applied FORK" in captured.err
+
+    new_run_id = f"{_RUN}-fork-0"
+    assert (tmp_path / new_run_id).exists()
+    registry = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    entries = {entry["run_id"]: entry for entry in registry["runs"]}
+    assert entries[new_run_id]["branches"][0]["generation"] == _GENERATION + 1
+    # The parent's own registry entry and generation are untouched.
+    assert entries[_RUN]["branches"][0]["generation"] == _GENERATION
+
+
+def test_sync_check_apply_respects_new_run_id(run_dir, tmp_path, capsys):
+    rc = main(["sync-check", _RUN, "--manifest", _manifest(gamets=0.0), "--apply", "--new-run-id", "my-fork"])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert (tmp_path / "my-fork").exists()
+
+
+def test_sync_check_apply_on_continue_is_a_no_op_since_continue_already_applied_itself(run_dir, capsys):
+    # --apply only changes FORK/ADOPT handling; CONTINUE's behavior (and
+    # exit code) is identical with or without the flag.
+    rc = main(["sync-check", _RUN, "--manifest", _manifest(), "--apply"])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert json.loads(captured.out)["decision"] == "CONTINUE"
 
 
 # ---------------------------------------------------------------------------
