@@ -41,6 +41,29 @@ can go headlessly.** What's left there — the C++ shim side and the
 dashboard UI for triggering a fork (`ui-spec.md` §3.1) — needs the
 Windows build machine, a live game, or dashboard-lane work respectively.
 
+## 0b2. Standing capability discovered: the Windows build machine is reachable
+
+SSH access to the owner's Windows machine (`geoff@192.168.0.211`) works
+and has a fully set-up ChronicleBridge build toolchain (VS2022 Build
+Tools, CMake+Ninja, vcpkg already bootstrapped) — confirmed by a real
+clean build during this session. Connection details and the exact
+working build recipe (the MSVC dev environment isn't loaded by default
+over plain SSH — needs `vcvars64.bat` sourced via `cmd.exe` in the same
+invocation as the build) are in `.claude/windows-build-machine.md`
+(gitignored, local-only, per the owner's explicit request — re-read it
+at the start of any future C++ work rather than rediscovering this).
+
+**This retires every prior "needs the Windows build machine, not
+attemptable from this session" caveat this document and its
+predecessors have repeated about ChronicleBridge C++ work.** Compiling
+and verifying C++ changes is now directly reachable from a headless
+session. What's still NOT reachable: actually running Skyrim/MO2 and
+observing live in-game behavior — that remains the owner's own
+interactive desktop session (see root `HANDOFF-*.md` files,
+`tools/launch-ngvo-skse.sh`). "Compiles cleanly" and "verified against
+a live game" are two different claims; keep them distinct in every
+future report on ChronicleBridge C++ work.
+
 ## 0c. Landed: named-cast growth (`2f27cc8`)
 
 `IdentityMap.cpp`'s `kNamedCast` grew from 1 entry (ysolda) to 19, using
