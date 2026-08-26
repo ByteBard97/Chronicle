@@ -26,7 +26,7 @@
 - Social state: sparse relationships (colocation, kinship, faction, shared_employer — enforced); grudges with separate emotional/evidentiary strength (**no decay function**); obligations with issue/fulfill/violate paths (violation→grudge wiring not yet present); observer-local Beta-style reputation (`update_reputation()`).
 - Schedule-driven encounter sampling: co-presence + **one uniform global probability** (ENCOUNTER_PROBABILITY = 0.5, sequential RNG stream). No per-pair weighting.
 
-**Not built (each is a named mechanism with a rung below):** tell-decision policy (privacy/motive gating); conflicting-variant resolution; grudge decay; trust-discounted retelling (deferred, see T1.1 note); rule registry with toggles (today: module constants); derivation trace; schedule write-back; pairwise encounter weighting; roles; collective aggregates; economy; LLM tiers; TTS; adapter.
+**Not built (each is a named mechanism with a rung below):** tell-decision policy (privacy/motive gating); conflicting-variant resolution; grudge decay; rule registry with toggles (today: module constants); derivation trace; schedule write-back; pairwise encounter weighting; roles; collective aggregates; economy; LLM tiers; TTS; adapter.
 
 ## 3. The ladder
 
@@ -46,7 +46,7 @@
 
 ***Placement decision (resolves former §7 Q2):*** *the trace is a **sibling stream** to the canonical event log, not entries in it — the canonical log stays lean and semantic (things that happened in the world), the trace carries derivation mechanics (why the sim did what it did). Both share one versioned keyframe+delta frame schema so the dashboard scrubs them on a single timeline; the schema is frozen and versioned before any UI work, per ui-doctrines (the log format outlives UI churn). Two schema commitments made now because retrofitting them is the same cheap-now/brutal-later trade as keyed randomness: (1) **the trace is always-on, never a debug flag** — T1.3 and T3.4 assert against trace contents and scenario failures attach the trace file, so a switchable trace breaks the test suite by configuration; (2) **trace records carry the timeline branch key (save_uuid, generation) from day one** — the canonical log already does, both scrub one timeline, and freezing the frame schema without the branch key forces a schema-v2 retrofit the moment save/reload exercising begins.*
 
-- **T1.1 Tell.** Witness and neighbor share a location block. Assert: listener belief exists; source chain = [witness]; confidence = witness confidence × 0.8 **exactly** (flat decay — trust-discounted retelling is a deliberately deferred mechanism; when scheduled, it gets its own rung because it feeds social state back into claims).
+- **T1.1 Tell.** Witness and neighbor share a location block. Assert: listener belief exists; source chain = [witness]; confidence = witness confidence × 0.8 **exactly** (flat decay, with rule 20 — trust-discounted retelling, `docs/design/trust-discounted-retelling.md` — explicitly disabled for this fixture, since T1.1's own point is the flat-decay baseline that rule 20 discounts away from once enabled).
 - **T1.2 Kill the sole witness.** Player kills the witness before any encounter. Assert: zero beliefs held by anyone else **for that claim id** at any later tick (scoped so the killing itself, if witnessed, doesn't vacuously break the assertion).
 - **T1.3 Non-encounter is recorded.** Co-present pair, roll fails (keyed roll pinned by fixture). Assert: the trace contains the negative record with roll value vs. threshold. *(Tests the trace itself.)*
 
@@ -140,8 +140,7 @@ Named rules the finalized ladder requires, by introducing tier:
 | 6 | encounter-sampling (co-presence + keyed roll) | 1 |
 | 7 | mutation policy (slot mutations keyed to memory strength) | 2 |
 | 8 | variant-resolution (trust-source w/ tiebreak) | 2 |
-| 9 | rumor-stage transitions (5-state machine) | 2 |
-| 10 | dormancy-reactivation | 2 |
+| 9/10 | rumor-stage transitions + dormancy-reactivation (one state machine, O4 ruling — both wrap `claims.stage_at()`; kept as two registered rule names for existing trace/registry compatibility, counted once here) | 2 |
 | 11 | accumulation-threshold (with hysteresis, per doctrine 3) | 3 |
 | 12 | grudge-creation (emotional/evidentiary split) | 3 |
 | 13 | grudge-decay | 3 |
@@ -151,8 +150,9 @@ Named rules the finalized ladder requires, by introducing tier:
 | 17 | schedule write-back (block insertion/restoration) | 4a |
 | 18 | pairwise encounter weighting (avoidance) | 4b |
 | 19 | role-vacancy/succession resolution | 5 |
+| 20 | trust-discounted retelling (relationship-weighted confidence decay, docs/design/trust-discounted-retelling.md) | 1 |
 
-**Count: 19 named rules against the ~20 ceiling.** Consequences: (a) the ceiling is real — v0.3's social-actions tier cannot simply add rules; it must spend the remaining slot deliberately or consolidate (candidates: 9+10 are one state machine and could be counted as one; 4 is an invariant, arguably schema not rule); (b) every rule above must exist in the rule registry (Tier 3 machinery) as a named, toggleable, trace-instrumented object; (c) any proposed rule not on this table is a scope discussion, not a commit.
+**Count: 18 named rule-slots against the ~20 ceiling (9+10 merged per the O4 ruling `chronicle/rules.py`'s own docstring already recorded — this table's prose simply hadn't caught up), plus rule 20 landing exactly at the ceiling.** Consequences: (a) the ceiling is real — any future rule beyond 20 needs a fresh consolidation ruling or an explicit ceiling raise, not a default assumption of headroom; (b) every rule above must exist in the rule registry (Tier 3 machinery) as a named, toggleable, trace-instrumented object; (c) any proposed rule not on this table is a scope discussion, not a commit.
 
 ## 9. Consequences exported to other documents
 
