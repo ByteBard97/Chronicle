@@ -69,11 +69,33 @@ docstring for the state machine (same shape as `_HydrationPairState`'s,
 minus the third outcome and its per-rank scoping -- here there is only
 ever one tracked fact per pair, "is it avoiding").
 
+GET /whiterun/vendor-markup and POST /whiterun/vendor-markup/ack
+(docs/design/chronicle-bridge-vendor-markup-out.md): the same poll/ack
+protocol shape as hydration, applied to `chronicle.vendor_markup.
+markup_multiplier_for`'s continuous grudge-severity-to-price-multiplier
+curve instead of the relationship-rank bucketing. Directed, like
+hydration (a grudge holder marks up prices toward its target -- a
+one-directional fact), NOT symmetric like avoidance -- the response's
+`holder_id`/`target_id` are never canonicalized/sorted, the pair is
+served exactly as the underlying `Grudge` names it. Two-outcome ack
+(`applied`/`retry`), same as avoidance and NOT hydration's three: a
+vendor-markup write has no `no_relationship`-equivalent permanent-failure
+case the way hydration's `BGSRelationship::GetRelationship()` lookup
+does -- it never depends on an authored vanilla record that might not
+exist. The eventual game-side consumer (writing a price multiplier at
+barter-menu open, per the design doc's §0) only ever fails because no
+game is active or an NPC reference doesn't resolve -- both temporary,
+retry-worthy conditions, never a permanent "no such record" case. See
+`_VendorMarkupPairState`'s docstring for the state machine (same shape as
+`_AvoidancePairState`'s: two outcomes, no per-rank scoping, since there
+is only ever one tracked fact per pair -- its current multiplier).
+
 Read-only exception, /whiterun/hydration (docs/design/chronicle-bridge-
 hydration-out.md §3b): this one route DOES import chronicle/ directly
 (`chronicle.framelog.FrameLogReader`/`state_at`, `chronicle.social`,
-`chronicle.hydration.relationship_rank_for`), unlike every write path in
-this file. The house rule above -- "shell out to `python -m chronicle`,
+`chronicle.hydration.relationship_rank_for`, `chronicle.avoidance.
+is_avoiding`, `chronicle.vendor_markup.markup_multiplier_for`), unlike
+every write path in this file. The house rule above -- "shell out to `python -m chronicle`,
 never import chronicle/ directly" -- exists to keep *writes* going
 through the CLI's own validation/refusal logic (fork-territory checks,
 origin stamping) so this listener can never silently corrupt a run. This
@@ -110,6 +132,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from chronicle.avoidance import is_avoiding
 from chronicle.framelog import FrameLogReader, default_runs_dir
 from chronicle.hydration import RANK_NO_GRUDGE, relationship_rank_for
+from chronicle.vendor_markup import MARKUP_NO_MARKUP, markup_multiplier_for
 
 # Mirrors adapters/skyrim/ChronicleBridge/src/IdentityMap.cpp's kNamedCast
 # table exactly (chronicleNpcId column) -- the same 19-entry set
@@ -509,6 +532,140 @@ def _apply_avoidance_ack(
         del pair_states[key]
 
 
+@dataclasses.dataclass
+class _VendorMarkupPairState:
+    """One entry in the per-(holder_id, target_id) vendor-markup state
+    machine -- the same protocol shape as `_HydrationPairState`, applied
+    to a directed pair (like hydration) but a two-outcome ack (like
+    avoidance).
+
+    `(holder_id, target_id)` is never canonicalized/sorted -- unlike
+    `_AvoidancePairState`, this pair is directed (a grudge holder marks up
+    prices toward its target; the reverse direction is a different,
+    independently tracked fact, exactly like `_HydrationPairState`'s own
+    holder/target shape), per docs/design/chronicle-bridge-vendor-markup-
+    out.md's own ruling that this slice mirrors hydration's directed
+    shape, not avoidance's symmetric one.
+
+        (absent from the dict)  -- "not-yet-offered": baseline, equivalent
+                                    to a settled multiplier of
+                                    MARKUP_NO_MARKUP (1.0, no markup).
+                                    Every pair starts here, and a `retry`
+                                    ack (or a listener restart) sends it
+                                    back here.
+        status="awaiting_ack"   -- offered in a GET response, no ack
+                                    received yet for this exact
+                                    `multiplier` value. A poll while
+                                    awaiting-ack at the SAME value is a
+                                    no-op.
+        status="applied"        -- the C++ poller confirmed it wrote this
+                                    `multiplier` in-game. A poll at the
+                                    same value is a no-op.
+
+    No third status, same reasoning `_AvoidancePairState`'s docstring
+    gives for its own two-outcome shape: a vendor-markup write has no
+    `no_relationship`-equivalent permanent-failure case (see this file's
+    module docstring) -- it depends only on whether both NPCs are
+    named-cast (already filtered) and whether a live game/actor reference
+    is available (`retry`, temporary), never on an authored vanilla
+    record that may or may not exist. An ack only ever settles a pair
+    (`applied`) or forgets it for re-evaluation (`retry`, handled by
+    deleting the entry -- indistinguishable from what a listener restart
+    already does, same precedent as hydration's and avoidance's `retry`).
+
+    `awaiting_since` closes the identical dropped-ack gap
+    `_HydrationPairState`/`_AvoidancePairState` document: an
+    "awaiting_ack" entry older than `_AWAITING_ACK_TIMEOUT_SECONDS` is
+    treated as expired and re-offered on the next poll regardless of
+    whether its `multiplier` value changed.
+    """
+
+    multiplier: float
+    status: str  # "awaiting_ack" | "applied"
+    awaiting_since: float | None = None  # time.monotonic() when status became "awaiting_ack"; None otherwise.
+
+
+_VENDOR_MARKUP_ACK_OUTCOMES = frozenset({"applied", "retry"})
+
+
+def _vendor_markup_pairs(
+    live_run: str, pair_states: dict[tuple[str, str], _VendorMarkupPairState]
+) -> list[dict[str, object]]:
+    """Compute changed (holder, target, markup_multiplier) pairs for the
+    live run's named-cast grudges.
+
+    Directed, mirroring `_hydration_pairs` exactly (one entry per grudge,
+    keyed on (holder_id, target_id), never canonicalized) rather than
+    `_avoidance_pairs`'s symmetric grouping-by-unordered-pair. Only pairs
+    whose computed multiplier differs from what's currently tracked in
+    `pair_states` (or whose `awaiting_ack` entry has expired, per
+    `_VendorMarkupPairState`'s docstring) are returned -- same dedupe/ack
+    discipline as `_hydration_pairs`/`_avoidance_pairs`.
+    """
+    reader = FrameLogReader(default_runs_dir() / live_run)
+    max_tick = _max_tick(reader)
+    if max_tick is None:
+        return []
+    state = reader.state_at(max_tick)
+    at_gamets = float(max_tick)
+
+    changed: list[dict[str, object]] = []
+    for grudge in state.social.grudges():
+        if grudge.holder_id not in NAMED_CAST_NPC_IDS or grudge.target_id not in NAMED_CAST_NPC_IDS:
+            continue
+        multiplier = markup_multiplier_for(grudge, at_gamets=at_gamets)
+        key = (grudge.holder_id, grudge.target_id)
+        entry = pair_states.get(key)
+
+        # Same "stale awaiting_ack entry forces a re-offer" doctrine as
+        # _hydration_pairs/_avoidance_pairs -- a silently dropped ack
+        # (PostVendorMarkupAck, fire-and-forget like every other outbound
+        # call in ChronicleBridge) must not leave a pair stuck forever at
+        # the same multiplier.
+        expired = (
+            entry is not None
+            and entry.status == "awaiting_ack"
+            and entry.awaiting_since is not None
+            and time.monotonic() - entry.awaiting_since > _AWAITING_ACK_TIMEOUT_SECONDS
+        )
+
+        # A pair absent from the state machine defaults to a settled
+        # multiplier of MARKUP_NO_MARKUP (1.0) -- the game's own default,
+        # no-discount price -- not "unknown", so a pair that has always
+        # computed to 1.0 is never reported as a spurious "changed to
+        # 1.0" push on its very first poll. Same "no change to offer" vs.
+        # "explicitly reset to 1.0" distinction RANK_NO_GRUDGE gets in
+        # _hydration_pairs: a grudge that cools back down to 1.0 from a
+        # nonzero markup IS a real change (entry.multiplier was != 1.0,
+        # so the comparison below fires and the pair is re-offered at
+        # 1.0) -- it is only the never-tracked-at-all case that is
+        # silently treated as already-1.0.
+        last_multiplier = entry.multiplier if entry is not None else MARKUP_NO_MARKUP
+        if not expired and multiplier == last_multiplier:
+            continue
+        pair_states[key] = _VendorMarkupPairState(multiplier=multiplier, status="awaiting_ack", awaiting_since=time.monotonic())
+        changed.append({"holder_id": grudge.holder_id, "target_id": grudge.target_id, "markup_multiplier": multiplier})
+    return changed
+
+
+def _apply_vendor_markup_ack(
+    pair_states: dict[tuple[str, str], _VendorMarkupPairState], holder_id: str, target_id: str, outcome: str
+) -> None:
+    """Advance one pair's state machine entry per an ack's outcome.
+
+    Silently ignores an ack for a pair with no current entry -- same
+    reasoning as `_apply_hydration_ack`/`_apply_avoidance_ack`: nothing to
+    update, and a stale/racing ack must never crash this endpoint.
+    """
+    entry = pair_states.get((holder_id, target_id))
+    if entry is None:
+        return
+    if outcome == "applied":
+        pair_states[(holder_id, target_id)] = _VendorMarkupPairState(multiplier=entry.multiplier, status="applied")
+    elif outcome == "retry":
+        del pair_states[(holder_id, target_id)]
+
+
 def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str | None) -> type[BaseHTTPRequestHandler]:
     # Per-pair hydration state machine (design doc §3b + the ack protocol
     # that closes fad0d79's "delivered before confirmed" gap) -- see
@@ -529,6 +686,13 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
     # in-memory-only, does-not-survive-a-restart shape as
     # hydration_pair_states above -- see _AvoidancePairState's docstring.
     avoidance_pair_states: dict[tuple[str, str], _AvoidancePairState] = {}
+
+    # Per-(holder_id, target_id) vendor-markup state machine (design doc
+    # chronicle-bridge-vendor-markup-out.md), same closure-scoped,
+    # in-memory-only, does-not-survive-a-restart shape as
+    # hydration_pair_states/avoidance_pair_states above -- see
+    # _VendorMarkupPairState's docstring.
+    vendor_markup_pair_states: dict[tuple[str, str], _VendorMarkupPairState] = {}
 
     class Handler(BaseHTTPRequestHandler):
         def _check_auth(self) -> bool:
@@ -564,6 +728,8 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
                 self._handle_hydration_ack()
             elif self.path == "/whiterun/avoidance/ack":
                 self._handle_avoidance_ack()
+            elif self.path == "/whiterun/vendor-markup/ack":
+                self._handle_vendor_markup_ack()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -630,6 +796,8 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
                 self._handle_hydration()
             elif self.path == "/whiterun/avoidance":
                 self._handle_avoidance()
+            elif self.path == "/whiterun/vendor-markup":
+                self._handle_vendor_markup()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -775,6 +943,78 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
 
             for npc_a, npc_b, outcome in parsed:
                 _apply_avoidance_ack(avoidance_pair_states, npc_a, npc_b, outcome)
+
+            self.send_response(204)
+            self.end_headers()
+
+        def _handle_vendor_markup(self) -> None:
+            """GET /whiterun/vendor-markup -- same gating as
+            /whiterun/hydration (503 without --live-run, same auth),
+            directed response shape (docs/design/chronicle-bridge-vendor-
+            markup-out.md)."""
+            if live_run is None:
+                self.send_response(503)
+                self.end_headers()
+                return
+            if not self._check_auth():
+                return
+
+            pairs = _vendor_markup_pairs(live_run, vendor_markup_pair_states)
+            body = json.dumps(pairs).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _handle_vendor_markup_ack(self) -> None:
+            """POST /whiterun/vendor-markup/ack -- the same ack protocol as
+            /whiterun/hydration/ack and /whiterun/avoidance/ack, applied to
+            a directed pair and a two-outcome ("applied" | "retry") shape
+            (see module docstring for why vendor-markup has no third,
+            permanent-failure outcome, unlike hydration).
+
+            Body: a JSON array of {"holder_id": str, "target_id": str,
+            "outcome": "applied" | "retry"} objects -- not part of the
+            OpenAPI contract, same hand-rolled-JSON precedent as every
+            other ack/GET pair in this file. A malformed body is rejected
+            wholesale with a 400, same reject-the-whole-batch style as the
+            other two ack endpoints.
+            """
+            if live_run is None:
+                self.send_response(503)
+                self.end_headers()
+                return
+            if not self._check_auth():
+                return
+            raw = self._read_body()
+            if raw is None:
+                return
+
+            try:
+                payload = json.loads(raw)
+                if not isinstance(payload, list):
+                    raise TypeError("expected a JSON array")
+                parsed: list[tuple[str, str, str]] = []
+                for item in payload:
+                    if not isinstance(item, dict):
+                        raise TypeError("expected an array of objects")
+                    holder_id = item["holder_id"]
+                    target_id = item["target_id"]
+                    outcome = item["outcome"]
+                    if not isinstance(holder_id, str) or not isinstance(target_id, str):
+                        raise TypeError("holder_id/target_id must be strings")
+                    if outcome not in _VENDOR_MARKUP_ACK_OUTCOMES:
+                        raise ValueError(f"unknown outcome: {outcome!r}")
+                    parsed.append((holder_id, target_id, outcome))
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                print(f"rejected malformed vendor-markup ack: {exc}", file=sys.stderr)
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            for holder_id, target_id, outcome in parsed:
+                _apply_vendor_markup_ack(vendor_markup_pair_states, holder_id, target_id, outcome)
 
             self.send_response(204)
             self.end_headers()

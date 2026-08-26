@@ -740,6 +740,211 @@ def test_avoidance_ack_endpoint_enforces_the_shared_secret(server_factory, grudg
     assert authed.status == 204
 
 
+def test_vendor_markup_endpoint_returns_empty_array_for_a_sub_threshold_grudge(server_factory, tmp_path, monkeypatch):
+    """A grudge that never clears markup_multiplier_for's severity floor
+    (multiplier stays MARKUP_NO_MARKUP) must be indistinguishable from "no
+    grudge rows at all" -- not surfaced as a spurious 1.0-multiplier
+    change."""
+    run_id = "listener-test-vendor-markup-subthreshold-run"
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=run_id,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(
+            ScheduleBlock(npc_id="nazeem", location_id="whiterun_market", start_tick=0, end_tick=50),
+            ScheduleBlock(npc_id="ysolda", location_id="whiterun_market", start_tick=0, end_tick=50),
+        ),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.run(0, 5)
+    relationship = driver.form_relationship(
+        id="r1", from_id="nazeem", to_id="ysolda",
+        basis="colocation", basis_id=None, strength=0.1, gamets=5.0,
+    )
+    driver.form_grudge(
+        id="g1", holder_id="nazeem", victim_id="ysolda", target_id="ysolda",
+        grievance_type="theft", source_belief_id="belief-nazeem-ysolda",
+        evidentiary_strength=0.1, relationship_to_victim=relationship, gamets=5.0,
+        forgiveness_threshold=0.2,
+    )
+    driver.close()
+
+    post = server_factory(live_run=run_id)
+    status, body = post.get("/whiterun/vendor-markup")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_vendor_markup_endpoint_returns_503_without_live_run(server_factory):
+    post = server_factory(live_run=None)
+    status, _ = post.get("/whiterun/vendor-markup")
+    assert status == 503
+
+
+def test_vendor_markup_endpoint_returns_empty_array_with_no_grudges(server_factory, live_run):
+    post = server_factory(live_run=_RUN)
+    status, body = post.get("/whiterun/vendor-markup")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_vendor_markup_endpoint_surfaces_a_severe_grudge_between_named_cast(server_factory, grudge_run):
+    """grudge_run's grudge has decayed severity 0.9 at at_gamets=5.0 --
+    markup_multiplier_for(0.9) == 1.4375 (see chronicle/vendor_markup.py's
+    curve: floor 0.2, ceiling 1.5, linear in between). Directed, like
+    hydration -- holder_id/target_id preserved exactly as the grudge names
+    them, never canonicalized like avoidance's npc_a/npc_b."""
+    _driver, _tmp_path = grudge_run
+    post = server_factory(live_run=_GRUDGE_RUN)
+
+    status, body = post.get("/whiterun/vendor-markup")
+    assert status == 200
+    pairs = json.loads(body)
+    assert pairs == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
+
+
+def test_vendor_markup_endpoint_is_idempotent_on_a_second_immediate_poll(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    first_status, first_body = post.get("/whiterun/vendor-markup")
+    assert first_status == 200
+    assert json.loads(first_body) != []
+
+    second_status, second_body = post.get("/whiterun/vendor-markup")
+    assert second_status == 200
+    assert json.loads(second_body) == []
+
+
+def test_vendor_markup_endpoint_reverts_to_no_markup_once_the_grudge_cools(server_factory, grudge_run):
+    _driver, _tmp_path = grudge_run
+    post = server_factory(live_run=_GRUDGE_RUN)
+
+    first_status, first_body = post.get("/whiterun/vendor-markup")
+    assert first_status == 200
+    assert json.loads(first_body) == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
+
+    # Advance the run's max tick well past both grudge half-lives, same
+    # technique as the hydration/avoidance cooling tests.
+    death = post("/whiterun/events", {"event_type": "npc_died", "gamets": 2000.0, "npc_id": "brenuin"})
+    assert death.status == 204
+
+    third_status, third_body = post.get("/whiterun/vendor-markup")
+    assert third_status == 200
+    assert json.loads(third_body) == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.0}]
+
+
+def test_vendor_markup_endpoint_does_not_reoffer_a_pair_still_awaiting_ack(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    first_status, first_body = post.get("/whiterun/vendor-markup")
+    assert first_status == 200
+    assert json.loads(first_body) == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
+
+    second_status, second_body = post.get("/whiterun/vendor-markup")
+    assert second_status == 200
+    assert json.loads(second_body) == []
+
+
+def test_vendor_markup_ack_applied_means_not_reoffered_at_the_same_multiplier(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/vendor-markup")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
+
+    ack = post(
+        "/whiterun/vendor-markup/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"}],
+    )
+    assert ack.status == 204
+
+    status, body = post.get("/whiterun/vendor-markup")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_vendor_markup_ack_retry_is_reoffered_on_the_next_poll(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/vendor-markup")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
+
+    ack = post(
+        "/whiterun/vendor-markup/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "retry"}],
+    )
+    assert ack.status == 204
+
+    status, body = post.get("/whiterun/vendor-markup")
+    assert status == 200
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
+
+
+def test_vendor_markup_pair_is_reoffered_if_its_ack_times_out(server_factory, grudge_run, monkeypatch):
+    """Same dropped-ack timeout coverage as
+    test_hydration_pair_is_reoffered_if_its_ack_times_out/
+    test_avoidance_pair_is_reoffered_if_its_ack_times_out, applied to the
+    vendor-markup endpoint's own state machine."""
+    import listener as listener_module
+
+    fake_now = [1000.0]
+    monkeypatch.setattr(listener_module.time, "monotonic", lambda: fake_now[0])
+
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/vendor-markup")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
+
+    # No ack sent. Immediately re-polling (still within the timeout
+    # window) must NOT re-offer.
+    status, body = post.get("/whiterun/vendor-markup")
+    assert json.loads(body) == []
+
+    # Advance past the timeout with no ack ever having arrived (same
+    # server, no restart). The pair must be re-offered even though its
+    # computed multiplier hasn't changed.
+    fake_now[0] += listener_module._AWAITING_ACK_TIMEOUT_SECONDS + 1.0
+    status, body = post.get("/whiterun/vendor-markup")
+    assert status == 200
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
+
+
+def test_vendor_markup_ack_endpoint_returns_503_without_live_run(server_factory):
+    post = server_factory(live_run=None)
+    resp = post("/whiterun/vendor-markup/ack", [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"}])
+    assert resp.status == 503
+
+
+def test_vendor_markup_ack_endpoint_rejects_a_non_array_body(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post("/whiterun/vendor-markup/ack", {"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"})
+    assert resp.status == 400
+
+
+def test_vendor_markup_ack_endpoint_rejects_an_unknown_outcome(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post(
+        "/whiterun/vendor-markup/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "no_relationship"}],
+    )
+    assert resp.status == 400
+
+
+def test_vendor_markup_ack_endpoint_rejects_a_missing_field(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post("/whiterun/vendor-markup/ack", [{"holder_id": "nazeem", "outcome": "applied"}])
+    assert resp.status == 400
+
+
+def test_vendor_markup_ack_endpoint_enforces_the_shared_secret(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN, shared_secret="s3cret")
+    unauth = post("/whiterun/vendor-markup/ack", [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"}])
+    assert unauth.status == 401
+    authed = post(
+        "/whiterun/vendor-markup/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"}],
+        token="s3cret",
+    )
+    assert authed.status == 204
+
+
 def test_unknown_path_is_404(server_factory):
     post = server_factory()
     resp = post("/not/a/real/path", {})

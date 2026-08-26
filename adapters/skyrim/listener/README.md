@@ -91,19 +91,52 @@ Like the hydration routes, neither avoidance route's in-memory state
 survives a listener restart -- same named gap, same "identical to a
 `retry` ack" restart behavior.
 
+- **`GET /whiterun/vendor-markup`** -- the grudge-driven vendor-markup
+  slice's pending queue (`docs/design/chronicle-bridge-vendor-markup-
+  out.md`), for a future C++ poller to consume at barter-menu open (not
+  built yet -- Python-only, same split as hydration/avoidance). Reads the
+  live run's current on-disk state the same way `/whiterun/hydration`
+  does, and computes each named-cast grudge's price-markup multiplier via
+  `chronicle.vendor_markup.markup_multiplier_for` (a continuous curve
+  over decayed grudge severity -- `1.0` below its severity floor or once
+  cooled, ramping linearly to a placeholder ceiling of `1.5` at maximum
+  severity; see that module's own docstring for the exact band). Returns
+  only the `{holder_id, target_id, markup_multiplier}` pairs whose value
+  differs from what's currently tracked. **Directed, like hydration's
+  `holder_id`/`target_id` -- NOT canonicalized like avoidance's
+  `npc_a`/`npc_b`** -- a grudge holder marking up prices toward its target
+  is a one-directional fact. Gated identically to `/whiterun/hydration`
+  (503 without `--live-run`, same auth).
+- **`POST /whiterun/vendor-markup/ack`** -- the same ack protocol as the
+  other two ack routes, applied to vendor-markup's directed pair shape.
+  Body: a JSON array of `{"holder_id": str, "target_id": str, "outcome":
+  "applied" | "retry"}` objects. Only two outcomes, like avoidance and
+  unlike hydration's three: a vendor-markup write has no
+  `no_relationship`-equivalent permanent-failure case (it never depends on
+  an authored vanilla record that might not exist -- only on whether a
+  live game/actor reference is available, which is always temporary).
+  `applied` settles the pair at its current multiplier; `retry`, or a
+  dropped/timed-out ack, forgets the pair for fresh re-evaluation next
+  poll (`listener.py`'s `_VendorMarkupPairState`, same dropped-ack timeout
+  mechanism as the other two state machines).
+
+Like the other two slices, vendor-markup's in-memory state does not
+survive a listener restart -- same named gap, same "identical to a
+`retry` ack" restart behavior.
+
 Not part of `chronicle/` -- this is Skyrim-adapter-side plumbing, per
 `adapters/skyrim/README.md`'s charter. `/whiterun/events` does not import
 `chronicle/` either; it shells out to the same `chronicle inject` CLI
 write path a human uses at the console, the documented seam boundary.
-`/whiterun/hydration` and `/whiterun/avoidance` are the deliberate
-exceptions to that never-import boundary: neither has a write path (each
-only reads a run's existing on-disk state and computes a pure function
-over it), so there is nothing for the CLI boundary to protect -- a fresh
-`python -m chronicle` subprocess would still pay interpreter startup on
-top of the same log replay a direct import already does, for no safety
-benefit in exchange. Write access to a run still goes through the CLI
-exclusively -- see the exceptions' full rationale in `listener.py`'s own
-module docstring.
+`/whiterun/hydration`, `/whiterun/avoidance`, and `/whiterun/vendor-markup`
+are the deliberate exceptions to that never-import boundary: none has a
+write path (each only reads a run's existing on-disk state and computes a
+pure function over it), so there is nothing for the CLI boundary to
+protect -- a fresh `python -m chronicle` subprocess would still pay
+interpreter startup on top of the same log replay a direct import already
+does, for no safety benefit in exchange. Write access to a run still goes
+through the CLI exclusively -- see the exceptions' full rationale in
+`listener.py`'s own module docstring.
 
 ## Testing
 

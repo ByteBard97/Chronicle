@@ -1,6 +1,53 @@
 # Design prep — ChronicleBridge, a fifth slice: grudge-driven vendor markup
 
-**Status:** design proposal for a Python-only first cut, mirroring
+**Status (2026-08-26): the Python-only first cut described below is now
+implemented.** `chronicle/vendor_markup.py`'s `markup_multiplier_for(grudge,
+*, at_gamets)` resolves this doc's own §1 open question the same way
+`chronicle/avoidance.py`'s docstring resolved its analogous question: a
+new module, not an addition to `chronicle/hydration.py` -- hydration.py's
+job is bucketing a continuous severity into Skyrim's discrete integer
+rank scale, and this slice's output is a continuous float multiplier with
+no bucket/rank concept at all, so reusing hydration.py's scope would
+misdescribe what's here just as it would have for avoidance's boolean
+gate. The curve: `1.0` (no markup) for `grudge is None`, below a severity
+floor of `0.2` (mirroring `chronicle.hydration.MILD_SEVERITY_THRESHOLD`),
+or once the grudge has cooled (`chronicle.social.grudge_cooled` -- the
+same "cooled means forgiven" precedent `relationship_rank_for`/
+`is_avoiding` both already follow); a linear ramp from `1.0` at the floor
+to a placeholder ceiling of `1.5` at a decayed severity of `1.0`
+otherwise. Never returns below `1.0`, so it can never imply a price below
+`fBarterBuyMin`'s real 1.05 floor, even though enforcing that floor itself
+is left to the eventual game-side consumer, per this doc's own §0.
+
+`GET /whiterun/vendor-markup` and `POST /whiterun/vendor-markup/ack`
+(`adapters/skyrim/listener/listener.py`) are live, gated identically to
+the other two slices (503 without `--live-run`, same shared-secret auth).
+Directed, like hydration's `holder_id`/`target_id` (never canonicalized,
+per this doc's own §1 ruling) -- NOT symmetric like avoidance. The ack is
+two-outcome (`applied`/`retry`), like avoidance and unlike hydration's
+three: a vendor-markup write has no `no_relationship`-equivalent
+permanent-failure case, since it never depends on an authored vanilla
+record that might not exist -- only on whether a live game/actor
+reference is available, always a temporary condition. A new
+`_VendorMarkupPairState` dataclass implements the same
+awaiting_ack/applied/timeout state machine as the other two slices,
+reusing `_AWAITING_ACK_TIMEOUT_SECONDS` rather than a second copy of it.
+
+Tests: `chronicle/tests/test_vendor_markup.py` (unit tests for
+`markup_multiplier_for`'s curve boundaries, the cooled-means-no-markup
+case, and `grudge=None`) and 15 new cases in
+`adapters/skyrim/listener/test_listener.py` (endpoint behavior,
+idempotency, ack outcomes, dropped-ack timeout, 503 gating,
+malformed-body rejection, shared-secret auth), mirroring the
+hydration/avoidance test suites' own fixture/style patterns.
+
+**Still not built, same split as hydration/avoidance:** the C++ half (an
+actual barter-menu-open price-write poller consuming this state) -- real,
+separate future work needing its own research pass on the exact
+CommonLibSSE-NG hook, per §0/§3 below.
+
+Original design proposal follows, unchanged except where noted above:
+design proposal for a Python-only first cut, mirroring
 `docs/design/chronicle-bridge-hydration-out.md`/`chronicle-bridge-
 avoidance-out.md`'s precedent exactly. Nothing here is implemented yet.
 Produced from `docs/research/23-v03-hysteresis-and-action-verbs.md`'s
