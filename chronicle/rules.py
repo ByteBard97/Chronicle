@@ -20,12 +20,14 @@ and §7 (R12), with the coordinator's 2026-08-23 rulings (O1-O5):
   - Unlanded rules register as disabled stubs from day one (R12): they
     exist by name so the registry lists all 19, but emit nothing and run
     nothing until their tier's lane lands. Rules 11 (accumulation-
-    threshold, lane 24), 14 (obligation-lifecycle violation cascade,
-    lane 25), 15 (tell-decision-policy, lane 23), 16 (reputation-
-    evidence-accumulation, lane 26), 17 (schedule-write-back, lane 36),
-    18 (pairwise-encounter-weighting, lane 43), and 19
-    (role-vacancy-succession, lane 48) are live; the stub set is now
-    just 12-13.
+    threshold, lane 24), 12 (grudge-creation, the standalone self-victim
+    twin of rule 14's cascade), 13 (grudge-decay, read-path wrapper
+    around social.grudge_at/grudge_cooled), 14 (obligation-lifecycle
+    violation cascade, lane 25), 15 (tell-decision-policy, lane 23), 16
+    (reputation-evidence-accumulation, lane 26), 17
+    (schedule-write-back, lane 36), 18 (pairwise-encounter-weighting,
+    lane 43), and 19 (role-vacancy-succession, lane 48) are live; no
+    stubs remain.
   - Budget (O4 ruling): 9+10 are one state machine and 4 is
     schema-not-rule -- 17/20 against the ceiling. The registry still lists
     all 19 names; the table below is the vocabulary, slugified from §8's
@@ -40,12 +42,13 @@ Two rule flavors fall out of R2's no-refactor ruling:
     driver-owned steps that ARE discrete rule behaviors -- the encounter
     sweep (rule 6) and the mutation decision (rule 7) -- are also gated
     behaviorally in driver.py, so disabling them is a real what-if probe.
-  - Read-path rules (2, 9, 10): decay and the rumor stage machine are
+  - Read-path rules (2, 9, 10, 13): decay and the rumor stage machine are
     pure derivations evaluated at READ time (claims.decay / claims.
-    stage_at), never during the run loop, so they emit nothing in-run --
-    the CLI/reconstruction read path must not write to the log. Their
-    evaluate() wraps the pure function for off-log consumers (a future GM
-    layer); the driver never calls it.
+    stage_at / social.grudge_at / social.grudge_cooled), never during the
+    run loop, so they emit nothing in-run -- the CLI/reconstruction read
+    path must not write to the log. Their evaluate() wraps the pure
+    function for off-log consumers (a future GM layer); the driver never
+    calls it.
 """
 
 from __future__ import annotations
@@ -55,6 +58,7 @@ from dataclasses import dataclass
 from typing import NamedTuple, Protocol
 
 from chronicle.claims import BeliefInstance, RumorState, decay, stage_at
+from chronicle.social import Grudge, grudge_at, grudge_cooled
 
 # The 19 rule names of docs/scenario-ladder.md §8's table, by introducing tier.
 WITNESS_CREATES_BELIEF = "witness-creates-belief"  # 1, tier 0
@@ -149,6 +153,38 @@ class BeliefDecayRule:
         )
 
 
+class GrudgeDecayRule:
+    """Rule 13, read-path: wraps social.grudge_at/grudge_cooled. Never evaluated in-run.
+
+    The decay math already exists and already runs, unconditionally, at
+    read-time -- social.grudge_at() (docstringed "rule 13's decay-at-read")
+    and social.grudge_cooled() are called directly from driver.py's pairwise-
+    avoidance logic (rule 18, around lines 1587/1595), gated only by
+    ``self.rules.enabled(PAIRWISE_ENCOUNTER_WEIGHTING)`` -- nothing anywhere
+    checks ``registry.enabled(GRUDGE_DECAY)``. So this class, like
+    BeliefDecayRule/RumorStageRule, is a registry-level acknowledgment that
+    the mechanism is real; landing it changes no runtime behavior.
+    """
+
+    name = GRUDGE_DECAY
+    tier = 3
+
+    def evaluate(self, ctx: RuleContext) -> RuleResult:
+        grudge = ctx.inputs["grudge"]
+        assert isinstance(grudge, Grudge)
+        at_gamets = ctx.inputs["at_gamets"]
+        decayed = grudge_at(grudge, at_gamets)  # type: ignore[arg-type]
+        return RuleResult(
+            fired=True,
+            result={
+                "severity": decayed.severity,
+                "emotional_strength": decayed.emotional_strength,
+                "evidentiary_strength": decayed.evidentiary_strength,
+                "cooled": grudge_cooled(grudge, at_gamets),  # type: ignore[arg-type]
+            },
+        )
+
+
 class RumorStageRule:
     """Rule 9, read-path: wraps claims.stage_at. Never evaluated in-run."""
 
@@ -179,6 +215,34 @@ class DormancyReactivationRule:
         assert isinstance(rumor, RumorState) and isinstance(belief, BeliefInstance)
         stage = stage_at(rumor, belief, ctx.inputs["at_gamets"])  # type: ignore[arg-type]
         return RuleResult(fired=stage in ("dormant", "forgotten"), result={"stage": stage})
+
+
+class GrudgeCreationRule:
+    """Rule 12, grudge-creation gate (ladder T3.2 "Humiliation"; the non-
+    obligation twin of rule 14's obligation-violation cascade).
+
+    A latch/gate rule, the same "fired = the rule's effect" convention as
+    rules 15/17/18/19 -- there is no accumulator here, just "does a grudge
+    already exist for this (holder, target) pair." ``already_exists`` is
+    driver-derived (the T2.3 lesson: rules never query stores) from
+    ``social.grudge(holder_id, target_id)``, the same store lookup
+    ``SocialStateStore.add_grudge`` itself uses to enforce its one-grudge-
+    per-pair invariant (social.py ~line 486) -- this rule restates that
+    invariant as a visible, instrumented gate instead of a raised
+    ValueError, so a repeat humiliation for an already-grudging pair is a
+    logged non-fire, not a silent skip or a crash.
+
+    fired means a grudge SHOULD be formed -- the driver's cascade
+    (form_grudge + the grudge_formed trace record) runs only then.
+    """
+
+    name = GRUDGE_CREATION
+    tier = 3
+
+    def evaluate(self, ctx: RuleContext) -> RuleResult:
+        already_exists = ctx.inputs["already_exists"]
+        assert isinstance(already_exists, bool)
+        return RuleResult(fired=not already_exists)
 
 
 class AccumulationThresholdRule:
@@ -340,7 +404,7 @@ class RoleVacancySuccessionRule:
 
 
 def _default_rules() -> tuple[Rule, ...]:
-    """All 19 §8 rules live: 1-10 (wrappers/read-path), 11/14/15/16/17/18/19 (real rules); 12-13 remain stubs."""
+    """All 19 §8 rules live: 1-19 are wrappers/read-path/real rules; no stubs remain."""
     return (
         RecordedRule(WITNESS_CREATES_BELIEF, 0),
         BeliefDecayRule(),
@@ -353,8 +417,8 @@ def _default_rules() -> tuple[Rule, ...]:
         RumorStageRule(),
         DormancyReactivationRule(),
         AccumulationThresholdRule(),
-        StubRule(GRUDGE_CREATION, 3),
-        StubRule(GRUDGE_DECAY, 3),
+        GrudgeCreationRule(),
+        GrudgeDecayRule(),
         RecordedRule(OBLIGATION_LIFECYCLE, 3),
         TellDecisionRule(),
         RecordedRule(REPUTATION_ACCUMULATION, 3),
@@ -378,7 +442,7 @@ class RuleRegistry:
         return self._rules[name]
 
     def enabled(self, name: str) -> bool:
-        """Whether the rule may evaluate. Stubs (11-19) are never enabled until their tier's lane replaces the stub."""
+        """Whether the rule may evaluate. Stubs (none remain as of lane 26x) are never enabled until their tier's lane replaces the stub."""
         return name not in self._disabled and not isinstance(self._rules[name], StubRule)
 
     def names(self) -> tuple[str, ...]:

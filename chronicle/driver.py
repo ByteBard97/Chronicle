@@ -71,6 +71,7 @@ from chronicle.rules import (
     ACCUMULATION_THRESHOLD,
     CORROBORATION,
     ENCOUNTER_SAMPLING,
+    GRUDGE_CREATION,
     MUTATION_POLICY,
     OBLIGATION_LIFECYCLE,
     PAIRWISE_ENCOUNTER_WEIGHTING,
@@ -333,7 +334,7 @@ class Driver:
         # The Tier-3 rule registry (docs/scenario-ladder.md §8 consequence
         # b; design doc R1): per-run, construction-time toggled only.
         # Default all-on, so tiers 0-2 migrate as regression cases with no
-        # behavior change (R12). Rules 11-19 are registered disabled stubs.
+        # behavior change (R12). No stubs remain registered as of lane 26x.
         self.rules = RuleRegistry(disabled=disabled_rules)
         # Claims the tick loop tries to propagate on encounters. Populated
         # by witness() -- every claim the driver sees formed is a story that
@@ -813,6 +814,70 @@ class Driver:
             },
         )
         return grudge
+
+    def suffer_harm(
+        self,
+        *,
+        holder_id: str,
+        target_id: str,
+        grievance_type: str,
+        source_belief_id: str,
+        evidentiary_strength: float,
+        gamets: float,
+    ) -> Grudge | None:
+        """Rule 12's grudge-creation gate (ladder T3.2 "Humiliation"): the standalone,
+        non-obligation twin of violate_obligation's rule-14 cascade.
+
+        Self-victim only (O3's bypass, same as violate_obligation): holder_id
+        is both the grudge's holder_id and victim_id -- someone was harmed
+        or humiliated by target_id, and holder_id is that someone. There is
+        no third-party-harm path here; an NPC who merely witnesses harm to
+        someone else acquires their own belief about it through the
+        ordinary witness() path, not through this method (T3.2's 6
+        witnesses hold beliefs on the humiliation claim that way, not via a
+        grudge of their own). evidentiary_strength is caller-supplied,
+        never derived (the T2.3 lesson, restated for rule 12 as for rules
+        14/15/17/18).
+
+        Gated by rule 12 (GRUDGE_CREATION), evaluated with the store-
+        derived latch ``already_exists = self.social.grudge(holder_id,
+        target_id) is not None`` -- the same (holder_id, target_id)
+        uniqueness ``SocialStateStore.add_grudge`` itself enforces
+        (social.py ~line 486), restated as a rule so a repeat trigger for
+        an already-grudging pair is a visible non-fire in the trace, not a
+        silent no-op or a raised ValueError. Rule 12 disabled at
+        construction suspends grudge creation entirely.
+
+        Returns the newly formed Grudge when the rule fires; returns the
+        pair's existing (unchanged) Grudge when it doesn't, whether that's
+        because one already exists (the latch) or because the rule is
+        disabled and there is none.
+        """
+        existing = self.social.grudge(holder_id, target_id)
+        result = self._evaluate_rule(
+            GRUDGE_CREATION,
+            tick=int(gamets),
+            inputs={
+                "holder_id": holder_id,
+                "target_id": target_id,
+                "grievance_type": grievance_type,
+                "already_exists": existing is not None,
+            },
+        )
+        if result is None or not result.fired:
+            return existing
+        n = next(self._auto_ids)
+        return self.form_grudge(
+            id=f"grudge-harm-auto-{n}",
+            holder_id=holder_id,
+            victim_id=holder_id,  # O3: self-victim bypass -- harm to holder themself
+            target_id=target_id,
+            grievance_type=grievance_type,
+            source_belief_id=source_belief_id,
+            evidentiary_strength=evidentiary_strength,
+            relationship_to_victim=None,
+            gamets=gamets,
+        )
 
     def issue_obligation(self, **kwargs: object) -> Obligation:
         """Scripted obligation issuance; emits an obligation_issued trace record with the full Obligation fields (schema §4)."""

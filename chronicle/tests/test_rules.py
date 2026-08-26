@@ -85,22 +85,68 @@ def _rule_rows(tmp_path, run_id: str) -> list[dict]:
     return [r["payload"] for r in reader.records("trace") if r["payload"].get("record_type") == "rule_evaluated"]
 
 
-def test_registry_lists_all_nineteen_ladder_rules_with_stubs_disabled():
+def test_registry_lists_all_nineteen_ladder_rules_with_no_stubs_remaining():
     registry = RuleRegistry()
     names = registry.names()
     assert len(names) == 19  # §8's table, all names present (O4: the registry lists 19; the budget counts 17)
     enabled = {name for name in names if registry.enabled(name)}
-    assert len(enabled) == 17  # rules 1-10 plus 15 (lane 23), 11 (lane 24), 14 (lane 25), 16 (lane 26), 17 (lane 36), 18 (lane 43), 19 (lane 48)
-    # Unlanded rules are disabled stubs (R12); rules 15, 11, 14, 16, 17,
-    # 18, and 19 were the first stubs replaced by live rules
-    # (lanes 23/24/25/26/36/43/48), so the stub assertions now use rule
-    # 12 (grudge-creation) -- the only two left (12-13).
+    # No stubs remain (rule 12, grudge-creation, was the last one): every
+    # registered rule is enabled by default.
+    assert len(enabled) == 19
     assert TELL_DECISION_POLICY in names
     assert registry.enabled(TELL_DECISION_POLICY)
     assert registry.enabled(ACCUMULATION_THRESHOLD)
-    assert not registry.enabled(GRUDGE_CREATION)
-    with pytest.raises(NotImplementedError, match="registered stub"):
-        registry.get(GRUDGE_CREATION).evaluate(RuleContext(tick=0, gamets=0.0, inputs={}))
+    assert registry.enabled(GRUDGE_CREATION)
+
+
+def test_grudge_creation_rule_fires_once_then_latches(tmp_path):
+    """Rule 12: fires (creates a grudge) the first time, then non-fires (already_exists) for a repeat trigger on the same pair."""
+    driver = _driver("rules-grudge-creation-run", tmp_path, encounter_probability=0.0)
+    grudge = driver.suffer_harm(
+        holder_id="irileth",
+        target_id="proventus",
+        grievance_type="humiliation",
+        source_belief_id="belief-humiliation-irileth",
+        evidentiary_strength=0.6,
+        gamets=1.0,
+    )
+    assert grudge is not None
+    assert grudge.holder_id == "irileth" and grudge.target_id == "proventus"
+    assert grudge.emotional_strength == 1.0  # O3 self-victim bypass: no edge, total self-regard
+    assert grudge.emotional_strength > grudge.evidentiary_strength  # T3.2's assertion shape
+
+    repeat = driver.suffer_harm(
+        holder_id="irileth",
+        target_id="proventus",
+        grievance_type="humiliation",
+        source_belief_id="belief-humiliation-irileth-2",
+        evidentiary_strength=0.9,
+        gamets=2.0,
+    )
+    assert repeat is grudge  # latched: the existing grudge, unchanged, no second grudge minted
+    driver.close()
+
+    rows = _rule_rows(tmp_path, "rules-grudge-creation-run")
+    grudge_rows = [r for r in rows if r["rule"] == GRUDGE_CREATION]
+    assert len(grudge_rows) == 2
+    assert grudge_rows[0]["fired"] and grudge_rows[0]["inputs"]["already_exists"] is False
+    assert not grudge_rows[1]["fired"] and grudge_rows[1]["inputs"]["already_exists"] is True
+
+
+def test_disabling_grudge_creation_suppresses_it(tmp_path):
+    driver = _driver("rules-grudge-creation-disabled-run", tmp_path, encounter_probability=0.0, disabled_rules={GRUDGE_CREATION})
+    grudge = driver.suffer_harm(
+        holder_id="irileth",
+        target_id="proventus",
+        grievance_type="humiliation",
+        source_belief_id="belief-humiliation-irileth",
+        evidentiary_strength=0.6,
+        gamets=1.0,
+    )
+    assert grudge is None
+    driver.close()
+    rows = _rule_rows(tmp_path, "rules-grudge-creation-disabled-run")
+    assert not [r for r in rows if r["rule"] == GRUDGE_CREATION]
 
 
 def test_unknown_disabled_rule_name_raises():
