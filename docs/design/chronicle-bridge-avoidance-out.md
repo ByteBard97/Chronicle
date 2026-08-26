@@ -97,6 +97,34 @@ avoidance-pair state a future C++ slice would consume.
   AI package condition reading this state) is real future work, same
   split as hydration-out.
 
+## 2b. A real finding that changes this slice's remaining scope
+
+Checked against the real CommonLibSSE-NG headers before assuming the C++
+half was "more of the same" pattern as the other three slices:
+`RE::Actor::EvaluatePackage(bool a_immediate, bool a_resetAI)` is real
+and directly callable from native C++ (confirmed in `Actor.h`) — this is
+the exact underlying implementation of Papyrus's `Actor.EvaluatePackage()`
+native. But it only forces an actor's **existing, CK-authored package
+stack** to re-evaluate against its own conditions right now — it cannot
+make an NPC avoid another NPC out of nothing. Avoidance behavior
+requires an actual authored AI package (in the Creation Kit) whose
+condition checks something Chronicle can toggle at runtime (a global
+variable, a quest-alias-bound value, a faction rank) — the C++ side's
+real job would be small (set the condition value, call
+`EvaluatePackage()`), but the *package itself* does not exist and cannot
+be created from code. It has to be authored once, per relevant NPC or
+via a generic reusable package, in the CK GUI.
+
+**This is a different, harder kind of blocker than anything else this
+session** — not "needs the Windows build machine" (solved, SSH reaches
+that) and not "needs a live game to test" (a real but narrow gap). The
+Creation Kit is an interactive GUI editor; authoring a package/condition
+/quest-alias setup is not batch-scriptable the way compiling C++ is, and
+nothing in this session's toolkit (SSH shell access, a build pipeline)
+reaches it. **Building this slice's game-side half needs someone with
+CK authoring access and Creation Kit expertise, not a headless session
+— name this plainly rather than attempting to route around it.**
+
 ## 3. Non-goals
 
 - Any AI-package/behavior-override C++ work — future slice, needs its
