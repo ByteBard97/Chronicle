@@ -319,6 +319,199 @@ def test_hydration_endpoint_reverts_toward_zero_once_the_grudge_cools(server_fac
     assert json.loads(third_body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": 0}]
 
 
+def test_hydration_endpoint_does_not_reoffer_a_pair_still_awaiting_ack(server_factory, grudge_run):
+    """Two back-to-back polls with no ack in between must return the pair
+    only once -- it is in-flight (offered-awaiting-ack), not a duplicate
+    offer. Closes the fad0d79 gap: the old cache marked a pair delivered
+    the instant it was served, so this exact scenario would previously
+    have (wrongly) returned the pair only once for a different reason --
+    the new state machine returns it once for the RIGHT reason (it is
+    still awaiting an ack), which matters for every other behavior below."""
+    post = server_factory(live_run=_GRUDGE_RUN)
+    first_status, first_body = post.get("/whiterun/hydration")
+    assert first_status == 200
+    assert json.loads(first_body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+    second_status, second_body = post.get("/whiterun/hydration")
+    assert second_status == 200
+    assert json.loads(second_body) == []
+
+
+def test_hydration_ack_applied_means_not_reoffered_at_the_same_rank(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/hydration")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+    ack = post(
+        "/whiterun/hydration/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"}],
+    )
+    assert ack.status == 204
+
+    status, body = post.get("/whiterun/hydration")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_hydration_ack_no_relationship_permanently_skips_the_same_rank(server_factory, grudge_run):
+    """A no_relationship ack must never be re-offered again at the SAME
+    rank, even once the rank is independently recomputed to the identical
+    value on a later poll -- that recomputation is not new information."""
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/hydration")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+    ack = post(
+        "/whiterun/hydration/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "no_relationship"}],
+    )
+    assert ack.status == 204
+
+    # A later poll recomputes the identical rank (-2, nothing in the
+    # underlying grudge changed) -- must still not be re-offered.
+    status, body = post.get("/whiterun/hydration")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_hydration_ack_no_relationship_is_reoffered_once_the_rank_changes(server_factory, grudge_run):
+    """The permanent skip is scoped to the exact rank it was recorded
+    against -- once the underlying grudge decays to a genuinely different
+    rank, the pair must be offered again (a different rank maps to a
+    different in-game RELATIONSHIP_LEVEL; the old skip says nothing about
+    whether THAT relationship exists)."""
+    driver, _tmp_path = grudge_run
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/hydration")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+    ack = post(
+        "/whiterun/hydration/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "no_relationship"}],
+    )
+    assert ack.status == 204
+
+    # Push the run's max tick well past both grudge half-lives so the
+    # decayed severity falls back to rank 0 -- a genuinely different rank
+    # from the -2 that was permanently skipped.
+    death = post("/whiterun/events", {"event_type": "npc_died", "gamets": 2000.0, "npc_id": "brenuin"})
+    assert death.status == 204
+
+    status, body = post.get("/whiterun/hydration")
+    assert status == 200
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": 0}]
+
+
+def test_hydration_ack_retry_is_reoffered_on_the_next_poll(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/hydration")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+    ack = post(
+        "/whiterun/hydration/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "retry"}],
+    )
+    assert ack.status == 204
+
+    status, body = post.get("/whiterun/hydration")
+    assert status == 200
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+
+def test_hydration_pair_is_reoffered_after_a_listener_restart(server_factory, grudge_run):
+    """Simulates the listener process itself restarting (a fresh
+    handler-state closure, as here): the new process has no memory of a
+    prior offer at all, so the pair is offered again on its next poll from
+    that fresh state -- the "does not persist across restarts" limitation
+    the module docstring already names, now carried in the richer per-pair
+    state machine instead of a bare rank cache. (Renamed from its original
+    "dropped ack never arrives" name -- that's a DIFFERENT scenario, the
+    same long-running process never restarting at all, covered by
+    test_hydration_pair_is_reoffered_if_its_ack_times_out below.)"""
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/hydration")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+    # No ack ever sent -- simulate the listener restarting (fresh state)
+    # by starting a brand-new server against the same run.
+    fresh_post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = fresh_post.get("/whiterun/hydration")
+    assert status == 200
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+
+def test_hydration_pair_is_reoffered_if_its_ack_times_out(server_factory, grudge_run, monkeypatch):
+    """The gap an ack timeout closes: the SAME long-running listener
+    process (no restart), whose ack for a given offer was silently
+    dropped (PostHydrationAck is fire-and-forget, per OutboundClient.h --
+    a real, expected possibility, not just a hypothetical). Without a
+    timeout, this pair would stay "awaiting_ack" forever since its
+    computed rank never changes -- listener._AWAITING_ACK_TIMEOUT_SECONDS
+    is what makes a dropped ack self-correcting instead of a permanent
+    stuck state."""
+    import listener as listener_module
+
+    fake_now = [1000.0]
+    monkeypatch.setattr(listener_module.time, "monotonic", lambda: fake_now[0])
+
+    post = server_factory(live_run=_GRUDGE_RUN)
+    status, body = post.get("/whiterun/hydration")
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+    # No ack sent. Immediately re-polling (still within the timeout
+    # window) must NOT re-offer -- this is the ordinary "in-flight,
+    # awaiting-ack" no-op case, unaffected by the fix.
+    status, body = post.get("/whiterun/hydration")
+    assert json.loads(body) == []
+
+    # Advance past the timeout with no ack ever having arrived (still the
+    # same server, same in-memory state -- no restart). The pair must be
+    # re-offered even though its computed rank hasn't changed.
+    fake_now[0] += listener_module._AWAITING_ACK_TIMEOUT_SECONDS + 1.0
+    status, body = post.get("/whiterun/hydration")
+    assert status == 200
+    assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]
+
+
+def test_hydration_ack_endpoint_returns_503_without_live_run(server_factory):
+    post = server_factory(live_run=None)
+    resp = post("/whiterun/hydration/ack", [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"}])
+    assert resp.status == 503
+
+
+def test_hydration_ack_endpoint_rejects_a_non_array_body(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post("/whiterun/hydration/ack", {"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"})
+    assert resp.status == 400
+
+
+def test_hydration_ack_endpoint_rejects_an_unknown_outcome(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post(
+        "/whiterun/hydration/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "bogus"}],
+    )
+    assert resp.status == 400
+
+
+def test_hydration_ack_endpoint_rejects_a_missing_field(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN)
+    resp = post("/whiterun/hydration/ack", [{"holder_id": "nazeem", "outcome": "applied"}])
+    assert resp.status == 400
+
+
+def test_hydration_ack_endpoint_enforces_the_shared_secret(server_factory, grudge_run):
+    post = server_factory(live_run=_GRUDGE_RUN, shared_secret="s3cret")
+    unauth = post("/whiterun/hydration/ack", [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"}])
+    assert unauth.status == 401
+    authed = post(
+        "/whiterun/hydration/ack",
+        [{"holder_id": "nazeem", "target_id": "ysolda", "outcome": "applied"}],
+        token="s3cret",
+    )
+    assert authed.status == 204
+
+
 def test_unknown_path_is_404(server_factory):
     post = server_factory()
     resp = post("/not/a/real/path", {})

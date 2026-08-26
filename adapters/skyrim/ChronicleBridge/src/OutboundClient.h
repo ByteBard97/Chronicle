@@ -34,6 +34,12 @@ namespace ChronicleBridge {
         // POST, but same host/port/sharedSecret, not a second config block,
         // matching eventsPath's own precedent above.
         std::string hydrationPath = "/whiterun/hydration";
+        // Closes the "delivered before confirmed" gap named in fad0d79's
+        // commit message and HydrationPoller.h's own header comment: a POST
+        // back to the listener reporting what actually happened to each
+        // pair FetchHydrationPairs handed out. Same host/port/sharedSecret
+        // as every other path above -- not a second config block.
+        std::string hydrationAckPath = "/whiterun/hydration/ack";
         // Sent as the X-Chronicle-Bridge-Token header when set -- must match
         // the listener's --shared-secret exactly (adapters/skyrim/listener/
         // listener.py). Not real authentication (no TLS) -- a lightweight
@@ -83,5 +89,50 @@ namespace ChronicleBridge {
     // frequency, non-critical state -- see HydrationPoller.h). Failures are
     // logged here, not surfaced to the caller as an error type.
     std::vector<HydrationPair> FetchHydrationPairs(const OutboundConfig& config);
+
+    // What actually happened when HydrationPoller.cpp's ApplyHydrationPair
+    // tried to apply one pair, mapped precisely onto that function's own
+    // three control-flow branches (see HydrationPoller.cpp for exactly
+    // where each is returned):
+    //   kApplied      -- ResolveLiveNpc succeeded for both ids AND
+    //                     GetRelationship() found an existing record AND
+    //                     the .level write + AddChange happened. The
+    //                     listener should mark this pair "applied" at this
+    //                     rank (design doc §3b's idempotency requirement)
+    //                     and never re-offer it at the same rank.
+    //   kNoRelationship -- both ids resolved to live TESNPC*s but
+    //                     GetRelationship() returned null -- no authored
+    //                     vanilla relationship exists for this pair. This
+    //                     is a PERMANENT condition per the ruled scope
+    //                     (never creating one): retrying the same rank
+    //                     forever would never succeed. The listener should
+    //                     permanently skip this pair at this exact rank.
+    //   kRetry        -- ResolveLiveNpc failed for either id (no active
+    //                     game, or the NPC isn't currently resolvable) --
+    //                     this is a TEMPORARY condition that may well
+    //                     resolve itself by the next poll. The listener
+    //                     should offer this pair again next time its
+    //                     computed rank is still non-matching, i.e. treat
+    //                     it as if it had never been offered at all.
+    enum class HydrationApplyOutcome { kApplied, kNoRelationship, kRetry };
+
+    // One pair's ack outcome, matching the listener's POST
+    // /whiterun/hydration/ack body shape exactly: a JSON array of
+    // {"holder_id": str, "target_id": str, "outcome": "applied" |
+    // "no_relationship" | "retry"}.
+    struct HydrationAckEntry {
+        std::string holderId;
+        std::string targetId;
+        HydrationApplyOutcome outcome = HydrationApplyOutcome::kRetry;
+    };
+
+    // POSTs the outcomes of one poll's whole batch back to the listener.
+    // Fire-and-forget, same discipline as PostPositionSnapshot/
+    // PostGameEvent: logs failures, never throws, never retries -- a
+    // dropped ack just means the affected pairs look like they were never
+    // acked at all, which the listener's state machine already treats as
+    // "offer again later" (retry semantics), so there is nothing unsafe
+    // about losing one. Returns true if the listener responded 2xx.
+    bool PostHydrationAck(const OutboundConfig& config, const std::vector<HydrationAckEntry>& acks);
 
 }  // namespace ChronicleBridge

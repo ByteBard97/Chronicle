@@ -1,6 +1,7 @@
 #include "HydrationPoller.h"
 
 #include <chrono>
+#include <future>
 #include <thread>
 
 #include "IdentityMap.h"
@@ -117,11 +118,16 @@ namespace ChronicleBridge {
         // but has NEVER been exercised against a live game or save -- there
         // is zero runtime verification beyond "it compiles." Treat it as
         // experimental.
-        void ApplyHydrationPair(const HydrationPair& pair) {
+        //
+        // Returns the outcome for OutboundClient.h's PostHydrationAck to
+        // report back to the listener -- see HydrationApplyOutcome's own
+        // comment for the exact mapping (this function's three branches
+        // below are that mapping's source of truth).
+        HydrationApplyOutcome ApplyHydrationPair(const HydrationPair& pair) {
             RE::TESNPC* npc1 = ResolveLiveNpc(pair.holderId);
-            if (!npc1) return;
+            if (!npc1) return HydrationApplyOutcome::kRetry;
             RE::TESNPC* npc2 = ResolveLiveNpc(pair.targetId);
-            if (!npc2) return;
+            if (!npc2) return HydrationApplyOutcome::kRetry;
 
             // Ruled scope (design doc §3c): only ever set .level on an
             // EXISTING BGSRelationship. GetRelationship() returning null
@@ -131,14 +137,15 @@ namespace ChronicleBridge {
             // understand well enough to take on), so this is a skip, not an
             // error, and is expected to be the common case: most
             // Chronicle-relevant grudge pairs won't have an authored
-            // vanilla relationship.
+            // vanilla relationship. PERMANENT per HydrationApplyOutcome's
+            // comment -- retrying the same rank forever cannot change this.
             auto* relationship = RE::BGSRelationship::GetRelationship(npc1, npc2);
             if (!relationship) {
                 SKSE::log::info(
                     "ChronicleBridge hydration: no existing BGSRelationship for ({}, {}) -- skipping per ruled "
                     "scope (never creating one)",
                     pair.holderId, pair.targetId);
-                return;
+                return HydrationApplyOutcome::kNoRelationship;
             }
 
             const auto level = LevelForRank(pair.relationshipRank);
@@ -161,6 +168,7 @@ namespace ChronicleBridge {
                 "ChronicleBridge hydration: set relationship({}, {}).level = {} for incoming rank {} (UNVERIFIED "
                 "against a live save -- compiled only, see HydrationPoller.h)",
                 pair.holderId, pair.targetId, static_cast<int>(level), pair.relationshipRank);
+            return HydrationApplyOutcome::kApplied;
         }
 
     }  // namespace
@@ -177,7 +185,33 @@ namespace ChronicleBridge {
             auto pairs = FetchHydrationPairs(config);
             if (pairs.empty()) continue;
 
-            SKSE::GetTaskInterface()->AddTask([pairs = std::move(pairs)] {
+            // The main-thread task below needs to hand its per-pair
+            // outcomes back to THIS thread so the ack POST (network I/O)
+            // never runs on the main thread -- same discipline as every
+            // other network call in this plugin. A std::promise/future is
+            // the simplest correct handoff for this one-shot
+            // request-then-single-response shape (unlike the
+            // producer/queue+condvar pattern plugin.cpp's sender threads
+            // use for an ongoing stream of independent items). Blocking
+            // this poller thread on future.get() is fine: it is not the
+            // main thread, and the main-thread task itself is bounded,
+            // synchronous, per-pair game-object work -- the same work this
+            // loop already waited on before this change, just now also
+            // returning a result instead of firing and forgetting.
+            //
+            // The promise is heap-allocated behind a shared_ptr, not
+            // captured by value/move directly, because SKSE::TaskInterface
+            // stores the task in a std::function -- and std::function
+            // requires its target be copy-constructible, which
+            // std::promise is not. A shared_ptr is cheaply copyable and
+            // keeps the promise alive across the hop to the main thread.
+            auto ackPromise = std::make_shared<std::promise<std::vector<HydrationAckEntry>>>();
+            auto ackFuture = ackPromise->get_future();
+
+            SKSE::GetTaskInterface()->AddTask([pairs, promise = ackPromise] {
+                std::vector<HydrationAckEntry> acks;
+                acks.reserve(pairs.size());
+
                 // Guard against acting before any save is loaded (e.g. this
                 // thread's first 8s tick can land at the main menu, well
                 // before kDataLoaded's own actor/form singletons are
@@ -187,15 +221,35 @@ namespace ChronicleBridge {
                 // purpose. Cheap, and this is the one write path in the
                 // whole plugin -- worth being conservative about when it's
                 // allowed to run at all.
+                //
+                // Nothing in this batch was even attempted when no game is
+                // active -- that is a TEMPORARY condition (a save may load
+                // moments later), so every pair is reported kRetry rather
+                // than silently dropping the ack call entirely. Skipping
+                // the ack outright here would leave these pairs stuck
+                // "awaiting_ack" on the listener's side until the next poll
+                // happens to offer them a genuinely different rank (see
+                // listener.py's _HydrationPairState) -- reporting kRetry
+                // explicitly is the more honest, self-correcting choice.
                 auto* main = RE::Main::GetSingleton();
                 if (!main || !main->gameActive) {
-                    SKSE::log::trace("ChronicleBridge hydration: no active game -- discarding this poll's pairs");
-                    return;
+                    SKSE::log::trace("ChronicleBridge hydration: no active game -- reporting this poll's pairs as retry");
+                    for (const auto& pair : pairs) {
+                        acks.push_back({.holderId = pair.holderId, .targetId = pair.targetId,
+                                         .outcome = HydrationApplyOutcome::kRetry});
+                    }
+                } else {
+                    for (const auto& pair : pairs) {
+                        auto outcome = ApplyHydrationPair(pair);
+                        acks.push_back({.holderId = pair.holderId, .targetId = pair.targetId, .outcome = outcome});
+                    }
                 }
-                for (const auto& pair : pairs) {
-                    ApplyHydrationPair(pair);
-                }
+
+                promise->set_value(std::move(acks));
             });
+
+            auto acks = ackFuture.get();
+            PostHydrationAck(config, acks);
         }
     }
 

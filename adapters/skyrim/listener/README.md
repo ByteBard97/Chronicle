@@ -17,21 +17,45 @@ Receives ChronicleBridge's outbound POSTs
   auto-selection of an existing run -- **never point it at a fixture/demo
   run the M7 release gate or the ladder's scenario tests depend on** (e.g.
   `runs/north-star-01`), always a dedicated live-play run.
-- **`GET /whiterun/hydration`** -- the Python-only first cut of the "Out"
-  direction (`docs/design/chronicle-bridge-hydration-out.md` §3b): the
-  pending-hydration queue a not-yet-built C++ poller would call to drive
-  `Actor.SetRelationshipRank`. Reads the live run's current on-disk state
-  (`FrameLogReader.state_at()` at the run's max tick, same pattern
-  `chronicle sync-check`/`chronicle inspect` use), buckets every grudge
-  between two named-cast NPCs via `chronicle.hydration.relationship_rank_for`
-  (reputation is deferred for this first cut -- grudge-only), and returns
-  only the `{holder_id, target_id, relationship_rank}` pairs whose bucket
-  changed since the last poll. The "last pushed" dedupe cache is
-  in-memory only and does **not** survive a listener restart -- a real,
-  named gap (design doc §3), not solved here. Disabled (503) unless the
-  listener is started with `--live-run <run_id>`, the same gating
-  `/whiterun/events` uses. Nothing calls this endpoint yet; the C++
-  poller and any `SetRelationshipRank` calls are still to be built.
+- **`GET /whiterun/hydration`** -- the "Out" direction's pending-hydration
+  queue (`docs/design/chronicle-bridge-hydration-out.md` §3b), polled by
+  ChronicleBridge's `HydrationPoller` to drive `Actor.SetRelationshipRank`.
+  Reads the live run's current on-disk state (`FrameLogReader.state_at()`
+  at the run's max tick, same pattern `chronicle sync-check`/`chronicle
+  inspect` use), buckets every grudge between two named-cast NPCs via
+  `chronicle.hydration.relationship_rank_for` (reputation is deferred for
+  this first cut -- grudge-only), and returns only the `{holder_id,
+  target_id, relationship_rank}` pairs whose bucket differs from that
+  pair's currently tracked state. Disabled (503) unless the listener is
+  started with `--live-run <run_id>`, the same gating `/whiterun/events`
+  uses.
+- **`POST /whiterun/hydration/ack`** -- closes the "delivered before
+  confirmed" gap named in `fad0d79`'s commit message: the GET above used
+  to mark a pair "delivered" the instant it was served, before the C++
+  poller ever confirmed the write actually succeeded. Now a pair served
+  by the GET is tracked as "offered-awaiting-ack" until this endpoint
+  reports what happened. Body: a JSON array of `{"holder_id": str,
+  "target_id": str, "outcome": "applied" | "no_relationship" | "retry"}`
+  objects -- `applied` (the write succeeded), `no_relationship`
+  (`RE::BGSRelationship::GetRelationship()` returned null -- a PERMANENT
+  condition, since this project never creates a relationship record, only
+  updates an existing one), or `retry` (either NPC failed to resolve or no
+  game was active at all -- a TEMPORARY condition). A pair's state
+  machine (`listener.py`'s `_HydrationPairState`) uses this to decide
+  whether to ever re-offer that exact rank again: `applied`/
+  `no_relationship` settle the pair at its current rank (a
+  `no_relationship` skip is scoped to that one rank -- a later rank change
+  is offered fresh); `retry`, or no ack ever arriving at all (e.g. the
+  C++ side crashing/restarting mid-poll), simply forgets the pair, making
+  it eligible to be offered again next poll. Gated identically to the GET
+  above (503 without `--live-run`, same auth check). Not part of the
+  OpenAPI contract -- same ad hoc hand-rolled-JSON precedent as the GET
+  response it acks.
+
+Neither hydration route's in-memory state survives a listener restart --
+a real, named gap (design doc §3), not solved here. A restart is handled
+identically to a `retry` ack: the pair is simply forgotten and
+re-evaluated fresh on the next poll.
 
 Not part of `chronicle/` -- this is Skyrim-adapter-side plumbing, per
 `adapters/skyrim/README.md`'s charter. `/whiterun/events` does not import

@@ -15,20 +15,22 @@
 // not treat this as tested until someone confirms it manually in an actual
 // play session.
 //
-// *** A KNOWN, NAMED GAP: the listener marks a pair "delivered" the moment
-// it hands it out, not once this poller successfully applies it ***
-// (listener.py's `_hydration_pairs` writes into its `last_pushed` dedupe
-// cache before returning the pair, in the same call that returns it). This
-// poller skips a pair whenever either NPC doesn't resolve, no game is
-// active, or GetRelationship() returns null (the common, ruled-scope
-// case). Every one of those skips is therefore a SILENT, PERMANENT drop
-// from the listener's point of view -- it will never resend that exact
-// rank again unless the underlying grudge/reputation bucket changes to
-// something else and back first. Given §3c's own finding that most
-// Chronicle-relevant pairs have no authored vanilla relationship at all,
-// the expected steady state is that most computed pushes are consumed by
-// the listener and never actually applied in-game. This is a real,
-// named gap, not solved by this slice.
+// *** CLOSED GAP, formerly named here: the listener used to mark a pair
+// "delivered" the moment it handed it out, not once this poller
+// successfully applied it *** (listener.py's `_hydration_pairs` wrote into
+// its `last_pushed` dedupe cache before returning the pair, in the same
+// call that returned it -- see fad0d79's commit message for the original
+// finding). This poller now reports back which of three outcomes actually
+// happened for each pair via `PostHydrationAck` (OutboundClient.h's
+// `HydrationApplyOutcome`): `kApplied` when the write succeeded;
+// `kNoRelationship` when `GetRelationship()` returned null (a PERMANENT
+// condition -- no authored vanilla relationship exists, so the listener
+// should never re-offer that exact rank again); `kRetry` when either NPC
+// failed to resolve or no game was active at all (a TEMPORARY condition --
+// the listener should offer the pair again as if it had never been
+// offered). The listener's own `_HydrationPairState` state machine
+// (adapters/skyrim/listener/listener.py) is what actually acts on this --
+// see that file for the full state machine this ack protocol drives.
 
 #include "OutboundClient.h"
 

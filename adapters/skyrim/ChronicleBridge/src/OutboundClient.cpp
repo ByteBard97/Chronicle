@@ -190,6 +190,37 @@ namespace ChronicleBridge {
             }
         }
 
+        // Matches listener.py's POST /whiterun/hydration/ack body shape
+        // exactly: a JSON array of {"holder_id": str, "target_id": str,
+        // "outcome": str} objects. `outcome` string values are chosen to
+        // match the listener's own `_ACK_OUTCOMES` set exactly -- see
+        // OutboundClient.h's HydrationApplyOutcome comment for what each
+        // one means.
+        std::string_view OutcomeToString(HydrationApplyOutcome outcome) {
+            switch (outcome) {
+                case HydrationApplyOutcome::kApplied:
+                    return "applied";
+                case HydrationApplyOutcome::kNoRelationship:
+                    return "no_relationship";
+                case HydrationApplyOutcome::kRetry:
+                default:
+                    return "retry";
+            }
+        }
+
+        std::string BuildHydrationAckJson(const std::vector<HydrationAckEntry>& acks) {
+            std::ostringstream body;
+            body << '[';
+            for (std::size_t i = 0; i < acks.size(); ++i) {
+                if (i > 0) body << ',';
+                body << std::format(R"({{"holder_id":"{}","target_id":"{}","outcome":"{}"}})",
+                                     EscapeJsonString(acks[i].holderId), EscapeJsonString(acks[i].targetId),
+                                     OutcomeToString(acks[i].outcome));
+            }
+            body << ']';
+            return body.str();
+        }
+
         std::vector<HydrationPair> ParseHydrationPairsJson(std::string_view body) {
             std::vector<HydrationPair> out;
             std::size_t pos = 0;
@@ -255,6 +286,34 @@ namespace ChronicleBridge {
             return {};
         }
         return ParseHydrationPairsJson(result->body);
+    }
+
+    bool PostHydrationAck(const OutboundConfig& config, const std::vector<HydrationAckEntry>& acks) {
+        if (acks.empty()) return true;  // nothing to report -- not an error, just a no-op.
+
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        const auto body = BuildHydrationAckJson(acks);
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Post(config.hydrationAckPath, headers, body, "application/json");
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} failed: {}", config.host, config.port,
+                             config.hydrationAckPath, httplib::to_string(result.error()));
+            return false;
+        }
+        if (result->status < 200 || result->status >= 300) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} returned status {}", config.host, config.port,
+                             config.hydrationAckPath, result->status);
+            return false;
+        }
+        return true;
     }
 
     bool PostGameEvent(const OutboundConfig& config, const PendingGameEvent& event) {

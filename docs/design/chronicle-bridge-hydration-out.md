@@ -18,20 +18,58 @@ to be the common case for Chronicle-relevant grudge pairs), the pair is
 skipped, logged, never created. Do not treat this as tested or safe
 until someone confirms it manually in an actual play session.
 
-Two further gaps named explicitly rather than fixed here: (1) the write
-does call `TESForm::AddChange(BGSRelationship::ChangeFlags::
-kRelationshipData)` to mark the record dirty for save serialization (the
-documented API for that), but whether that alone is *sufficient* for a
-correct save/reload round-trip of a `BGSRelationship` record is
-unverified; (2) the listener's `/whiterun/hydration` dedupe cache marks
-a pair "delivered" the instant it hands it out, not once the poller
-actually applies it — so any pair this poller skips (unresolvable NPC,
-no active game, or the common no-existing-relationship case) is a
-silent, permanent drop from the listener's perspective. Given most
-Chronicle-relevant pairs have no authored vanilla relationship at all,
-the expected steady state is that most computed pushes never actually
-land in-game. See `HydrationPoller.h`'s header comment for the full
-detail on both.
+One gap remains, named explicitly rather than fixed here: the write does
+call `TESForm::AddChange(BGSRelationship::ChangeFlags::kRelationshipData)`
+to mark the record dirty for save serialization (the documented API for
+that), but whether that alone is *sufficient* for a correct save/reload
+round-trip of a `BGSRelationship` record is unverified.
+
+**Update (2026-08-26): the "delivered before confirmed" gap is closed.**
+The listener's `/whiterun/hydration` dedupe cache used to mark a pair
+"delivered" the instant it handed it out — before the poller ever
+confirmed the write actually succeeded (fad0d79's finding) — so every
+pair the poller skipped (unresolvable NPC, no active game, or the common
+no-existing-relationship case) was a silent, permanent drop from the
+listener's perspective. This is now closed with an ack protocol:
+
+- `HydrationPoller.cpp`'s `ApplyHydrationPair` now returns one of three
+  `HydrationApplyOutcome` values (`OutboundClient.h`) instead of only
+  logging: `kApplied` (the write succeeded), `kNoRelationship`
+  (`GetRelationship()` returned null — PERMANENT, no authored vanilla
+  relationship exists for that pair), or `kRetry` (either NPC failed to
+  resolve, or no game was active at all — TEMPORARY, worth retrying).
+- After processing a poll's whole batch on the main thread,
+  `HydrationPollerThreadLoop` hands the collected outcomes back to its
+  own (non-main) thread via a `std::promise`/`std::future` and POSTs
+  them with the new `PostHydrationAck` (`OutboundClient.{h,cpp}`) to a
+  new `POST /whiterun/hydration/ack` route — same host/port/sharedSecret
+  as every other path, not a second config block. The ack POST, like
+  every other network call in this plugin, never runs on the main
+  thread.
+- The listener (`adapters/skyrim/listener/listener.py`) no longer marks
+  a pair "delivered" the instant `GET /whiterun/hydration` serves it.
+  Each `(holder_id, target_id)` pair now moves through an explicit state
+  machine — not-yet-offered / offered-awaiting-ack / permanently-skipped
+  (at one specific rank) / applied (at one specific rank) — driven by the
+  ack's `outcome`. An `applied` or `no_relationship` ack settles the pair
+  at its current rank (a `no_relationship` skip is scoped to that exact
+  rank only — if the rank later changes, e.g. the grudge decays back to
+  0, the pair is offered again, since a different rank maps to a
+  different in-game `RELATIONSHIP_LEVEL` the old skip said nothing
+  about). A `retry` ack, or no ack ever arriving at all (the C++ side
+  crashing/restarting mid-poll), simply forgets the pair — indistinguishable
+  from what a listener restart already does to every pair, and eligible to
+  be offered again next poll if its rank is still non-matching. See
+  `listener.py`'s `_HydrationPairState` docstring for the full state
+  machine, and `HydrationPoller.h`'s header comment for the C++-side
+  mapping.
+
+Given most Chronicle-relevant pairs have no authored vanilla relationship
+at all, the expected steady state is still that most computed pushes are
+permanently skipped (`kNoRelationship`) rather than applied — that has not
+changed. What has changed is that the listener now *knows* this
+definitively instead of guessing from silence, and genuinely-temporary
+skips (`kRetry`) are no longer conflated with permanent ones.
 
 Original status below, still true for everything not covered above:
 design proposal for the C++ half; nothing here has been implemented or
