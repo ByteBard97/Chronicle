@@ -50,6 +50,7 @@ from chronicle.events import (
     CrimeWitnessed,
     EscalationWarning,
     Event,
+    EventLog,
     NPCDied,
     RoleInstalled,
     RumorHeard,
@@ -407,6 +408,96 @@ def event_payload(event: Event, *, origin: Mapping[str, str] | None) -> dict[str
     return payload
 
 
+def event_from_record(record: Mapping[str, Any]) -> Event:
+    """Rebuild the canonical ``Event`` a stored events-stream record represents -- the inverse of ``event_payload``.
+
+    Only for canonical-event records (``payload`` carries ``event_type``);
+    callers must skip keyframe records themselves (schema §5's
+    ``record_type == "keyframe"`` rows carry no ``event_type``). Used by
+    ``state_at()`` to replay a parent run's canonical events into a fresh
+    ``EventLog`` for the fork milestone (docs/design/fork-on-disk-support.md
+    §1), the same "rebuild the typed object from the stored payload"
+    pattern ``load_state`` already follows for claims/social records.
+    """
+    payload = record["payload"]
+    event_type = payload["event_type"]
+    common: dict[str, object] = {
+        "tick": record["tick"],
+        "save_uuid": record["save_uuid"],
+        "generation": record["generation"],
+        "seq": record["seq"],
+        "gamets": payload["gamets"],
+        "wall_ts": payload["wall_ts"],
+    }
+    if event_type == "npc_died":
+        return NPCDied(
+            **common,
+            npc_id=payload["npc_id"],
+            cause=payload["cause"],
+            killer_id=payload.get("killer_id"),
+            location_id=payload.get("location_id"),
+        )
+    if event_type == "crime_witnessed":
+        return CrimeWitnessed(
+            **common,
+            witness_id=payload["witness_id"],
+            perpetrator_id=payload["perpetrator_id"],
+            crime_type=payload["crime_type"],
+            location_id=payload.get("location_id"),
+        )
+    if event_type == "rumor_heard":
+        return RumorHeard(
+            **common,
+            hearer_id=payload["hearer_id"],
+            source_id=payload["source_id"],
+            rumor_id=payload["rumor_id"],
+            content=payload["content"],
+        )
+    if event_type == "escalation_warning":
+        return EscalationWarning(
+            **common,
+            holder_id=payload["holder_id"],
+            grievance_kind=payload["grievance_kind"],
+            count=payload["count"],
+            threshold=payload["threshold"],
+        )
+    if event_type == "status_changed":
+        return StatusChanged(
+            **common,
+            npc_id=payload["npc_id"],
+            status_kind=payload["status_kind"],
+            detail=payload["detail"],
+            location_id=payload.get("location_id"),
+        )
+    if event_type == "schedule_rewrite":
+        trigger = payload["trigger_event_key"]
+        return ScheduleRewrite(
+            **common,
+            npc_id=payload["npc_id"],
+            location_id=payload["location_id"],
+            start_tick=payload["start_tick"],
+            end_tick=payload["end_tick"],
+            cause=payload["cause"],
+            trigger_save_uuid=trigger["save_uuid"],
+            trigger_generation=trigger["generation"],
+            trigger_seq=trigger["seq"],
+            rule=payload["rule"],
+        )
+    if event_type == "role_installed":
+        return RoleInstalled(
+            **common,
+            role_id=payload["role_id"],
+            title=payload["title"],
+            institution_id=payload["institution_id"],
+            duties=tuple((duty["name"], duty["lapse_status_kind"]) for duty in payload["duties"]),
+            holder_id=payload.get("holder_id"),
+        )
+    raise TypeError(
+        f"no Event reconstruction mapping for event_type {event_type!r} -- extend "
+        "chronicle/framelog.py's event_from_record (schema §3)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Writer
 # ---------------------------------------------------------------------------
@@ -606,6 +697,13 @@ class ReconstructedState:
     Decay is analytic at read time (claims.decay / claims.stage_at) -- the
     stored beliefs carry as-of-last-rehearsed strengths, exactly like the
     live stores; nothing decayed is ever read from or written to the log.
+
+    ``event_log`` carries the parent's canonical events up to ``tick``,
+    replayed via ``event_from_record`` (schema §3) -- added for the fork
+    milestone (docs/design/fork-on-disk-support.md §1): a fork's new
+    ``Driver`` needs the same canonical-event history the live run had, not
+    just the claims/social/roles state, so ``EventLog.lineage()`` and rule
+    11's belief-derived accumulators see the same history post-fork.
     """
 
     tick: int
@@ -613,6 +711,7 @@ class ReconstructedState:
     social: SocialStateStore
     schedule: tuple[ScheduleBlock, ...]
     roles: RoleStore
+    event_log: EventLog
 
 
 def _iter_records(path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
@@ -694,8 +793,12 @@ class FrameLogReader:
             schedule = load_state(claims, social, keyframe["payload"]["state"])
 
         # Canonical events up to T: replayed belief_formed records recover
-        # their gamets from the canonical event they derive from.
+        # their gamets from the canonical event they derive from. Also
+        # replayed into a fresh EventLog (fork milestone, §1 above) via
+        # event_from_record -- append() is idempotent per (save_uuid,
+        # generation, seq), so this loop's order doesn't matter for it.
         event_gamets: dict[tuple[str, int, int], float] = {}
+        event_log = EventLog()
         # Tier 4a (design doc T3, lane 36): every schedule_rewrite fired by
         # T, so the overlay filter below can find whichever ones are active
         # *at* T -- log-derived, exactly like every other Tier-3 record.
@@ -712,6 +815,7 @@ class FrameLogReader:
                 continue
             key = (record["save_uuid"], record["generation"], record["seq"])
             event_gamets[key] = payload["gamets"]
+            event_log.append(event_from_record(record))
             event_type = payload["event_type"]
             if event_type == "schedule_rewrite":
                 overlays.append(
@@ -874,4 +978,5 @@ class FrameLogReader:
             social=social,
             schedule=effective_schedule_at(schedule, overlays, tick),
             roles=roles,
+            event_log=event_log,
         )

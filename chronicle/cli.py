@@ -59,6 +59,7 @@ from typing import Any
 
 from chronicle.claims import BeliefInstance, decay, stage_at
 from chronicle.events import CrimeWitnessed, NPCDied, RumorHeard
+from chronicle.fork import fork_run
 from chronicle.framelog import (
     EVENTS_STREAM,
     STREAM_FILES,
@@ -555,11 +556,22 @@ def _check_event_type(event_type: Any) -> str | None:
 
 
 def _branch_identity(reader: FrameLogReader, runs_dir: Path, run_id: str) -> tuple[str, str, int]:
-    """The run's (seed_id, save_uuid, generation), from any record envelope or the run registry."""
-    for stream in (EVENTS_STREAM, TRACE_STREAM):
-        first = next(reader.records(stream), None)
-        if first is not None:
-            return first["seed_id"], first["save_uuid"], first["generation"]
+    """The run's (seed_id, save_uuid, generation), from the run registry or (fallback) any record envelope.
+
+    Registry-first, not record-first: chronicle/fork.py's copy-forward
+    fork support (docs/design/fork-on-disk-support.md) stamps a forked
+    run's copied-prefix records with the PARENT's generation (they really
+    happened under that branch) and only its own new records with the
+    fork's own generation -- so a forked run's FIRST record no longer
+    reliably names that run's own current generation the way it did
+    before forking existed. The registry entry is written from the
+    Driver's own generation at construction (chronicle/framelog.py's
+    FrameLogWriter._register) and stays correct regardless of what
+    generation its earliest copied records carry, so it's the
+    authoritative source; falling back to a record envelope only covers
+    a run with no registry entry at all (e.g. a hand-built fixture in a
+    test that never went through the normal writer lifecycle).
+    """
     registry_path = runs_dir / "index.json"
     if registry_path.exists():
         registry = json.loads(registry_path.read_text(encoding="utf-8"))
@@ -567,6 +579,10 @@ def _branch_identity(reader: FrameLogReader, runs_dir: Path, run_id: str) -> tup
             if entry.get("run_id") == run_id:
                 branch = entry["branches"][0]
                 return entry["seed_id"], branch["save_uuid"], branch["generation"]
+    for stream in (EVENTS_STREAM, TRACE_STREAM):
+        first = next(reader.records(stream), None)
+        if first is not None:
+            return first["seed_id"], first["save_uuid"], first["generation"]
     raise SystemExit(f"chronicle: run {run_id!r} has no records and no registry entry -- cannot determine its branch identity")
 
 
@@ -795,6 +811,40 @@ def inject_command(args: argparse.Namespace) -> int:
     }
     print(f"# run={args.run} at={args.at} type={event_type} -- NOT written to the run's log (compose mode; use --event to write)")
     print(json.dumps(composed, indent=2, sort_keys=False))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# fork
+# ---------------------------------------------------------------------------
+
+
+def fork_command(args: argparse.Namespace) -> int:
+    """``chronicle fork <run_id> --at-tick T [--new-run-id ID]`` (docs/design/fork-on-disk-support.md).
+
+    A thin wrapper over ``chronicle.fork.fork_run`` -- the file-level fork
+    and ``Driver`` construction both live there, matching how
+    ``_inject_write`` above is a thin CLI wrapper over the lower-level
+    write path. ``--new-run-id`` defaults to ``"<run_id>-fork-<at_tick>"``
+    when omitted (no existing run-id generator to reuse in this codebase).
+
+    A bare ``chronicle fork`` invocation has nothing further to inject, so
+    this command closes the new ``Driver`` immediately -- marking its
+    registry entry complete, matching the normal run lifecycle. A caller
+    that wants to inject a diverging event and keep running (a scenario, or
+    eventually the dashboard's injection console) should call
+    ``fork_run()`` directly instead of shelling out to this command.
+    """
+    run_id = _resolve_positional_run(args, command="fork")
+    new_run_id = args.new_run_id if args.new_run_id is not None else f"{run_id}-fork-{args.at_tick}"
+    try:
+        driver = fork_run(run_id, at_tick=args.at_tick, new_run_id=new_run_id, runs_dir=args.runs_dir)
+    except (FileNotFoundError, FileExistsError, ValueError) as exc:
+        print(f"chronicle: {exc}", file=sys.stderr)
+        return 1
+    new_run_dir = (args.runs_dir if args.runs_dir is not None else default_runs_dir()) / new_run_id
+    driver.close()
+    print(f"forked {run_id!r} at tick {args.at_tick} -> new run {new_run_id!r} (generation {driver.generation}) at {new_run_dir}")
     return 0
 
 
@@ -1088,6 +1138,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="override the injected event's origin.detail; defaults to 'chronicle inject'",
     )
     p_inject.set_defaults(func=inject_command)
+
+    p_fork = sub.add_parser(
+        "fork",
+        help="fork a run at a historical tick into a new run, generation+1 (docs/design/fork-on-disk-support.md)",
+    )
+    p_fork.add_argument("pos_run", nargs="?", metavar="run_id", help="the parent run id (positional form)")
+    p_fork.add_argument("--run", default=None, help="the parent run id (flag form)")
+    p_fork.add_argument("--at-tick", type=int, required=True, dest="at_tick", help="the tick to fork at (inclusive)")
+    p_fork.add_argument(
+        "--new-run-id",
+        default=None,
+        dest="new_run_id",
+        help="id for the new run (default: '<run_id>-fork-<at_tick>')",
+    )
+    p_fork.set_defaults(func=fork_command)
 
     p_sync_check = sub.add_parser(
         "sync-check",
