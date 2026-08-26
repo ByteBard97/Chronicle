@@ -77,12 +77,22 @@ confirms it manually in an actual play session.** Real findings from
 the build: `TESDataHandler::LookupForm<Actor>` resolves a placed
 reference directly (simpler than guessed); `BGSRelationship::AddChange`
 is needed to mark the write dirty for save serialization (documented
-API, not confirmed sufficient); a real protocol gap exists where the
-listener marks a pair "delivered" before the C++ side confirms the
-write succeeded, so skipped pairs (the expected-common "no existing
-relationship" case, or an NPC not currently resolvable) are silently
-and permanently lost — named, not fixed. Ruled scope held: only updates
-an existing relationship record, never creates one.
+API, not confirmed sufficient). Ruled scope held: only updates an
+existing relationship record, never creates one.
+
+**The "delivered before confirmed" protocol gap named above is now
+closed (`9e0b462`).** `POST /whiterun/hydration/ack` reports exactly
+what `ApplyHydrationPair` did (applied / no_relationship / retry); the
+listener's state machine only latches a pair as settled on an explicit
+ack, and a `no_relationship` latch is scoped to the exact rank it was
+recorded against — a later rank change always gets a fresh offer. Found
+and fixed in the same pass: a genuinely *dropped* ack (not an explicit
+`retry`) had no timeout and could leave a pair stuck forever on a
+long-running listener process — closed with a 60s
+`_AWAITING_ACK_TIMEOUT_SECONDS`. A first attempt at that fix broke an
+existing test by conflating "never offered" with "expired"; fixed and
+independently re-verified (both the Python state machine and a full C++
+clean rebuild) before committing.
 
 ## 0e. Landed: hydration-out's Python-only slice (`e3e4b20`, `3044e14`)
 
