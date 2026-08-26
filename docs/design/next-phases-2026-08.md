@@ -64,6 +64,21 @@ interactive desktop session (see root `HANDOFF-*.md` files,
 a live game" are two different claims; keep them distinct in every
 future report on ChronicleBridge C++ work.
 
+## 0g. Landed: avoidance slice, Python-only cut (`282c678`, fourth ChronicleBridge slice)
+
+`docs/research/23-v03-hysteresis-and-action-verbs.md`'s ranked #3 NPC
+action verb, chosen because it extends rule 18's already-built, already-
+tested avoidance mechanism rather than inventing new Chronicle state.
+`chronicle/avoidance.py`'s `is_avoiding()` re-derives rule 18's own
+condition (imported constant, no duplication). `GET /whiterun/avoidance`
++ `POST /whiterun/avoidance/ack` mirror hydration's poll/ack protocol,
+adapted for being symmetric (canonicalized pair ordering) and two-outcome
+(no `no_relationship`-equivalent case exists for avoidance). Designed
+with the ack timeout from day one — no retrofit needed this time.
+**No C++ work yet** — the game-side AI-package consumer of this state is
+real, separate future work, its own design pass (which CommonLibSSE-NG
+package-condition mechanism to use).
+
 ## 0f. Landed: hydration-out's C++ poller (`fad0d79`) — first WRITE path, unverified
 
 All three ChronicleBridge slices (spatial streamer, death extraction,
