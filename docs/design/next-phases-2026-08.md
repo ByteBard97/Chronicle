@@ -3,13 +3,12 @@
 **Status:** working plan, not an ADR or a ladder amendment — informal
 coordination doc, revise freely as work lands.
 
-## 0. Landed this session
+## 0. Landed
 
 - Rules 12 (grudge-creation) and 13 (grudge-decay) — the scenario
-  ladder's last two stubbed rules — are now real (`c6d047d`). All 19
-  rules in `docs/scenario-ladder.md` §8 are live. `Driver.suffer_harm()`
-  is the first grudge cascade that fires without a scenario/console
-  script explicitly calling `form_grudge()`.
+  ladder's last two stubbed rules — are now real (`c6d047d`).
+  `Driver.suffer_harm()` is the first grudge cascade that fires without
+  a scenario/console script explicitly calling `form_grudge()`.
 - `chronicle/sync.py` (ADR-0005's RESOLVE table, epoch fencing, dedup)
   and `chronicle sync-check <run_id> --manifest '<json>'`
   (`docs/design/chronicle-sync-cli-integration.md`) — `c5aa674`,
@@ -19,69 +18,62 @@ coordination doc, revise freely as work lands.
   a real bug in review: `cli._branch_identity()` used to trust a run's
   *first* record's envelope for its generation, which broke the moment a
   forked run's copied prefix legitimately carries the parent's
-  generation on its earliest records — every fork's identity was
-  silently misreported as its parent's. Fixed (registry-first, record
+  generation on its earliest records. Fixed (registry-first, record
   fallback), regression test added.
 - `sync-check --apply` (`c10c71a`) now actually calls `fork_run()` for
   FORK/ADOPT instead of only reporting them.
 
 **This closes out the entire ADR-0005 sync-handshake thread as far as it
-can go headlessly.** What's left there — the C++ shim side
-(`g_isLoading`, co-save read/write, the two load hooks) and the
+can go headlessly.** What's left there — the C++ shim side and the
 dashboard UI for triggering a fork (`ui-spec.md` §3.1) — needs the
-Windows build machine, a live game, or dashboard-lane work respectively,
-not this thread.
+Windows build machine, a live game, or dashboard-lane work respectively.
 
-## 1. Open: trust-discounted retelling — blocked on two owner calls, not on scoping
+## 1. In progress: trust-discounted retelling (rule 20)
 
-`docs/design/trust-discounted-retelling.md` is fully written and has
-been through two independent review passes (advisor, Kimi with a real
-research pass) — the scoping work is done. What's blocking implementation
-is two actual decisions, not missing design work:
+Every design question is ruled — via Kimi + advisor, code-verified, not
+owner opinion (session policy: a domain/tuning disagreement gets
+resolved by consulting them and verifying the discriminating fact in
+code, not bounced back to the owner — `docs/loop-playbook.md`):
 
-1. **The stranger-discount question**, where the two reviews disagree:
-   should a teller/hearer pair with *no* relationship edge at all take
-   the flat, undiscounted `0.8` (advisor's position — "no trust data, no
-   adjustment"), or a midpoint discount matching the doc's original
-   `TRUST_FLOOR`-equivalent value (Kimi's position, backed by DeGroot/
-   Friedkin-Johnsen trust-weighting and Granovetter's weak-ties research
-   — `Relationship.strength` has no negative/distrust range at all, so a
-   weak tie and no tie are the same *kind* of signal). Doc §3 lays out
-   both sides in full; this is a real modeling-philosophy call.
-2. **Whether to spend rule 19.** Corrected finding (Kimi, code-verified):
-   rules 9/10 both wrap the identical `claims.stage_at()` call — a real
-   merge, not ceiling-fudging — which drops the live count to 18/20
-   before trust-discounted retelling is even added, landing it cleanly
-   at 19/20. No rule-4 demotion or ceiling raise needed. Still requires
-   amending the frozen `docs/scenario-ladder.md` §8 (recording the
-   already-made O4 consolidation ruling that its own text never
-   reflected, plus the new row) — a real frozen-doc edit, just a much
-   smaller one than originally framed.
+- No-relationship pairs get `trust=0.5`, not the undiscounted flat `0.8`
+  — verified `Relationship.strength` has no distrust range at all
+  (`[0,1]`, hard-gated; distrust lives only in `Grudge`), so a weak tie
+  and no tie are the same kind of signal, not neutral-vs-distrusted.
+- Trust discounts confidence only, never `verbatim_strength`/
+  `gist_strength` — the two axes are deliberately orthogonal (source
+  credibility vs. memory precision).
+- `colocation` is excluded from the trust lookup (kinship/faction/
+  shared_employer only, max strength across bases) — verified colocation
+  edges are hand-seeded fixture constants that never update, tracking no
+  real signal.
+- The contested-resolution path (`claims.py`'s T2.3 challenger-wins
+  branch) inherits the same discount, applied consistently.
 
-Three smaller implementation gaps the design doc's first draft missed
-(also in doc §3, all need a ruling alongside the two above, not
-separately): lookup direction (must be the *hearer's* trust in the
-*teller* — `Relationship` is directed), what happens when a pair holds
-multiple relationship bases at once, and a second independent hardcoded
-use of `RETELL_CONFIDENCE_DECAY` in `claims.py`'s contested-resolution
-path (~line 786) that the original inventory missed entirely.
+`docs/scenario-ladder.md` §8 is amended (`c251f36`): the O4 consolidation
+ruling it never absorbed (rules 9+10 are one rule, per `chronicle/
+rules.py`'s own docstring) is now recorded, and rule 20 lands exactly at
+the ~20 ceiling with no further consolidation or ceiling raise needed.
 
-**Not doing anything further here without the owner's answer to (1) and
-(2).**
+`docs/design/trust-discounted-retelling.md` is the full spec (not a
+proposal). Implementation is dispatched; review its actual diff before
+trusting the report, per the playbook, especially the T1.1
+backward-compatibility fix it was told to apply (`disabled_rules=
+(TRUST_DISCOUNTED_RETELLING,)` on any fixture asserting the old exact
+flat-0.8 behavior).
 
 ## 2. Flagged, not scheduled: v0.3's real remaining gaps
 
 `docs/vision-v2.2.md` §6's "v0.3" is mostly already built — thresholds
 (rule 11), hysteresis (doctrine 3), grudges (12/13), obligations (14),
 and named relationships (`social.Relationship`) all exist and are
-ladder-tested. What Kimi's independent review found still genuinely
-open, if the owner ever wants to open a new rung:
+ladder-tested. What's still genuinely open, if a new rung ever gets
+opened:
 
 - **Rule 11's latch is one-directional** — trips but never untrips. Fine
   for "four thefts escalate," not sufficient for CK-style relationship
   *demotion*, which needs separate entry/exit thresholds. No surveyed
-  research or existing code solves two-way hysteresis; this is the
-  hardest real open design problem beyond what's landed.
+  research or existing code solves two-way hysteresis — the hardest real
+  open design problem beyond what's landed.
 - **No inventory of NPC action verbs.** Avoidance (rule 18) is the only
   built "NPC acts differently because of accumulated social state"
   mechanism. Dialogue, package overrides, quest hooks are unresearched
@@ -93,22 +85,23 @@ open, if the owner ever wants to open a new rung:
   live-observed Whiterun NPCs mostly aren't in the fixture cast, so any
   of the above is only demonstrable for the ~6 NPCs already fixtured.
 
-This competes with §1 for rule 19/20's slot (or a future ceiling
-decision) if the owner wants both eventually — not scheduled, no action
-pending here.
+This would need its own rule-budget slot (the ceiling is now exactly at
+20 once rule 20 lands — a future mechanism here needs a fresh
+consolidation ruling or an explicit ceiling raise) and its own
+design-prep doc. Not scheduled; no action pending.
 
-## 3. Explicitly not being worked without owner sign-off
+## 3. Genuinely stops the loop (irreversible or preference, not domain/tuning)
 
-- Any edit to `docs/scenario-ladder.md`, `docs/ui-spec.md`, or
-  `docs/ui-doctrines.md` (frozen, owner-review-only, `AGENTS.md`).
-- Spending rule 19/20 on either §1 or §2 above.
+- `git push` to the remote — always ask first, no exception.
 - The ChronicleBridge C++ half of anything, or the named-cast identity
-  gap's `IdentityMap.cpp` table (needs the Windows build machine + a
-  live game to verify; not attemptable from this session alone).
+  gap's `IdentityMap.cpp` table — needs the Windows build machine and a
+  live game to even test; not attemptable from this session.
+- Opening a genuinely new tier/rung of scope (§2) versus staying within
+  what's already ladder-scoped — a real product-direction call, not a
+  tuning question.
 
-## 4. Nothing else unblocked as of this update
-
-Every headlessly-buildable, no-sign-off-needed thread scoped so far has
-landed (§0). The only open item (§1) is waiting on the owner, not on
-more design work. If picking this doc back up and nothing above has
-moved, say so plainly rather than inventing a new lane to look busy.
+Frozen documents (`docs/ui-spec.md`, `docs/scenario-ladder.md`,
+`docs/ui-doctrines.md`) are not automatically in this list — see §1's
+rule-20 amendment for the standard: a reviewed design doc that rules
+cleanly on its own questions may amend a frozen doc's stale content,
+reported afterward rather than asked about first.
