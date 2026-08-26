@@ -64,6 +64,26 @@ interactive desktop session (see root `HANDOFF-*.md` files,
 a live game" are two different claims; keep them distinct in every
 future report on ChronicleBridge C++ work.
 
+## 0f. Landed: hydration-out's C++ poller (`fad0d79`) — first WRITE path, unverified
+
+All three ChronicleBridge slices (spatial streamer, death extraction,
+hydration) are now built end to end. This one is different in kind from
+everything before it: it's the first code in the whole project that
+*writes* to a live game object (`RE::BGSRelationship::level`), not just
+observes one. Compiled cleanly, independently re-verified with two full
+clean rebuilds. **Never run against a live game or a real save — that
+must stay true in every future summary of this work until someone
+confirms it manually in an actual play session.** Real findings from
+the build: `TESDataHandler::LookupForm<Actor>` resolves a placed
+reference directly (simpler than guessed); `BGSRelationship::AddChange`
+is needed to mark the write dirty for save serialization (documented
+API, not confirmed sufficient); a real protocol gap exists where the
+listener marks a pair "delivered" before the C++ side confirms the
+write succeeded, so skipped pairs (the expected-common "no existing
+relationship" case, or an NPC not currently resolvable) are silently
+and permanently lost — named, not fixed. Ruled scope held: only updates
+an existing relationship record, never creates one.
+
 ## 0e. Landed: hydration-out's Python-only slice (`e3e4b20`, `3044e14`)
 
 `SocialStateStore.reputations()`, the pure `chronicle/hydration.py`
