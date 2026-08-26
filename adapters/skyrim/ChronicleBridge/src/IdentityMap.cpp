@@ -24,6 +24,17 @@ namespace ChronicleBridge {
         // "ysolda" observed 2026-08-24 in a live Whiterun exterior snapshot
         // (Skyrim.esm:01a69a -> name "Ysolda").
         //
+        // 18 more entries added 2026-08-26, all read directly from
+        // adapters/skyrim/listener/whiterun-positions.json (a single live
+        // Whiterun exterior snapshot capturing 28 NPCs), the same
+        // observed-at-runtime sourcing this table requires. That snapshot's
+        // 6 "Whiterun Guard" entries and its 1 "Cow" entry are excluded for
+        // the reasons below (guards) and because a cow is not an NPC.
+        // Several of these use HearthFires.esm or "unofficial skyrim
+        // special edition patch.esp" as their origin plugin rather than
+        // Skyrim.esm -- that's the plugin actually observed owning the
+        // FormID at runtime, not an assumption, and is preserved verbatim.
+        //
         // jarl_balgruuf/irileth/proventus/hulda are not yet in this table --
         // they spend most of their time indoors (Dragonsreach, the Bannered
         // Mare) and hadn't appeared in an *outdoor* snapshot as of this
@@ -34,8 +45,26 @@ namespace ChronicleBridge {
         // any more than another -- picking one would be exactly the kind of
         // guess this table exists to avoid. Leave guards on the generic
         // fallback.
-        constexpr std::array<NamedCastEntry, 1> kNamedCast{{
+        constexpr std::array<NamedCastEntry, 19> kNamedCast{{
             {"Skyrim.esm", 0x01a69a, "ysolda"},
+            {"unofficial skyrim special edition patch.esp", 0x01a689, "idolaf_battle_born"},
+            {"Skyrim.esm", 0x01a66c, "saffir"},
+            {"Skyrim.esm", 0x01a675, "carlotta_valentia"},
+            {"HearthFires.esm", 0x01a66a, "amren"},
+            {"Skyrim.esm", 0x01a67c, "adrianne_avenicci"},
+            {"HearthFires.esm", 0x01a68c, "lars_battle_born"},
+            {"HearthFires.esm", 0x01a66b, "braith"},
+            {"Skyrim.esm", 0x01a684, "fralia_gray_mane"},
+            {"Skyrim.esm", 0x01a6a4, "nazeem"},
+            {"unofficial skyrim special edition patch.esp", 0x10e2b6, "lillith_maiden_loom"},
+            {"Skyrim.esm", 0x02c90f, "brenuin"},
+            {"Skyrim.esm", 0x01a680, "anoriath"},
+            {"HearthFires.esm", 0x003f5e, "lucia"},
+            {"Skyrim.esm", 0x01a682, "heimskr"},
+            {"Skyrim.esm", 0x0cdd73, "sigurd"},
+            {"Skyrim.esm", 0x01a699, "olava_the_feeble"},
+            {"Skyrim.esm", 0x01a69f, "danica_pure_spring"},
+            {"Skyrim.esm", 0x01a685, "olfina_gray_mane"},
         }};
 
     }  // namespace

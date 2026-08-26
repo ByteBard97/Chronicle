@@ -45,6 +45,21 @@ _EDGE_SPECS: tuple[dict[str, Any], ...] = (
     # refuse to give either of them a grudge (rule 8). Co-location between
     # the tavern regulars themselves, unrelated to the Jarl's death:
     {"id": "rel-hulda-ysolda", "from_id": "hulda", "to_id": "ysolda", "basis": "colocation", "basis_id": "bannered_mare", "strength": 0.5},
+    # 5 more edges added 2026-08-26, for the same 18-NPC growth pass as
+    # whiterun_schedule.py -- deliberately conservative: only relationships
+    # this well-established in vanilla Skyrim lore are seeded. NPCs with a
+    # schedule block but no confident lore-backed relationship (Nazeem,
+    # Danica Pure-Spring/Heimskr, Braith, Olava the Feeble,
+    # Lillith Maiden-Loom, Brenuin, Anoriath) are left schedule-only, same
+    # as whiterun_guard_1 above -- a schedule block alone still makes them
+    # schedulable/encounterable, and an invented edge would be worse than
+    # none.
+    {"id": "rel-carlotta-lucia", "from_id": "carlotta_valentia", "to_id": "lucia", "basis": "kinship", "basis_id": "valentia_family", "strength": 0.9},
+    {"id": "rel-amren-saffir", "from_id": "amren", "to_id": "saffir", "basis": "kinship", "basis_id": "amren_family", "strength": 0.9},
+    {"id": "rel-fralia-olfina", "from_id": "fralia_gray_mane", "to_id": "olfina_gray_mane", "basis": "kinship", "basis_id": "gray_mane_family", "strength": 0.9},
+    {"id": "rel-idolaf-lars", "from_id": "idolaf_battle_born", "to_id": "lars_battle_born", "basis": "kinship", "basis_id": "battle_born_family", "strength": 0.9},
+    # Warmaiden's: Sigurd is Adrianne's forge assistant/employee.
+    {"id": "rel-sigurd-adrianne", "from_id": "sigurd", "to_id": "adrianne_avenicci", "basis": "shared_employer", "basis_id": "warmaidens", "strength": 0.6},
 )
 
 
