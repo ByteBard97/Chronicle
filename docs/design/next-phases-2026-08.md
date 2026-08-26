@@ -64,6 +64,20 @@ interactive desktop session (see root `HANDOFF-*.md` files,
 a live game" are two different claims; keep them distinct in every
 future report on ChronicleBridge C++ work.
 
+## 0d. Landed: death-extraction's C++ half (`6ec2406`)
+
+`DeathEventSink`, wired into `plugin.cpp` and `OutboundClient`, compiles
+cleanly (independently re-verified with a full clean rebuild, not just
+trusted from the report) against the real `commonlibsse-ng@3.6.0`
+toolchain via the newly-discovered SSH build access. This is the second
+ChronicleBridge slice fully specified end to end (Python listener half
+already existed; the C++ half was the one thing left). `gamets` comes
+from `RE::Calendar::GetHoursPassed()`, matching a wire-contract field
+description that was already written before this code existed.
+**Compiled, not live-tested** — no death event has ever actually been
+observed or POSTed by this code; that needs the owner's own game
+session.
+
 ## 0c. Landed: named-cast growth (`2f27cc8`)
 
 `IdentityMap.cpp`'s `kNamedCast` grew from 1 entry (ysolda) to 19, using
