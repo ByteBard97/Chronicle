@@ -29,13 +29,33 @@ Unsorted. Promote to `docs/vision.md` or a new ADR once an idea earns it.
   2026) in the ADR; evidence in
   `docs/research/11-version-pin-and-transport.md`.
 
-- **When `adapters/skyrim/` work actually starts (v0.2), install and
-  smoke-test the SKSE bridge dependencies**: SKSE64, Address Library for
-  SKSE Plugins, powerofthree's Papyrus Extender (Nexus SE 22854, MIT —
-  the reference-implementation dependency), and either Leidtier's
-  `SKSE_HTTP` (license unconfirmed — verify first) or a custom
-  CommonLibSSE-NG WebSocket plugin (`SkyrimScripting/SKSE_Template_WebSockets`
-  as a starting template). Not needed for any current headless work.
+- ~~When `adapters/skyrim/` work actually starts (v0.2), install and
+  smoke-test the SKSE bridge dependencies~~ **Resolved by research
+  2026-08-23 — see
+  [docs/research/22-native-skse-plugin-prior-art.md](../docs/research/22-native-skse-plugin-prior-art.md).**
+  Build a first-party CommonLibSSE-NG plugin ("ChronicleBridge") over
+  **IXWebSocket** (BSD-3-Clause, confirmed license), not `SKSE_HTTP` —
+  dependencies confirmed clean: SKSE64, Address Library for SKSE
+  Plugins, powerofthree's Papyrus Extender (MIT). ~~New action item this
+  research surfaced, not yet resolved: before any other
+  `adapters/skyrim/` work, run a Stage-0 spike confirming an in-process
+  WebSocket server bound to `127.0.0.1` inside the Proton prefix is
+  reachable from a native-Linux Python process~~ **Resolved
+  2026-08-25, empirically, in production.** ChronicleBridge (the actual
+  shipped plugin, `adapters/skyrim/ChronicleBridge/`) has been sending
+  live outbound HTTP POSTs from inside the Proton prefix to a listener
+  bound on `127.0.0.1:8765` on the native Linux host at ~1Hz during a
+  real Whiterun play session — confirmed via the listener's own access
+  log (`204` responses) and real named-NPC data landing in
+  `adapters/skyrim/listener/whiterun-positions.json` (Idolaf
+  Battle-Born, Saffir, Carlotta Valentia, Amren, Adrianne Avenicci, and
+  more). **Correction to this note's original prediction:** the shipped
+  transport is plain fire-and-forget HTTP POST (see
+  `adapters/skyrim/contracts/chronicle-bridge.openapi.yaml`), not
+  IXWebSocket — simpler than what this note anticipated, and it's what
+  actually got built for the v0.2 first slice
+  (`docs/design/chronicle-bridge-spatial-streamer.md`). The Stage-0
+  unknown this note flagged as highest-risk is closed.
 
 - **Check whether Mutagen / xEdit's Info NPC Extractor (already the
   recommended NPC data ingestion path, `docs/research/01-skyrim-modding-substrate.md`)
