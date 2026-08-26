@@ -98,23 +98,46 @@ inspectability doctrine (`docs/architecture.md`).
 
 ## 3. Why this is blocked, not just unstarted
 
-Two things need an owner ruling before any code:
+**Correction (advisor-caught, verified against the code directly):** the
+first draft of this doc said trust-discounted retelling would spend "the
+ladder's last remaining slot," reading `docs/scenario-ladder.md` §8's
+"Count: 19 named rules against the ~20 ceiling... must spend the
+remaining slot deliberately or consolidate" at face value. That's stale.
+`chronicle/rules.py`'s own module docstring records a ruling already
+made: **"Budget (O4 ruling): 9+10 are one state machine and 4 is
+schema-not-rule -- 17/20 against the ceiling."** Both of §8's own named
+consolidation candidates were already ruled on — the effective count is
+17, not 19, meaning **three slots are free**, not one. The frozen ladder
+doc's §8 text was never updated to reflect O4; that's a real
+inconsistency between two documents, not a re-litigation of the
+consolidation question. Two owner items remain, both smaller than
+originally framed:
 
-1. **The rule-budget slot.** `docs/scenario-ladder.md` §8 counts 19
-   named rules against a ~20 ceiling, with headroom "only via
-   consolidation." Trust-discounted retelling is not one of the 19 — it
-   is new mechanism, and `docs/scenario-ladder.md` is a **frozen,
-   owner-review-only document** (`AGENTS.md`). Landing this means either
-   amending that frozen table to add a 20th rule, or ruling on one of
-   §8's named consolidation candidates first (merging rules 9+10, or
-   reclassifying rule 4 as schema-not-rule) to free a slot. Neither is a
-   decision a lane or a loop should make unilaterally.
-2. **The formula/constants in §2 are proposed, not ruled.** `TRUST_FLOOR`,
-   the `None`-case default, and the linear shape itself are this doc's
-   best first draft, not a settled design — exactly the kind of tuning
-   call this project's convention (documented placeholder tunables,
-   explicit rejected-alternatives sections in ladder rulings like T2.3)
-   expects an owner or coordinator to weigh in on before code, not after.
+1. **A frozen-doc update, not a scope tradeoff.** `docs/scenario-ladder.md`
+   §8 needs its count/prose brought in line with O4 (17/20, three free
+   slots) and a new row added for trust-discounted retelling if the
+   owner wants to proceed — a doc amendment recording a fact and a new
+   rule, not a fresh consolidation decision. Still owner-review-only
+   (`AGENTS.md`'s frozen-document list), just a much lighter ask than
+   originally stated here.
+2. **The formula/constants in §2 have a real defect** (advisor-caught):
+   `TRUST_FLOOR=0.5` and the no-relationship default both being `0.5`
+   means an *unfamiliar* teller and a *maximally distrusted* one produce
+   the identical `0.8 × 0.5 = 0.4` — collapsing two semantically
+   different states into one. **Revised proposal:** the no-relationship
+   case passes `trust=None` and takes the current flat `0.8` exactly,
+   full stop — "no tracked relationship" means "no trust information to
+   apply," not "assume mistrust." This also keeps T1.1's own assertion
+   ("confidence = witness confidence × 0.8 **exactly**") literally true
+   for every pair with no relationship edge, rather than only for pairs
+   with a maximal one. `TRUST_FLOOR` itself (proposed: lower to `0.4`,
+   now that it only ever applies when a real, if weak, relationship
+   exists) is still a placeholder needing sign-off, not a settled number.
+   Separately flagged: `Relationship`'s `co-location` basis is a weak-to-
+   wrong trust proxy (two NPCs who happen to share a market stall aren't
+   thereby trusting each other) — either restrict the trust lookup to
+   `kinship`/`faction` bases, or treat this as its own open sub-question
+   for the owner rather than silently including `co-location`.
 
 ## 4. Non-goals for this doc
 
