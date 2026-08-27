@@ -22,21 +22,27 @@
 // -- that file, not this one's IdentityMap.cpp, is what the patcher run
 // needed fixed). This table's SHAPE and
 // lookup logic were already real and compile-checked; the VALUES are now
-// real too, for the 4 illustrative pairs listed. Still not load-ordered in
-// an actual running game -- that verification remains pending, like every
-// other ChronicleBridge write path.
+// real too, for all 171 pairs the patcher resolved. Still not load-ordered
+// in an actual running game -- that verification remains pending, like
+// every other ChronicleBridge write path.
 //
-// Only a representative handful of pairs are listed here (illustrative,
-// not exhaustive -- rule 18 can, in principle, put ANY two named-cast NPCs
-// into avoidance, so the real table's final size is however many pairs
-// tools/chronicle-patcher/ ends up authoring a package for, not a fixed
-// combinatorial constant). A pair missing from this table resolves to
-// std::nullopt, which AvoidancePoller.cpp treats as a (temporary) `retry`
-// outcome -- exactly the right behavior for both "not yet authored" and
-// "genuinely never going to be authored" until the patcher's own coverage
-// decision is known; the ack protocol offers no third, permanent-skip
-// outcome (see OutboundClient.h's AvoidanceApplyOutcome), so retry-forever
-// is the honest, protocol-correct thing to report either way.
+// All 171 pairs (19-choose-2 named-cast NPCs) are listed here -- rule 18
+// can, in principle, put ANY two named-cast NPCs into avoidance, and
+// tools/chronicle-patcher/ has now authored a package for every one of
+// them, so this table's real size (171) IS the full combinatorial
+// constant for today's roster, not a subset. It is generated
+// programmatically by tools/generate-avoidance-globals-table.py from
+// tools/chronicle-patcher/out/chronicle-globals.json, not hand-typed --
+// re-run both if IdentityMap.cpp's/IdentityMap.cs's named-cast roster ever
+// grows or shrinks (that changes the pair set and, per
+// EvidencePoller.cpp's own allocation-order-dependent FormID comment,
+// every FormID downstream of it too). A pair missing from this table (e.g.
+// during that regeneration gap) resolves to std::nullopt, which
+// AvoidancePoller.cpp treats as a (temporary) `retry` outcome -- exactly
+// the right behavior for "not yet (re)authored", since the ack protocol
+// offers no third, permanent-skip outcome (see OutboundClient.h's
+// AvoidanceApplyOutcome), so retry-forever is the honest, protocol-correct
+// thing to report.
 
 #include <optional>
 #include <string_view>
