@@ -24,38 +24,12 @@ namespace ChronicleBridge {
                     return RE::BSEventNotifyControl::kContinue;
                 }
 
-                // research/26 F1: a real, documented static accessor -- no
-                // menu-internal GFx/UI scraping, no reverse engineering.
-                auto handle = RE::BarterMenu::GetTargetRefHandle();
-                auto refPtr = RE::TESObjectREFR::LookupByHandle(handle);
-                if (!refPtr) {
-                    SKSE::log::trace(
-                        "ChronicleBridge barter: BarterMenu opened but GetTargetRefHandle() did not resolve to a "
-                        "live reference");
-                    return RE::BSEventNotifyControl::kContinue;
-                }
-
-                auto* vendor = refPtr->As<RE::Actor>();
+                auto* vendor = ResolveBarterVendorActor();
                 if (!vendor) {
-                    SKSE::log::trace("ChronicleBridge barter: BarterMenu's target reference is not an Actor -- skipping");
                     return RE::BSEventNotifyControl::kContinue;
                 }
 
-                // Same forward FormRef -> named-cast resolution
-                // DeathEventSink.cpp's ResolveActorIdentity already uses --
-                // no new IdentityMap reverse helper needed for THIS
-                // direction (Actor* -> npc_id was already reachable via the
-                // existing ResolveFormRef + ResolveNamedCast composition;
-                // only the OTHER direction, npc_id -> Actor*, ever needed a
-                // genuinely new helper, ResolveChronicleNpcId, which this
-                // slice doesn't use).
-                auto ref = ResolveFormRef(vendor);
-                if (!ref) {
-                    SKSE::log::trace("ChronicleBridge barter: vendor actor has no resolvable FormRef -- skipping");
-                    return RE::BSEventNotifyControl::kContinue;
-                }
-
-                auto npcId = ResolveNamedCast(*ref);
+                auto npcId = ResolveNpcIdForActor(vendor);
                 if (!npcId) {
                     // Not a named-cast NPC (a generic merchant) -- nothing
                     // Chronicle-relevant to report. Deliberately NOT falling
@@ -72,6 +46,45 @@ namespace ChronicleBridge {
         };
 
     }  // namespace
+
+    RE::Actor* ResolveBarterVendorActor() {
+        // research/26 F1: a real, documented static accessor -- no
+        // menu-internal GFx/UI scraping, no reverse engineering.
+        auto handle = RE::BarterMenu::GetTargetRefHandle();
+        auto refPtr = RE::TESObjectREFR::LookupByHandle(handle);
+        if (!refPtr) {
+            SKSE::log::trace(
+                "ChronicleBridge barter: BarterMenu opened but GetTargetRefHandle() did not resolve to a "
+                "live reference");
+            return nullptr;
+        }
+
+        auto* vendor = refPtr->As<RE::Actor>();
+        if (!vendor) {
+            SKSE::log::trace("ChronicleBridge barter: BarterMenu's target reference is not an Actor -- skipping");
+            return nullptr;
+        }
+        return vendor;
+    }
+
+    std::optional<std::string> ResolveNpcIdForActor(RE::Actor* actor) {
+        if (!actor) return std::nullopt;
+
+        // Same forward FormRef -> named-cast resolution
+        // DeathEventSink.cpp's ResolveActorIdentity already uses -- no new
+        // IdentityMap reverse helper needed for THIS direction (Actor* ->
+        // npc_id was already reachable via the existing ResolveFormRef +
+        // ResolveNamedCast composition; only the OTHER direction, npc_id ->
+        // Actor*, ever needed a genuinely new helper, ResolveChronicleNpcId,
+        // which this direction doesn't use).
+        auto ref = ResolveFormRef(actor);
+        if (!ref) {
+            SKSE::log::trace("ChronicleBridge barter: vendor actor has no resolvable FormRef -- skipping");
+            return std::nullopt;
+        }
+
+        return ResolveNamedCast(*ref);
+    }
 
     void RegisterBarterMenuSink(std::function<void(PendingBarterOpen)> onBarterOpen) {
         auto* handler = BarterMenuHandler::GetSingleton();

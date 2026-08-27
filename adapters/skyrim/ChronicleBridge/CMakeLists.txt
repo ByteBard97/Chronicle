@@ -38,6 +38,8 @@ add_commonlibsse_plugin(${PROJECT_NAME} SOURCES
     src/AvoidanceGlobals.cpp
     src/AvoidancePoller.cpp
     src/BarterMenuSink.cpp
+    src/VendorMarkupCache.cpp
+    src/VendorPriceHook.cpp
 )
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_23)
 target_precompile_headers(${PROJECT_NAME} PRIVATE src/PCH.h)

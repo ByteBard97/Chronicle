@@ -28,15 +28,21 @@
 // HydrationPoller/AvoidancePoller's writes) ever needed a genuinely new
 // helper (ResolveChronicleNpcId), and this slice doesn't need that one.
 //
-// *** DELIBERATE SCOPE LIMIT (research/26's own recommendation, restated
-// here so it isn't lost): this slice is DETECTION ONLY. It performs no
-// price write, installs no hook/detour/trampoline, and touches
-// RE::BarterMenu through nothing but its one documented static function.
-// The actual price write requires a reverse-engineered internal price-calc
-// hook (research/26 F5/F6) -- explicitly out of scope for this slice and
-// for whoever reads this file next; do not add one here without a separate,
-// deliberate go/no-go decision, per that doc's own Recommendation section.
-// ***
+// *** UPDATED SCOPE (was DETECTION ONLY -- corrected here, not left stale):
+// research/26 originally scoped this file to detection-only, deferring the
+// actual price write pending a reverse-engineered hook. research/28 found
+// that hook needs no reverse engineering at all (a documented vtable-slot
+// swap + Scaleform-callback-swap, both fully inside already-vendored
+// CommonLibSSE-NG surface) -- see VendorPriceHook.h/.cpp for the WRITE
+// half, which shares this file's vendor-Actor*->npc_id resolution chain
+// (ResolveBarterVendorActor/ResolveNpcIdForActor, below) rather than
+// duplicating it. This file itself still performs no write and installs no
+// hook -- it remains the event-sink-based DETECTION path, now one of two
+// ways this plugin reacts to a barter-menu open (this one via
+// RE::MenuOpenCloseEvent for logging/telemetry; VendorPriceHook.cpp via the
+// PostCreate vtable swap for the actual price mutation, since the price
+// write must happen before Scaleform's own item-card update fires, not
+// merely "on menu open"). ***
 //
 // ProcessEvent (like DeathEventSink's) runs synchronously on the main
 // thread -- only fast, main-thread-safe work happens inline (identity
@@ -57,6 +63,7 @@
 // assumption -- not sink registration -- is the first thing to suspect. ***
 
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace ChronicleBridge {
@@ -64,6 +71,25 @@ namespace ChronicleBridge {
     struct PendingBarterOpen {
         std::string npcId;  // resolved per IdentityMap -- never a raw FormID.
     };
+
+    // Shared with VendorPriceHook.cpp (docs/research/28-vendor-price-hook-
+    // address-library-spike.md, the WRITE half of this feature): resolves
+    // the actor currently targeted by an open BarterMenu via
+    // RE::BarterMenu::GetTargetRefHandle() + RE::TESObjectREFR::
+    // LookupByHandle + Actor::As<RE::Actor> -- the exact chain
+    // BarterMenuHandler::ProcessEvent already used before this was factored
+    // out. Returns nullptr (traced internally, not warned -- a common
+    // transient case) if no live Actor currently resolves.
+    RE::Actor* ResolveBarterVendorActor();
+
+    // Shared with VendorPriceHook.cpp: the same forward FormRef ->
+    // named-cast npc_id resolution BarterMenuHandler::ProcessEvent already
+    // used before this was factored out (ResolveFormRef + ResolveNamedCast
+    // -- see this file's own header comment for why no reverse IdentityMap
+    // helper was needed for this direction). Returns std::nullopt for a
+    // non-named-cast vendor (a generic merchant/guard) -- there is no
+    // Chronicle grudge/markup state keyed on a generic fallback identity.
+    std::optional<std::string> ResolveNpcIdForActor(RE::Actor* actor);
 
     // Registers the menu-open/close sink with RE::UI. Must be called during/
     // after SKSE::MessagingInterface::kDataLoaded -- same lifecycle rule

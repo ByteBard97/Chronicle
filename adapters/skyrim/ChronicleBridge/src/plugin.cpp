@@ -21,7 +21,6 @@
 
 #include <spdlog/sinks/basic_file_sink.h>
 
-#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -35,6 +34,8 @@
 #include "HydrationPoller.h"
 #include "OutboundClient.h"
 #include "SpatialStreamer.h"
+#include "VendorMarkupCache.h"
+#include "VendorPriceHook.h"
 
 namespace {
 
@@ -148,7 +149,12 @@ namespace {
     std::condition_variable g_barterQueueReady;
     std::deque<ChronicleBridge::PendingBarterOpen> g_pendingBarterOpens;
 
-    void BarterMenuSenderThreadLoop(ChronicleBridge::OutboundConfig config) {
+    // No longer takes an OutboundConfig -- since VendorMarkupCache.h became
+    // the one caller of FetchVendorMarkupPairs, this loop no longer does
+    // any network I/O of its own (it only reads VendorMarkupCache's
+    // in-process map), so it has nothing left to need a host/port/secret
+    // for.
+    void BarterMenuSenderThreadLoop() {
         while (true) {
             ChronicleBridge::PendingBarterOpen open;
             {
@@ -158,41 +164,27 @@ namespace {
                 g_pendingBarterOpens.pop_front();
             }
 
-            // This slice's whole job is proving detection works (BarterMenuSink.h's
-            // header comment) -- no price write, no ack POST. The
-            // markup-multiplier GET below is purely informational, using the
-            // same GET-only OutboundClient path FetchHydrationPairs/
-            // FetchAvoidancePairs already establish. A fetch failure
-            // (including the common "listener not started with --live-run"
-            // 503) is already logged inside FetchVendorMarkupPairs itself --
-            // nothing further to do here beyond noting no entry was found.
-            //
-            // IMPORTANT: chronicle/vendor_markup.py's (holder_id, target_id)
-            // pairs are Grudge state -- both NPC ids, never a player id (no
-            // player/dragonborn concept exists anywhere in Chronicle's
-            // fixtures or kNamedCast). Matching this vendor as holder_id
-            // only tells us this NPC holds a grudge-driven markup entry
-            // toward some OTHER NPC -- it says nothing about whether that
-            // multiplier is meant to apply to the PLAYER's barter
-            // transaction happening right now (an open question this slice
-            // deliberately does not resolve, per design doc §1). The log
-            // line below is worded to reflect that: it reports the entry,
-            // not a claim that it "would apply here."
-            auto pairs = ChronicleBridge::FetchVendorMarkupPairs(config);
-            auto match = std::find_if(pairs.begin(), pairs.end(), [&](const auto& pair) {
-                return pair.holderId == open.npcId;
-            });
+            // This log line now reads VendorMarkupCache instead of calling
+            // FetchVendorMarkupPairs a second time -- VendorMarkupCache.h's
+            // own header comment explains why: listener.py's GET
+            // /whiterun/vendor-markup is a DELTA feed (a pair is only
+            // returned once until it changes again or its awaiting-ack
+            // entry expires), so a second independent poller here would
+            // race VendorMarkupCachePollerThreadLoop for the same deltas
+            // and starve whichever one lost. Reading the shared cache
+            // instead reports the exact multiplier PostCreate would apply
+            // (or "no entry"), never a stale/racy second read.
+            auto multiplier = ChronicleBridge::GetPlayerMarkupMultiplier(open.npcId);
 
-            if (match != pairs.end()) {
+            if (multiplier) {
                 SKSE::log::info(
-                    "ChronicleBridge barter: named-cast vendor '{}' opened BarterMenu -- has a {:.2f}x "
-                    "grudge-markup entry toward '{}' (NPC-directed Grudge state; whether/how this should apply to "
-                    "a player transaction is unresolved -- read-only, nothing written, see BarterMenuSink.h)",
-                    open.npcId, match->markupMultiplier, match->targetId);
+                    "ChronicleBridge barter: named-cast vendor '{}' opened BarterMenu -- {:.2f}x player-directed "
+                    "markup is cached for this vendor (VendorPriceHook.cpp applies this at PostCreate)",
+                    open.npcId, *multiplier);
             } else {
                 SKSE::log::info(
-                    "ChronicleBridge barter: named-cast vendor '{}' opened BarterMenu (no vendor-markup entry found "
-                    "for this vendor)",
+                    "ChronicleBridge barter: named-cast vendor '{}' opened BarterMenu (no player-directed "
+                    "vendor-markup entry cached for this vendor)",
                     open.npcId);
             }
         }
@@ -219,6 +211,19 @@ namespace {
         if (message->type == SKSE::MessagingInterface::kDataLoaded) {
             ChronicleBridge::RegisterDeathEventSink(EnqueueDeathEvent);
             ChronicleBridge::RegisterBarterMenuSink(EnqueueBarterOpen);
+            // Sixth slice (VendorPriceHook.h): the RE::VTABLE_BarterMenu[0]
+            // PostCreate vtable-slot swap is a process-global vtable
+            // pointer write. Installed here, at kDataLoaded, alongside the
+            // other event-sink registrations, rather than earlier in
+            // SKSEPluginLoad -- no BarterMenu instance can possibly be
+            // constructed before a save is loaded, so kDataLoaded is
+            // already early enough, and this keeps every RE:: singleton
+            // this plugin touches subject to the same one registration
+            // lifecycle rule (research/22's own documented rule, restated
+            // in BarterMenuSink.h's header comment) instead of carving out
+            // an earlier, separately-reasoned-about exception for this one
+            // hook.
+            ChronicleBridge::InstallVendorPriceHook();
         }
     }
 
@@ -230,10 +235,11 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     SKSE::log::info(
         "ChronicleBridge loaded -- spatial streamer + death-event + hydration-poll + avoidance-poll + "
-        "barter-menu-detection slices (see docs/design/chronicle-bridge-spatial-streamer.md, "
+        "barter-menu-detection + vendor-price-write slices (see docs/design/chronicle-bridge-spatial-streamer.md, "
         "docs/design/chronicle-bridge-death-extraction.md, docs/design/chronicle-bridge-hydration-out.md, "
         "docs/design/chronicle-bridge-avoidance-mutagen-out.md, "
-        "docs/design/chronicle-bridge-vendor-markup-out.md)");
+        "docs/design/chronicle-bridge-vendor-markup-out.md, "
+        "docs/research/28-vendor-price-hook-address-library-spike.md)");
 
     // Data/SKSE/Plugins/ChronicleBridge.ini overrides host/port/sharedSecret
     // when present (Config.cpp); a fresh install with no ini yet keeps
@@ -247,9 +253,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     std::thread(SenderThreadLoop, config).detach();
     std::thread(EventSenderThreadLoop, config).detach();
     // Fifth slice (BarterMenuSink.h): drains barter-menu-open detections and
-    // does the optional read-only markup-fetch-and-log off the main thread.
-    // Same config as every other loop above.
-    std::thread(BarterMenuSenderThreadLoop, config).detach();
+    // logs the cached vendor-markup multiplier (if any) off the main
+    // thread. No config needed -- see BarterMenuSenderThreadLoop's own
+    // comment for why.
+    std::thread(BarterMenuSenderThreadLoop).detach();
     // Third slice (docs/design/chronicle-bridge-hydration-out.md): polls
     // the listener for pending relationship-rank pushes and applies them to
     // live game objects. Same config (host/port/sharedSecret) as the other
@@ -262,6 +269,11 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // other loop above. See AvoidancePoller.h for the SetLinkedRef finding
     // that shaped this slice's write path.
     std::thread(ChronicleBridge::AvoidancePollerThreadLoop, config).detach();
+    // Sixth slice (VendorMarkupCache.h): polls the listener for
+    // player-directed vendor-markup pairs and keeps VendorPriceHook.cpp's
+    // in-process multiplier cache current. Same config as every other loop
+    // above.
+    std::thread(ChronicleBridge::VendorMarkupCachePollerThreadLoop, config).detach();
 
     // Death-event sink registration is deferred to kDataLoaded (see
     // OnSkseMessage's own comment) -- RegisterListener must be called here,

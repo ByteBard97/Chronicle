@@ -203,13 +203,22 @@ namespace ChronicleBridge {
     // Directed like HydrationPair, not symmetric like AvoidancePair -- see
     // docs/design/chronicle-bridge-vendor-markup-out.md.
     //
-    // This slice (BarterMenuSink.h/.cpp) only ever reads this to log an
-    // informational "this is the multiplier that WOULD apply" line when a
-    // named-cast vendor's barter menu opens (matching a pair's holder_id
-    // against that vendor's resolved npc_id) -- it never applies the
-    // multiplier to an actual price and never POSTs an ack, per
-    // research/26's scope split (the write itself needs a
-    // reverse-engineered hook, deliberately not attempted here).
+    // BarterMenuSink.h/.cpp (the DETECTION slice) used to read this to log
+    // an informational line; VendorMarkupCache.h/.cpp (the WRITE slice,
+    // docs/research/28-vendor-price-hook-address-library-spike.md) is now
+    // the ONE consumer -- see that file for why. It polls this fetch,
+    // filters to target_id == "the_player" (a markup pair between two
+    // other NPCs has no barter-menu meaning at all -- design doc's
+    // resolved player-identity note), and caches the result for
+    // VendorPriceHook.cpp's PostCreate override to read synchronously on
+    // the main thread. Note this struct is directed and UNFILTERED here --
+    // filtering to the player-relevant subset is the consumer's own job,
+    // not this fetch's.
+    //
+    // Deliberately no ack POST for this fetch, unlike Hydration/Avoidance:
+    // see VendorMarkupCache.h's own header comment for why a volatile,
+    // in-process cache actively wants the listener's unacked-pair
+    // re-offer/expiry behavior rather than suppressing it.
     struct VendorMarkupPair {
         std::string holderId;
         std::string targetId;
@@ -219,9 +228,7 @@ namespace ChronicleBridge {
     // GETs the listener's current vendor-markup pairs. Same "empty means
     // nothing changed OR the request failed, and the caller's response to
     // either is identical" contract as FetchHydrationPairs/
-    // FetchAvoidancePairs -- see FetchHydrationPairs's comment. There is no
-    // corresponding ack POST for this fetch -- see VendorMarkupPair's own
-    // comment for why.
+    // FetchAvoidancePairs -- see FetchHydrationPairs's comment.
     std::vector<VendorMarkupPair> FetchVendorMarkupPairs(const OutboundConfig& config);
 
 }  // namespace ChronicleBridge
