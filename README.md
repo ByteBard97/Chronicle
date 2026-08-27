@@ -51,10 +51,11 @@ bridge deployed — but no visible in-game effects confirmed yet.**
   avoidance, vendor-markup, evidence) is unit/scenario-tested on the
   Python side but unverified in a running game — see
   `docs/design/chronicle-bridge-verification-runbook.md`.
-- **The "out" direction doesn't visibly exist yet.** Writes land in
-  save-relevant game state, but nothing has been confirmed to actually
-  change what a player sees. Only "in" (positions, deaths) has ever been
-  observed working.
+- **No write path has been confirmed to produce a visible in-game effect
+  yet.** Every "out" slice (hydration, avoidance, vendor-markup,
+  evidence) is compiled and Python-tested, but none has run against a
+  live game — only "in" (positions, deaths) has ever been observed
+  working.
 - **Named-cast coverage: 19 of 28.** `IdentityMap.cpp`'s `kNamedCast`
   resolves 19 of Whiterun's 28 live-captured NPCs to a Chronicle
   identity (grown from 1); the rest stream as generic fallbacks the
@@ -70,7 +71,7 @@ see the world react. That's the next milestone.
 | M1: Bridge compiles | All 7 ChronicleBridge slices build clean against CommonLibSSE-NG | Done |
 | M2: Bridge deploys | DLL + patched ESP in a real MO2 install, listener wired, ready to launch | Done |
 | M3: In-game validation | Launch the game, confirm each slice live via the verification runbook | Next |
-| M4: Named-cast coverage | Resolve the remaining 9 of 28 Whiterun NPCs to Chronicle identities | In progress (19/28) |
+| M4: Named-cast coverage | Resolve the remaining 9 of 28 Whiterun NPCs to Chronicle identities | Mostly done (19/28, 9 remaining — see `docs/design/next-phases-2026-08.md` §0c) |
 | M5: Visible "out" direction | Sim state actually changes what the player sees | Blocked on M3 |
 | M6: Player-shareable | Downloadable artifact, install instructions, save-safety guarantee | Blocked on M5 |
 
@@ -86,7 +87,7 @@ Requires [uv](https://docs.astral.sh/uv/) — it installs the right Python
 uv sync      # install dependencies
 make test    # uv run pytest
 make lint    # uv run ruff check .
-make sim     # uv run python -m chronicle (currently a stub)
+make sim     # uv run python -m chronicle -- inspect/trace/feed/inject subcommands (chronicle/cli.py)
 ```
 
 **Layout**: `chronicle/` is the pure-Python simulation engine — it never

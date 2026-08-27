@@ -22,7 +22,7 @@ plainly as unverified, not silently assumed correct.
 | # | Kimi's script said | Verified / corrected to | Why |
 |---|---|---|---|
 | 1 | Vendor Markup precondition: `prid <vendor>; SetRelationshipRank Player -2` | **Wrong mechanism.** `VendorMarkupCache.cpp` polls `GET /whiterun/vendor-markup` and only reacts to a Chronicle grudge/markup pair with `target_id == "the_player"` fed from the live run's data. Console `SetRelationshipRank` never touches this cache at all — it's a completely separate data path from `RE::BGSRelationship`. The real precondition is `chronicle inject <run_id> --type grudge_formed --payload '{"holder_id": "adrianne_avenicci", "target_id": "the_player", ...}'` (or the future dedicated vendor-markup event once one exists — check `chronicle/cli.py`/`docs/frame-log-schema.md` for the current accepted shape) against the live run directory, then wait for the ~8s poll. | `VendorMarkupCache.cpp`, `VendorMarkupCache.h` |
-| 2 | Diegetic Evidence: manually `PlaceAtMe <YourEvidenceBaseForm> 1 1 1` via console | **Wrong mechanism entirely.** A real C++ consumer already exists (`EvidencePoller.cpp`) and does this automatically: it polls `GET /whiterun/evidence`, resolves the claim's `holder_id` to a live `Actor*`, and calls `believer->PlaceObjectAtMe(evidenceObject, true)` on the **NPC's own position**, not the player's. The evidence object is **not** a form you choose — it's hardcoded as vanilla `Gold001` (`Skyrim.esm`, FormID `0x0000000F`), an explicitly-flagged throwaway placeholder (see `EvidencePoller.cpp`'s `kPlaceholderLocalFormId` comment). Manually console-spawning something yourself tests vanilla engine persistence, not ChronicleBridge. The real test is: inject a `belief_formed` event for a named-cast holder via `chronicle inject`, wait ~8s, then go find that NPC and look for a spawned Gold item at their feet. | `EvidencePoller.cpp`, `EvidencePoller.h` |
+| 2 | Diegetic Evidence: manually `PlaceAtMe <YourEvidenceBaseForm> 1 1 1` via console | **Wrong mechanism entirely.** A real C++ consumer already exists (`EvidencePoller.cpp`) and does this automatically: it polls `GET /whiterun/evidence`, resolves the claim's `holder_id` to a live `Actor*`, and calls `believer->PlaceObjectAtMe(evidenceObject, true)` on the **NPC's own position**, not the player's. The evidence object is **not** a form you choose — it's hardcoded as a real authored `MiscItem` record (**correction 2026-08-27: this table originally said vanilla `Gold001`; that was the placeholder before evidence-object authoring landed and is now stale** — the real object is `ChroniclePatcher.esp:0x000a01`, editor ID `ChronicleEvidenceObject`, model `Clutter\BloodyRags\BloodyRags.nif`, see `EvidencePoller.cpp`'s `kEvidenceLocalFormId` comment for why this FormID is allocation-order-dependent and how to re-derive it if the named-cast roster changes). Manually console-spawning something yourself tests vanilla engine persistence, not ChronicleBridge. The real test is: inject a `belief_formed` event for a named-cast holder via `chronicle inject`, wait ~8s, then go find that NPC and look for the spawned evidence item at their feet. | `EvidencePoller.cpp`, `EvidencePoller.h` |
 | 3 | Avoidance pair: "Ysolda and Carlotta Valentia" | **Would have silently failed for the wrong reason, at the time this was written.** At the time of the original test, only 4 of 171 possible pairs had real (non-placeholder) FormIDs wired into `AvoidanceGlobals.cpp`'s then-illustrative C++ lookup table, and Ysolda+Carlotta wasn't one of them. **Update (2026-08-27): this is now moot — `AvoidanceGlobals.cpp` was expanded to cover all 171 pairs** (generated programmatically from `tools/chronicle-patcher/out/chronicle-globals.json` via `tools/generate-avoidance-globals-table.py`, verified entry-by-entry against the source data). Any named-cast pair now resolves. `nazeem`/`ysolda` remains the recommended pick below purely for in-game travel convenience (they're the closest pair in the one live position snapshot captured so far), not because other pairs would fail. | `AvoidanceGlobals.cpp` |
 | 4 | Global name: `Chronicle_GrudgeGlobal_<PairID>`, set via `Set <name> 1` | Real global name (`AvoidanceGlobals.h`/`.cpp`, `AvoidancePatchBuilder.cs`): **`ChronicleAvoidingPair_<npcA>_<npcB>`**, `npcA`/`npcB` sorted ordinally by `chronicle_npc_id` (not display name). For the recommended pair: `ChronicleAvoidingPair_nazeem_ysolda`. Also, `Set X 1` is not valid Skyrim console syntax — the real form is `set <globalname> to <value>` (confirmed via multiple independent sources below). Corrected command: `set ChronicleAvoidingPair_nazeem_ysolda to 1`. | `AvoidanceGlobals.h`, `AvoidancePoller.cpp`, `tools/chronicle-patcher/src/AvoidancePatchBuilder.cs` |
 | 5 | Hydration precondition: `prid <NPC>; SetRelationshipRank Player -3` | **Wrong axis.** `HydrationPoller.cpp`'s `ApplyHydrationPair` resolves **both** `pair.holderId` and `pair.targetId` to `RE::TESNPC*` and calls `RE::BGSRelationship::GetRelationship(npc1, npc2)` — this is a pure **NPC↔NPC** write, the player is never involved. Setting the NPC's rank toward the player tests nothing this slice touches. Correct verification is `prid <npcA_refid>; getrelationshiprank <npcB_refid>` before and after ChronicleBridge's poll, on a pair known to have an authored vanilla `BGSRelationship` record (a married couple or parent/child; not independently confirmed for any specific named-cast pair from this session — see §3 below). | `HydrationPoller.cpp` |
@@ -41,33 +41,35 @@ actual data source.
 | 10 | (this doc's own §3/§4/§5 preconditions, as originally written) | **Not executable with today's `chronicle` CLI as a single command.** `chronicle inject <run_id> --type grudge_formed --payload '...'` (no `--event`) is **compose-only** — it pretty-prints the JSON and writes nothing (`inject_command`'s docstring in `chronicle/cli.py`: "`--type`/`--payload` composes... does not write to the run's log"). The actual write path, `--event '<json>'`, only recognizes three event kinds: `npc_died`, `crime_witnessed`, `rumor_heard`. `grudge_formed` and `belief_formed` are **trace-stream derived records** (`docs/frame-log-schema.md` §4, producer tiers 3 and 0), not events-stream events, and `chronicle inject` has no trace-stream write path at all — confirmed empirically: `chronicle inject <run> --run <run> --at 0 --type grudge_formed --payload '{}'` → `chronicle: unknown event type 'grudge_formed' -- known kinds: crime_witnessed, npc_died, rumor_heard`. There is also no listener-side side door: `/whiterun/hydration`, `/whiterun/vendor-markup`, and `/whiterun/evidence` (`adapters/skyrim/listener/listener.py`) all compute their poll responses from `FrameLogReader.state_at()` — i.e. straight from the frame log. **Superseded by #11 below**, which found and verified the actual two-step recipe. | `chronicle/cli.py` (`inject_command`, `_EVENT_CLASSES`), `docs/frame-log-schema.md` §4, `adapters/skyrim/listener/listener.py` (`_hydration_pairs`, `_vendor_markup_pairs`, `_evidence_entries`) |
 | 11 | (follow-up to #10, 2026-08-27) | **A real recipe exists — it just isn't a single `chronicle inject` call.** `chronicle inject`'s `--event` path genuinely CANNOT write a `Grudge` or `BeliefInstance` directly (#10 stands: those are trace-stream *derived* records, and `chronicle inject`'s write path only appends to the *events* stream — confirmed by reading `_inject_write` in full: it constructs an `Event` subclass and calls `writer.write_event()`, nothing else). But `chronicle/driver.py`'s own `Driver.crime_witnessed()` (rule 12's cascade) DOES derive a real `Grudge` + `BeliefInstance` from a `crime_witnessed` event when `victim_id == witness_id` — and that event kind IS one `chronicle inject --event` genuinely accepts. Verified end-to-end this session against a fresh scratch run (not `runs/north-star-01`): (1) `chronicle inject <run> --event '{"event_type": "crime_witnessed", "witness_id": "<a>", "perpetrator_id": "<b>", "crime_type": "assault", "victim_id": "<a>", "location_id": "...", "gamets": <t>}'` — this succeeds today, unlike `grudge_formed`; (2) reattach a `Driver` to that same run (replaying its state via `FrameLogReader.state_at()`, matching `chronicle/cli.py`'s own `_open_appending_writer`/`_branch_identity` reattachment pattern) and call `driver.crime_witnessed(...)` with the SAME ids and the injected event's `(save_uuid, generation, seq)` as `canonical_event_key` — this derives `Grudge(holder_id=<a>, target_id=<b>, severity=1.0)` and `BeliefInstance(confidence=0.95)`, confirmed by an independent, freshly-constructed `FrameLogReader.state_at()` re-read (not just the in-process driver's own view) and by `chronicle inspect <run> <a>`. Severity 1.0 clears `AVOIDANCE_GRUDGE_THRESHOLD` (0.5) and `MARKUP_SEVERITY_FLOOR` (0.2) with room to spare; confidence 0.95 clears `EVIDENCE_CONFIDENCE_THRESHOLD` (0.6). Setting `perpetrator_id="the_player"` (instead of a second NPC) produces `target_id="the_player"` for the vendor-markup precondition; a bystander witness (`victim_id=None`, no self-victim) produces the belief with no grudge cascade at all, for evidence-only seeding. Step 2 is **not** a CLI command — there is none — it's a small, real Python driver of `chronicle`'s own public simulation API, now wired into `tools/chronicle-devbench-runbook.py`'s `seed_crime_witnessed_grudge`/`_resume_driver` (see that file's module docstring for the full recipe, including a real auto-id-collision caveat this session found while verifying it). §3/§4/§5 below now document the real two-step recipe directly. | `chronicle/driver.py` (`Driver.crime_witnessed`, `Driver.suffer_harm`, `Driver.witness`), `chronicle/rules.py` (`GrudgeCreationRule`), `chronicle/social.py` (`form_grudge`, `GRUDGE_EMOTIONAL_WEIGHT`/`GRUDGE_EVIDENTIARY_WEIGHT`), `chronicle/claims.py` (`WITNESS_CONFIDENCE`), `chronicle/diegetic_evidence.py`, `chronicle/vendor_markup.py`, `chronicle/driver.py` (`AVOIDANCE_GRUDGE_THRESHOLD`), `tools/chronicle-devbench-runbook.py` (updated this session) |
 
-## Deployment gap — checked directly against `~/Games/ChronicleDev`, 2026-08-27
+## Deployment gap — RESOLVED since this section was first written
 
-This is real, current state, not assumed:
+**Correction added 2026-08-27, later same day**: this section originally
+recorded a real gap (`ChronicleBridge`/`ChroniclePatcher` mod folders
+absent, `plugins.txt` missing the patcher plugin), checked directly at
+14:56. That gap closed shortly after, evidently as part of `48d827c`
+(15:12) — this section was never updated to say so, and an external AI
+conversation cited the stale version of it as current fact. Re-checked
+directly against the filesystem just now:
 
-- **`~/Games/ChronicleDev/mods/`** has 9 mods installed (Address Library,
-  Crash Logger, `devbench`, EngineFixes, PapyrusUtil, powerofthree's
-  Papyrus Extender, Skyrim Script Extender, SkyUI, USSEP). **There is no
-  `ChronicleBridge` mod folder and no `ChroniclePatcher` mod folder.**
-  `find ~/Games/ChronicleDev -iname "*ChronicleBridge*"` and
-  `*ChroniclePatcher*` both return nothing.
-- **`~/Games/ChronicleDev/profiles/Default/plugins.txt`** only has
-  `unofficial skyrim special edition patch.esp` and `SkyUI_SE.esp`
-  enabled — `ChroniclePatcher.esp` is not installed or load-ordered.
-- **The repo's own generated patcher output does exist**:
-  `tools/chronicle-patcher/out/ChroniclePatcher.esp` is present on this
-  machine (171/171 pairs resolved per `AvoidanceGlobals.cpp`'s 2026-08-27
-  comment) — it just hasn't been moved into the MO2 instance yet.
-- **The Windows build machine mirror is further along than
-  `.claude/windows-build-machine.md`'s note suggests.** That note (dated
-  2026-08-26) says the mirror "currently has only slice 1." Checked
-  directly via SSH on 2026-08-27: `C:\Users\geoff\ChronicleBridge\src\`
-  now has **all 26 source files / all 7 slices**, and
-  `C:\Users\geoff\ChronicleBridge\build\release\ChronicleBridge.dll`
-  exists, built at the same timestamp as the source sync (01:22 PM). The
-  full-slice DLL has already been built successfully — it just hasn't
-  been copied to this Linux machine or into the MO2 instance. That stale
-  note should be corrected the next time someone touches it.
+- `~/Games/ChronicleDev/mods/ChronicleBridge/SKSE/Plugins/
+  ChronicleBridge.dll` exists.
+- `~/Games/ChronicleDev/mods/ChroniclePatcherOutput/ChroniclePatcher.esp`
+  exists.
+- `profiles/Default/modlist.txt` has both `+ChronicleBridge` and
+  `+ChroniclePatcherOutput` enabled.
+- `profiles/Default/plugins.txt` has `*ChroniclePatcher.esp` enabled.
+- `profiles/Default/loadorder.txt` orders it correctly: `Skyrim.esm,
+  Update.esm, Dawnguard.esm, HearthFires.esm, Dragonborn.esm,
+  _ResourcePack.esl, ...USSEP, SkyUI_SE.esp, ChroniclePatcher.esp` — after
+  all masters it needs.
+
+**Deployment is real and current as of this check.** What's still true,
+unchanged: no one has launched the game against this deployed build yet
+(the only `ChronicleBridge.log` found on this machine is from 2026-08-25,
+a different install, and predates this 7-slice build by two days — it
+logged the spatial-streamer-only slice, not current state). Don't cite
+the bulleted gap-list above as current; it's kept only as a record of
+what this section originally found.
 
 **Pre-session checklist (owner's own manual MO2 steps — not automated
 here per this task's scope):**
@@ -280,9 +282,11 @@ session — see correction #11.
 
 - **This is fully automatic once seeded — do not manually `PlaceAtMe`
   anything** (correction #2). `EvidencePoller.cpp` polls `GET
-  /whiterun/evidence` and, for each entry, spawns vanilla `Gold001`
-  (`Skyrim.esm:0x0000000F`, an explicit placeholder — not a form you
-  choose) at the **believer NPC's own position** via
+  /whiterun/evidence` and, for each entry, spawns the real authored
+  evidence item (`ChroniclePatcher.esp:0x000a01`, editor ID
+  `ChronicleEvidenceObject` — not vanilla `Gold001`; that placeholder was
+  superseded, see correction above — not a form you choose) at the
+  **believer NPC's own position** via
   `Actor::PlaceObjectAtMe(evidenceObject, true)` (force-persistent).
 - **Seed a real, well-evidenced belief with the verified two-step recipe
   (correction #11)** — a `belief_formed` record can't be written directly
@@ -392,8 +396,9 @@ by correction #10's gap.
   explicitly force-persists the *spawned reference* itself
   (`PlaceObjectAtMe(..., true)`), so the "base form must already be
   persistent" caveat Kimi raised doesn't apply the way it phrased it —
-  the reference, not the base form (`Gold001`, a common vanilla MISC
-  item), is what needs to survive, and the code already requests that.
+  the reference, not the base form (`ChroniclePatcher.esp:0x000a01`, a
+  newly-authored MISC record), is what needs to survive, and the code
+  already requests that.
   Whether it actually does survive across a full cell detach/attach
   cycle is exactly what §5's test is for — genuinely unverified either
   way before that test runs.
