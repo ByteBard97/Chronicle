@@ -20,31 +20,54 @@ namespace ChronicleBridge {
         // similar to the other three poll/ack slices.
         constexpr auto kPollInterval = std::chrono::seconds(8);
 
-        // PLACEHOLDER EVIDENCE BASE OBJECT -- replace once a real evidence
-        // base object is authored (design doc §5 step 2, separate/deferred
-        // work; report 31's recommendation 2 scopes the first cut's object
-        // to "a single pre-authored MISC or WEAP item").
+        // REAL EVIDENCE BASE OBJECT -- design doc §5 step 2's "pick/author a
+        // real evidence object" is done. This is now real authored content,
+        // not a placeholder: a brand-new MISC record, EditorID
+        // ChronicleEvidenceObject, authored by
+        // tools/chronicle-patcher/src/EvidenceItemPatchBuilder.cs into
+        // ChroniclePatcher.esp (the same output plugin
+        // AvoidanceGlobals.cpp's real FormIDs come from). A new record was
+        // authored rather than reusing an existing vanilla FormID (report
+        // 31 recommendation 2's literal "single pre-authored MISC or WEAP
+        // item" wording would allow either) specifically to avoid the risk
+        // of blind-picking a vanilla record that turns out to be unique,
+        // quest-critical, or carries an attached script -- every field on
+        // this record is explicit and known because this project's own
+        // patcher set every one of them. It is not an invisible/
+        // default-cube object in-game: its Model is a real vanilla clutter
+        // path, `Clutter\BloodyRags\BloodyRags.nif` (copied as a plain
+        // string, the same model vanilla Skyrim.esm's own BloodyRags01 MISC
+        // record uses -- confirmed via a real Mutagen read against
+        // Skyrim.esm to be non-unique/non-quest/unscripted, and a
+        // thematically better fit for "evidence of something happened
+        // here" than the superseded Gold001 placeholder), not a reference
+        // to that vanilla record itself. FormID 0x000a01 confirmed by
+        // running the patcher against a real Skyrim.esm + HearthFires.esm +
+        // USSEP load order and reading the resulting ChroniclePatcher.esp
+        // back with Mutagen (same verification technique
+        // AvoidanceGlobals.cpp's 171-pair run used) -- not guessed.
         //
-        // "Gold" (EditorID Gold001, MISC, Skyrim.esm, FormID 0x0000000F) --
-        // chosen not for thematic fit (it plainly isn't "evidence") but for
-        // being the single most reliably-known vanilla MISC FormID across
-        // every TES-engine game (Morrowind/Oblivion/Skyrim all use
-        // 0x0000000F for Gold001) -- an obviously-throwaway placeholder that
-        // reads as clearly wrong-on-purpose if ever spotted in-game, the
-        // same "obviously placeholder, not a real content decision" spirit
-        // AvoidanceGlobals.h's own pre-real-FormID phase named for its
-        // pair-global table. UNLIKE AvoidanceGlobals.cpp's now-real FormIDs
-        // (filled in from an actual tools/chronicle-patcher/ run against
-        // Skyrim.esm), this FormID has NOT been independently verified
-        // against a real Skyrim.esm read in this pass -- confirm it (or
-        // replace it with a real evidence base object, per design doc §5
-        // step 2) before this is ever exercised in an actual play session.
-        // ResolveLiveActor's LookupForm below fails safe (returns nullptr ->
-        // ApplyEvidenceEntry reports kRetry forever) if this FormID is
-        // somehow wrong, so a bad value here cannot crash or corrupt
-        // anything, it just silently never spawns.
-        constexpr std::string_view kPlaceholderPluginName = "Skyrim.esm";
-        constexpr std::uint32_t kPlaceholderLocalFormId = 0x0000000F;
+        // *** THIS FORMID IS ALLOCATION-ORDER-DEPENDENT, NOT FIXED ***:
+        // tools/chronicle-patcher/src/Program.cs authors the evidence item
+        // (EvidenceItemPatchBuilder) AFTER AvoidancePatchBuilder has already
+        // claimed 3 new FormIDs per resolved named-cast pair (1 global + 2
+        // packages) -- so this value is `0x800 + 3 * pairCount` (0x800 is
+        // Mutagen's first new-ESP FormID; today's 19-NPC roster resolves to
+        // 171 pairs, 513 prior records, landing here at 0xa01). If
+        // IdentityMap.cpp's/IdentityMap.cs's named-cast roster ever grows or
+        // shrinks, THIS VALUE SHIFTS -- re-run the patcher and re-read
+        // out/chronicle-evidence.json (the regeneration source for this
+        // constant, mirroring out/chronicle-globals.json's role for
+        // AvoidanceGlobals.cpp's table) before trusting it again. Same
+        // "hardcoded from a real run, re-verify if the roster changes"
+        // posture AvoidanceGlobals.cpp's own table already carries.
+        //
+        // ResolveLiveActor's LookupForm below still fails safe (returns
+        // nullptr -> ApplyEvidenceEntry reports kRetry forever) if this
+        // FormID is ever stale, so a bad value here still cannot crash or
+        // corrupt anything, it just silently never spawns.
+        constexpr std::string_view kEvidencePluginName = "ChroniclePatcher.esp";
+        constexpr std::uint32_t kEvidenceLocalFormId = 0x000a01;
 
         // Reverse identity resolution: Chronicle npc_id -> live RE::Actor*.
         // Same chain as AvoidancePoller.cpp's ResolveLiveActor -- this slice
@@ -89,12 +112,12 @@ namespace ChronicleBridge {
             if (!dataHandler) return EvidenceApplyOutcome::kRetry;
 
             auto* evidenceObject =
-                dataHandler->LookupForm<RE::TESObjectMISC>(kPlaceholderLocalFormId, kPlaceholderPluginName);
+                dataHandler->LookupForm<RE::TESObjectMISC>(kEvidenceLocalFormId, kEvidencePluginName);
             if (!evidenceObject) {
                 SKSE::log::warn(
-                    "ChronicleBridge evidence: placeholder evidence base object ({}:{:06x}) did not resolve -- "
-                    "retrying later (see EvidencePoller.cpp's kPlaceholderLocalFormId comment)",
-                    kPlaceholderPluginName, kPlaceholderLocalFormId);
+                    "ChronicleBridge evidence: evidence base object ({}:{:06x}) did not resolve -- "
+                    "retrying later (see EvidencePoller.cpp's kEvidenceLocalFormId comment)",
+                    kEvidencePluginName, kEvidenceLocalFormId);
                 return EvidenceApplyOutcome::kRetry;
             }
 
@@ -126,7 +149,7 @@ namespace ChronicleBridge {
             }
 
             SKSE::log::info(
-                "ChronicleBridge evidence: spawned placeholder evidence object at '{}''s position for belief '{}' "
+                "ChronicleBridge evidence: spawned evidence object at '{}''s position for belief '{}' "
                 "(claim '{}') (UNVERIFIED against a live save -- compiled only, see EvidencePoller.h)",
                 entry.holderId, entry.beliefId, entry.claimId);
             return EvidenceApplyOutcome::kApplied;

@@ -98,13 +98,19 @@ public static class Program
             return 1;
         }
 
+        // Unconditional -- no named-cast resolution dependency, see
+        // EvidenceItemPatchBuilder's own doc comment.
+        var evidenceItem = EvidenceItemPatchBuilder.Build(outputMod);
+
         Directory.CreateDirectory(outputDir);
         var espPath = Path.Combine(outputDir, outputModKey.FileName);
         outputMod.WriteToBinary(espPath, new BinaryWriteParameters());
 
         Console.WriteLine($"Wrote {espPath} ({outcome.Applied.Count} avoidance pairs patched).");
+        Console.WriteLine($"Evidence item: {EvidenceItemPatchBuilder.EditorId} -> {outputModKey.FileName}:{evidenceItem.FormKey.ID:x6}");
 
         WriteGlobalsMap(outputDir, outcome.Applied);
+        WriteEvidenceItemMap(outputDir, evidenceItem);
 
         return 0;
     }
@@ -161,5 +167,38 @@ public static class Program
 
         var json = JsonSerializer.Serialize(map, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(Path.Combine(outputDir, "chronicle-globals.json"), json);
+    }
+
+    /// <summary>
+    /// Writes the evidence item's editor ID/FormID/plugin to
+    /// out/chronicle-evidence.json -- the regeneration source for
+    /// EvidencePoller.cpp's hardcoded kEvidenceLocalFormId, mirroring
+    /// WriteGlobalsMap's role for AvoidanceGlobals.cpp's table above.
+    ///
+    /// This matters because the evidence item's FormID is
+    /// ALLOCATION-ORDER-DEPENDENT, not a fixed value: EvidenceItemPatchBuilder
+    /// runs after AvoidancePatchBuilder has already claimed 3 FormIDs per
+    /// resolved pair (1 global + 2 packages), so the evidence item's FormID
+    /// is `0x800 + 3 * pairCount` (0x800 is Mutagen's first new-ESP FormID;
+    /// pairCount is n-choose-2 for n resolved named-cast NPCs -- 171 pairs,
+    /// 513 prior records, landing the evidence item at 0xA01 for the current
+    /// 19-NPC roster). If IdentityMap's named-cast roster ever grows or
+    /// shrinks, this FormID shifts and EvidencePoller.cpp's hardcoded
+    /// constant must be re-read from a fresh run of this patcher and updated
+    /// -- exactly the same "hardcoded from a real run, re-verify if the
+    /// roster changes" posture AvoidanceGlobals.cpp's own table already
+    /// carries.
+    /// </summary>
+    private static void WriteEvidenceItemMap(string outputDir, EvidenceItemPatchBuilder.EvidenceItemPatchResult evidenceItem)
+    {
+        var map = new
+        {
+            editorId = EvidenceItemPatchBuilder.EditorId,
+            localFormId = $"{evidenceItem.FormKey.ID:x6}",
+            plugin = "ChroniclePatcher.esp",
+        };
+
+        var json = JsonSerializer.Serialize(map, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(Path.Combine(outputDir, "chronicle-evidence.json"), json);
     }
 }
