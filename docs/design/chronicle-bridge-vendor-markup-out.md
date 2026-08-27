@@ -71,6 +71,17 @@ halves, not a scoped R&D spike.** One caveat needs a live-game smoke
 test before relying on it: whether the multiplied AS3 `"value"` drives
 the real transaction gold or only the displayed figure.
 
+**Status (2026-08-27): built.** `VendorPriceHook.{h,cpp}` implements
+the vtable-swap + Scaleform-callback-swap exactly as report 28
+recommended, filtered to `target_id == "the_player"` pairs via a new
+`VendorMarkupCache`. Compiled and linked clean on the real toolchain.
+This is the sixth ChronicleBridge slice and the project's first vtable/
+UI-layer hook (every prior write used a plain documented `RE::` field
+or event sink). **Never run against a live game** — the same two
+caveats named above (transaction-gold vs. display-only, and
+`PostCreate`'s vendor-resolution ordering) remain open until a real
+play session confirms them.
+
 **Gap surfaced by detection's own implementation, resolved here rather
 than left open:** `BarterMenuSink`'s author correctly noticed that
 `chronicle/vendor_markup.py`'s `(holder_id, target_id)` pairs are pure

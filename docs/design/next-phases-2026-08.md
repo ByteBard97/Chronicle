@@ -16,6 +16,26 @@ apply to any NPC the player can actually meet (verified: `IdentityMap.
 cpp`'s `kNamedCast` has exactly one entry against 28 live-captured
 Whiterun NPCs in `whiterun-positions.json`).
 
+## 0k. Landed: vendor-markup's price-write hook (`d8dd01d`) — sixth slice, first vtable/UI hook
+
+`docs/research/28`'s `[BUILD-ON]` finding turned into real code:
+`VendorPriceHook.{h,cpp}` swaps `RE::VTABLE_BarterMenu[0]`'s
+`PostCreate` vfunc, then (only for a vendor with a real player-directed
+markup entry) swaps the barter menu's `"UpdateItemCardInfo"`
+ActionScript callback to multiply each row's price. New
+`VendorMarkupCache` filters the poll to `target_id == "the_player"` and
+fixed a real race the implementing agent caught in review (the
+detection sink and this cache both hitting the listener's single-
+delivery delta feed independently would have starved each other) —
+deliberately does not ack applied pairs, unlike hydration/avoidance,
+since acking an in-process-only cache would permanently starve it
+across a plugin restart. Compiled clean. **Two live-game caveats
+remain, stated plainly, not resolved by this slice**: whether the
+multiplied value drives real transaction gold vs. only the displayed
+figure, and whether `PostCreate` fires before or after the vendor
+resolves. This closes vendor-markup out to the same "compiled, not
+live-tested" status every other ChronicleBridge write path carries.
+
 ## 0i. Landed: vendor-markup slice, Python-only cut (`f1b1873`, fifth ChronicleBridge slice)
 
 `docs/research/23-v03-hysteresis-and-action-verbs.md`'s ranked #2 action
