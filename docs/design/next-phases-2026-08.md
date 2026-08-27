@@ -16,6 +16,44 @@ apply to any NPC the player can actually meet (verified: `IdentityMap.
 cpp`'s `kNamedCast` has exactly one entry against 28 live-captured
 Whiterun NPCs in `whiterun-positions.json`).
 
+## 0o. Landed: full 171-pair avoidance table, verified DevBench runbook automation with a real seeding recipe (`48d827c`, `c32e307`, `7d13012`)
+
+Closed the last two gaps in the live-testing prep. (1) `AvoidanceGlobals.
+cpp`'s C++ lookup table was expanded from 4 hand-picked illustrative
+pairs to the full 171 the patcher generates, via a new, re-runnable
+`tools/generate-avoidance-globals-table.py` — previously any grudge
+pair other than the 4 would silently no-op on the game side even
+though the patcher had already authored real content for it. Verified
+entry-by-entry against the source JSON (zero missing/extra/mismatched),
+rebuilt clean, redeployed to ChronicleDev. (2) `tools/
+chronicle-devbench-runbook.py` (a DevBench REST-API automation script
+for the verification runbook) initially believed hydration/vendor-
+markup/evidence's seeding preconditions were simply impossible via
+`chronicle inject` (only `npc_died`/`crime_witnessed`/`rumor_heard` are
+injectable; `grudge_formed`/`belief_formed` are trace-derived, not
+events). A follow-up pass found the real two-step recipe instead:
+inject a real `crime_witnessed` event, then reattach a `Driver` to the
+same run and call `Driver.crime_witnessed()` on it — the same rule-12
+cascade a live tick loop uses. Verified end-to-end against fresh
+scratch runs for all three shapes (NPC-NPC grudge, NPC-player grudge,
+bystander-only belief). Independently re-verified myself and found a
+real bug in the id-generation scheme (a bystander seed's absence of a
+grudge left an id counter un-advanced, causing a claim-id collision on
+a later seed) — reproduced, fixed by keying ids on the injected event's
+own monotonic seq instead, and re-confirmed 4 sequential seed calls
+now succeed cleanly. The runbook (`docs/design/
+chronicle-bridge-verification-runbook.md`) now has real, tested
+commands for every one of its 4 test paths — nothing left in it depends
+on an untested claim about how to seed state.
+
+**This is very likely the end of the safely-dispatchable, no-sign-off
+backlog for this pass.** Every ChronicleBridge write path is built,
+deployed into `~/Games/ChronicleDev`, and has a corrected, verified
+runbook plus a real automation script ready. What's left is either
+gated on the owner's sign-off (rule 11 hysteresis) or requires the
+owner's own hands (an actual live-game session — the one thing no
+amount of further research/dispatching can substitute for).
+
 ## 0n. Landed: EvidencePoller, whole-tree build, ChronicleDev deployment, home-location research (`3f5489b`, `5b61234`, `a34caa5`, ChronicleDev deployed)
 
 Closed the diegetic-evidence slice end to end and moved ChronicleBridge
