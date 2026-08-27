@@ -41,10 +41,25 @@ idempotency, ack outcomes, dropped-ack timeout, 503 gating,
 malformed-body rejection, shared-secret auth), mirroring the
 hydration/avoidance test suites' own fixture/style patterns.
 
-**Still not built, same split as hydration/avoidance:** the C++ half (an
-actual barter-menu-open price-write poller consuming this state) -- real,
-separate future work needing its own research pass on the exact
-CommonLibSSE-NG hook, per §0/§3 below.
+**Still not built, and NOT the same split as hydration/avoidance
+anymore:** `docs/research/26-vendor-price-markup-hook.md` (the research
+pass this note used to defer to) found the C++ half splits into two
+pieces of very different risk. **Detection** ("barter menu opened with
+vendor X" -- `RE::BarterMenu::GetTargetRefHandle()` +
+`RE::MenuOpenCloseEvent`) is fully documented-API, same risk tier as
+every other ChronicleBridge slice, and safe to build next. **The actual
+price write** is not: the real vanilla mechanism
+(`BGSEntryPoint::kModBuyPrices`/`kModSellPrices`) is authored-Perk
+content that doesn't scale to a continuously-recomputed per-NPC float,
+and the mechanism that would scale (a native price-calc function-detour
+hook, the pattern real mods like "Dynamic Prices Framework"/"The Gilded
+Road" use) requires locating an internal engine function CommonLibSSE-NG
+doesn't expose by name -- this project's first genuine reverse-engineering
+task, a different risk category than every prior write (`BGSRelationship
+::level`, a `TESGlobal`'s `value`) which all used documented public
+fields. **Ruling: build detection now; treat the price-write hook as its
+own scoped R&D spike (SigMaker/Address Library work against the
+ADR-0008-pinned binary), not bundled with routine next-slice work.**
 
 Original design proposal follows, unchanged except where noted above:
 design proposal for a Python-only first cut, mirroring
