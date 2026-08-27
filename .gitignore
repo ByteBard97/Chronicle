@@ -44,3 +44,9 @@ runs/
 tools/chronicle-patcher/**/bin/
 tools/chronicle-patcher/**/obj/
 tools/chronicle-patcher/out/
+
+# Session/handoff working notes -- internal process artifacts, not meant
+# for a public reader landing on the repo (docs/work-packets/reviews/
+# README.md's coordinator/lane-worker log lives in docs/, this doesn't).
+/HANDOFF-*.md
+/claude-sessions/
