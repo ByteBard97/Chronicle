@@ -38,6 +38,9 @@ was right; only the choice of *which axis* to write (player vs. NPC-pair)
 was wrong for hydration specifically, and *irrelevant* for vendor markup's
 actual data source.
 
+| 10 | (this doc's own §3/§4/§5 preconditions, as originally written) | **Not executable with today's `chronicle` CLI as a single command.** `chronicle inject <run_id> --type grudge_formed --payload '...'` (no `--event`) is **compose-only** — it pretty-prints the JSON and writes nothing (`inject_command`'s docstring in `chronicle/cli.py`: "`--type`/`--payload` composes... does not write to the run's log"). The actual write path, `--event '<json>'`, only recognizes three event kinds: `npc_died`, `crime_witnessed`, `rumor_heard`. `grudge_formed` and `belief_formed` are **trace-stream derived records** (`docs/frame-log-schema.md` §4, producer tiers 3 and 0), not events-stream events, and `chronicle inject` has no trace-stream write path at all — confirmed empirically: `chronicle inject <run> --run <run> --at 0 --type grudge_formed --payload '{}'` → `chronicle: unknown event type 'grudge_formed' -- known kinds: crime_witnessed, npc_died, rumor_heard`. There is also no listener-side side door: `/whiterun/hydration`, `/whiterun/vendor-markup`, and `/whiterun/evidence` (`adapters/skyrim/listener/listener.py`) all compute their poll responses from `FrameLogReader.state_at()` — i.e. straight from the frame log. **Superseded by #11 below**, which found and verified the actual two-step recipe. | `chronicle/cli.py` (`inject_command`, `_EVENT_CLASSES`), `docs/frame-log-schema.md` §4, `adapters/skyrim/listener/listener.py` (`_hydration_pairs`, `_vendor_markup_pairs`, `_evidence_entries`) |
+| 11 | (follow-up to #10, 2026-08-27) | **A real recipe exists — it just isn't a single `chronicle inject` call.** `chronicle inject`'s `--event` path genuinely CANNOT write a `Grudge` or `BeliefInstance` directly (#10 stands: those are trace-stream *derived* records, and `chronicle inject`'s write path only appends to the *events* stream — confirmed by reading `_inject_write` in full: it constructs an `Event` subclass and calls `writer.write_event()`, nothing else). But `chronicle/driver.py`'s own `Driver.crime_witnessed()` (rule 12's cascade) DOES derive a real `Grudge` + `BeliefInstance` from a `crime_witnessed` event when `victim_id == witness_id` — and that event kind IS one `chronicle inject --event` genuinely accepts. Verified end-to-end this session against a fresh scratch run (not `runs/north-star-01`): (1) `chronicle inject <run> --event '{"event_type": "crime_witnessed", "witness_id": "<a>", "perpetrator_id": "<b>", "crime_type": "assault", "victim_id": "<a>", "location_id": "...", "gamets": <t>}'` — this succeeds today, unlike `grudge_formed`; (2) reattach a `Driver` to that same run (replaying its state via `FrameLogReader.state_at()`, matching `chronicle/cli.py`'s own `_open_appending_writer`/`_branch_identity` reattachment pattern) and call `driver.crime_witnessed(...)` with the SAME ids and the injected event's `(save_uuid, generation, seq)` as `canonical_event_key` — this derives `Grudge(holder_id=<a>, target_id=<b>, severity=1.0)` and `BeliefInstance(confidence=0.95)`, confirmed by an independent, freshly-constructed `FrameLogReader.state_at()` re-read (not just the in-process driver's own view) and by `chronicle inspect <run> <a>`. Severity 1.0 clears `AVOIDANCE_GRUDGE_THRESHOLD` (0.5) and `MARKUP_SEVERITY_FLOOR` (0.2) with room to spare; confidence 0.95 clears `EVIDENCE_CONFIDENCE_THRESHOLD` (0.6). Setting `perpetrator_id="the_player"` (instead of a second NPC) produces `target_id="the_player"` for the vendor-markup precondition; a bystander witness (`victim_id=None`, no self-victim) produces the belief with no grudge cascade at all, for evidence-only seeding. Step 2 is **not** a CLI command — there is none — it's a small, real Python driver of `chronicle`'s own public simulation API, now wired into `tools/chronicle-devbench-runbook.py`'s `seed_crime_witnessed_grudge`/`_resume_driver` (see that file's module docstring for the full recipe, including a real auto-id-collision caveat this session found while verifying it). §3/§4/§5 below now document the real two-step recipe directly. | `chronicle/driver.py` (`Driver.crime_witnessed`, `Driver.suffer_harm`, `Driver.witness`), `chronicle/rules.py` (`GrudgeCreationRule`), `chronicle/social.py` (`form_grudge`, `GRUDGE_EMOTIONAL_WEIGHT`/`GRUDGE_EVIDENTIARY_WEIGHT`), `chronicle/claims.py` (`WITNESS_CONFIDENCE`), `chronicle/diegetic_evidence.py`, `chronicle/vendor_markup.py`, `chronicle/driver.py` (`AVOIDANCE_GRUDGE_THRESHOLD`), `tools/chronicle-devbench-runbook.py` (updated this session) |
+
 ## Deployment gap — checked directly against `~/Games/ChronicleDev`, 2026-08-27
 
 This is real, current state, not assumed:
@@ -163,17 +166,39 @@ added per the checklist above.
 
 ## 3. Hydration — corrected precondition, ~15 min
 
+The `prid`/`getrelationshiprank` commands below can be run manually, or via
+`tools/chronicle-devbench-runbook.py hydration --npc-a <a> --npc-b <b>
+--run <run_id>` (reads DevBench's `console` tool for you, prints the
+captured output verbatim, AND — with `--run` — actually runs the real
+two-step seeding recipe below and prints its verified result). **Unverified
+against a live game** — the DevBench/console parts of that script have
+never run against a real Skyrim process; the seeding recipe itself HAS
+been verified against a real (scratch, non-fixture) `chronicle` run this
+session, independent of any live game — see correction #11 above.
+
 - **This is an NPC↔NPC write, not an NPC↔player write** (correction #5
   above). Pick a named-cast pair likely to have an authored vanilla
   `BGSRelationship` — e.g. a parent/child pair already in the fixture
   cast (Fralia Gray-Mane / Olfina Gray-Mane is a plausible candidate by
   family name, but this was **not independently confirmed** against CK
   data this session — don't assume it without checking in-game first).
-- Seed the pair with `chronicle inject <run_id> --type grudge_formed
-  --payload '{"holder_id": "<a>", "target_id": "<b>", ...}'` (see
-  `docs/frame-log-schema.md`'s `grudge_formed` row and
-  `chronicle/cli.py`'s `inject_command` for the exact required/optional
-  fields) against the live run directly.
+- **Seed the pair with the real, verified two-step recipe (correction
+  #11)** — not `--type grudge_formed --payload`, which does not work:
+  1. `chronicle inject <run_id> --event '{"event_type": "crime_witnessed",
+     "witness_id": "fralia_gray_mane", "perpetrator_id":
+     "olfina_gray_mane", "crime_type": "assault", "victim_id":
+     "fralia_gray_mane", "location_id": "whiterun", "gamets": <t>}'`
+     against the live run directly (this genuinely writes — confirmed).
+  2. Derive the grudge from it: `tools/chronicle-devbench-runbook.py
+     hydration --npc-a fralia_gray_mane --npc-b olfina_gray_mane --run
+     <run_id>` does both steps for you and prints the derived
+     `Grudge(holder_id=fralia_gray_mane, target_id=olfina_gray_mane,
+     severity=1.0)` plus an independent frame-log re-read confirming it
+     landed. (There is no CLI-only equivalent of step 2 today — it drives
+     `chronicle.driver.Driver.crime_witnessed()` directly, the same
+     derivation a live tick loop or scenario script uses; see that
+     script's module docstring and the runbook's correction #11 for why
+     this is real, not a workaround.)
 - Watch the listener's log for `GET /whiterun/hydration` (every ~8s) and
   `POST /whiterun/hydration/ack`.
 - Check `ChronicleBridge.log` for the hydration-write log line — if it
@@ -193,14 +218,35 @@ added per the checklist above.
 
 ## 4. Vendor markup — corrected precondition, ~15 min
 
+The vendor ref-resolution below can be run manually, or via
+`tools/chronicle-devbench-runbook.py vendor-markup [--vendor-formid <id>]
+--run <run_id>` (drives DevBench's `console`/`inspect` tools; with `--run`
+it also runs the real, verified two-step seeding recipe and prints the
+derived state). **Unverified against a live game** — the DevBench/console
+parts have never run against a real Skyrim process; the seeding recipe
+itself HAS been verified against a real scratch `chronicle` run this
+session — see correction #11.
+
 - Target: **Adrianne Avenicci** (correction #6 — not "Adrienne"),
   Warmaidens forge vendor, `Skyrim.esm:0x01a67c`.
 - **Do not use `SetRelationshipRank`** — it has zero effect on this
-  feature (correction #1). Instead, seed a Chronicle grudge/markup pair
-  with `holder_id: "adrianne_avenicci"`, `target_id: "the_player"` via
-  `chronicle inject` against the live run, and give the poller (8s
-  interval, `VendorMarkupCache.cpp`) time to pick it up **before**
-  opening the barter menu.
+  feature (correction #1). Instead, seed a real Chronicle grudge with
+  `holder_id: "adrianne_avenicci"`, `target_id: "the_player"` via the
+  verified two-step recipe (correction #11), not `--type grudge_formed
+  --payload`:
+  1. `chronicle inject <run_id> --event '{"event_type": "crime_witnessed",
+     "witness_id": "adrianne_avenicci", "perpetrator_id": "the_player",
+     "crime_type": "theft", "victim_id": "adrianne_avenicci",
+     "location_id": "warmaidens", "gamets": <t>}'` against the live run.
+  2. `tools/chronicle-devbench-runbook.py vendor-markup --run <run_id>`
+     derives the grudge from that event (`Driver.crime_witnessed()`,
+     rule 12) and prints `Grudge(holder_id=adrianne_avenicci,
+     target_id=the_player, severity=1.0)`, confirmed by an independent
+     frame-log re-read. Severity 1.0 clears `MARKUP_SEVERITY_FLOOR`
+     (0.2) by a wide margin — expect the maximum markup multiplier
+     (`MARKUP_CEILING`, 1.5×) once the poller picks it up.
+- Give the poller (8s interval, `VendorMarkupCache.cpp`) time to pick it
+  up **before** opening the barter menu.
 - Give the player gold, then open the barter menu with Adrianne and
   compare the displayed price against the actual gold deducted on
   purchase — this specific comparison is exactly the open question
@@ -223,16 +269,37 @@ added per the checklist above.
 
 ## 5. Diegetic evidence — corrected mechanism, ~5 min spawn + checked at end
 
+The holder-ref resolution below can be run manually, or via
+`tools/chronicle-devbench-runbook.py evidence --holder <npc_id> --run
+<run_id>` (drives DevBench's `console`/`inspect` tools; with `--run` it
+also runs the real, verified two-step seeding recipe and prints the
+derived belief). **Unverified against a live game** — the DevBench/console
+parts have never run against a real Skyrim process; the seeding recipe
+itself HAS been verified against a real scratch `chronicle` run this
+session — see correction #11.
+
 - **This is fully automatic once seeded — do not manually `PlaceAtMe`
   anything** (correction #2). `EvidencePoller.cpp` polls `GET
   /whiterun/evidence` and, for each entry, spawns vanilla `Gold001`
   (`Skyrim.esm:0x0000000F`, an explicit placeholder — not a form you
   choose) at the **believer NPC's own position** via
   `Actor::PlaceObjectAtMe(evidenceObject, true)` (force-persistent).
-- Inject a `belief_formed` event for a named-cast holder via `chronicle
-  inject` (see `docs/frame-log-schema.md`'s `belief_formed` row for the
-  required fields: `belief_id`, `claim_id`, `holder_id`, `evidence_id`,
-  `claim_kind`, `claim_slots`, `canonical_event_key`).
+- **Seed a real, well-evidenced belief with the verified two-step recipe
+  (correction #11)** — a `belief_formed` record can't be written directly
+  (it's trace-stream derived, not an events-stream kind), but a
+  `crime_witnessed` event CAN, and deriving from it via `Driver.witness()`
+  produces a real `BeliefInstance` at confidence 0.95 (`chronicle/
+  claims.py`'s `WITNESS_CONFIDENCE`), comfortably above the 0.6 gate
+  (`chronicle/diegetic_evidence.py`'s `EVIDENCE_CONFIDENCE_THRESHOLD`):
+  1. `chronicle inject <run_id> --event '{"event_type": "crime_witnessed",
+     "witness_id": "<holder>", "perpetrator_id": "unknown", "crime_type":
+     "theft", "victim_id": null, "location_id": "whiterun", "gamets":
+     <t>}'` against the live run — `victim_id: null` makes `<holder>` a
+     bystander witness, so no grudge cascade fires, only the belief.
+  2. `tools/chronicle-devbench-runbook.py evidence --holder <holder>
+     --run <run_id>` derives the belief from that event and prints
+     `BeliefInstance(confidence=0.95)`, confirmed by an independent
+     frame-log re-read (and by `chronicle inspect <run_id> <holder>`).
 - Wait ~8s for the poll, then go find that NPC and look for a spawned
   Gold item near their feet. Note the refID if you can (console-click
   it) for later.
@@ -251,6 +318,15 @@ added per the checklist above.
   you care about save cleanliness.
 
 ## 6. Avoidance — corrected pair and console syntax, ~20 min
+
+The console commands below can be run manually, or via
+`tools/chronicle-devbench-runbook.py avoidance --pair nazeem_ysolda`
+(reads the global, sets it, `prid`s both NPCs, and forces
+`EvaluatePackage` on each, via DevBench's `console` tool). **Unverified
+against a live game.** Of the four paths in this doc, avoidance is the
+only one this tool can drive fully end-to-end today — it needs no
+`chronicle inject` seeding at all, only the global write, so it isn't hit
+by correction #10's gap.
 
 - **Use `nazeem`/`ysolda`** (correction #3 — any of the 171 named-cast
   pairs now resolves, since `AvoidanceGlobals.cpp` was expanded to the
