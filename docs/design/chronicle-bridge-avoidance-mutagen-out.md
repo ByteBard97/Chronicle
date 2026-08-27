@@ -1,6 +1,37 @@
 # Design prep — avoidance's game-side half, via Mutagen-authored content
 
-**Status (2026-08-26): design only, nothing implemented yet.** Written
+**Status (2026-08-26): both halves built and independently verified,
+neither run against real game data yet.** `tools/chronicle-patcher/`
+(Mutagen console app) and `adapters/skyrim/ChronicleBridge/src/
+AvoidancePoller.{h,cpp}`/`AvoidanceGlobals.{h,cpp}` (C++ consumer) are
+both committed. **A real design change from this doc's original §2
+plan, found while building the C++ half**: no safe native
+`SetLinkedRef`-equivalent exists on `RE::TESObjectREFR` (verified
+against the real CommonLibSSE-NG 3.6.0 headers) — the "one shared
+package + runtime-resolved linked-ref target" plan below is **not
+viable** and was not built. The actual, working design is per-**pair**
+content instead: one `TESGlobal` (`ChronicleAvoidingPair_<a>_<b>`,
+sorted) and two Flee packages with hardcoded targets
+(`ChronicleAvoidance_<owner>_from_<target>`) per named-cast pair (all
+171 pairs generated), gated by that pair's shared global. See
+`AvoidancePoller.h`'s header comment for the full finding and
+`tools/chronicle-patcher/src/AvoidancePatchBuilder.cs`'s doc-comment for
+the corrected authoring design. Both sides' naming/canonicalization were
+independently verified to match.
+
+**What's left, and it's the owner's own machine now, not a design or
+code gap:** the patcher has never been run against real
+`Skyrim.esm`/`HearthFires.esm`/USSEP data (none exists in this
+headless environment) — someone needs to run
+`dotnet run --data-path <their Data folder>` from `tools/chronicle-
+patcher/`, load-order the resulting `ChroniclePatcher.esp`, then copy
+the real FormIDs it assigned into `AvoidanceGlobals.cpp`'s placeholder
+table (a small, mechanical edit, not a design decision). This is a
+concrete, narrow, one-time step — not the vague "needs CK access"
+blocker this doc originally (wrongly) carried.
+
+Original design proposal follows, unchanged except where noted above.
+Written
 immediately after `docs/research/24-programmatic-esp-authoring.md`
 retracted `chronicle-bridge-avoidance-out.md` §2b's "needs Creation Kit
 GUI access" conclusion. This doc turns that research finding into a

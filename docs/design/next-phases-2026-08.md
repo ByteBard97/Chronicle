@@ -63,6 +63,31 @@ checking:
 Neither doc changes any shipped code. Both close a "genuinely blocked"
 claim this project had been carrying without ever checking it.
 
+## 0j. Landed: avoidance's game-side half, both sub-slices (`3abf882`, `126c625`)
+
+The C++ consumer (`AvoidancePoller`) and the Mutagen content generator
+(`tools/chronicle-patcher/`) were dispatched in parallel against
+`docs/design/chronicle-bridge-avoidance-mutagen-out.md`'s original
+per-NPC/linked-ref plan. The C++ side found, against the real headers,
+that the plan's runtime linked-ref mechanism doesn't exist
+(`RE::TESObjectREFR` has no safe setter) and built a per-pair-global
+fallback instead. This left the two halves incompatible on delivery — a
+real mismatch, not a hypothetical one — caught in review before
+committing the patcher's original output, and fixed with one more
+dispatched pass that rewrote the patcher to the per-pair design (171
+pairs, all 19-choose-2, two hardcoded-target Flee packages + one shared
+gating global per pair). Both sides' naming/canonicalization
+independently re-verified to match exactly. Design doc updated in place
+to record the correction rather than left stale.
+
+Genuinely all that's left on avoidance now: running the patcher against
+the owner's real Skyrim data folder (no game data exists in this
+headless environment) and copying the resulting real FormIDs into
+`AvoidanceGlobals.cpp`'s placeholder table — a mechanical one-time step,
+not a design or code gap. This closes the "needs Creation Kit access"
+blocker `docs/research/24` retracted (`0h` below) all the way to a real,
+compiled, tested implementation on both language sides.
+
 ## 0. Landed
 
 - Rules 12 (grudge-creation) and 13 (grudge-decay) — the scenario
