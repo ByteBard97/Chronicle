@@ -35,3 +35,12 @@ runs/
 # silently swallow it too.
 !dashboard/public/runs/
 !dashboard/public/runs/**
+
+# chronicle-patcher (C#/.NET Mutagen console app) -- standard .NET build
+# output, plus its generated ChroniclePatcher.esp game-content output.
+# Same posture as ChronicleBridge's own .dll: never committed, built as a
+# documented one-time/repeatable step against the owner's own load order
+# (see tools/chronicle-patcher/README.md).
+tools/chronicle-patcher/**/bin/
+tools/chronicle-patcher/**/obj/
+tools/chronicle-patcher/out/
