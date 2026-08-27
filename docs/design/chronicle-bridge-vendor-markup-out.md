@@ -61,6 +61,27 @@ fields. **Ruling: build detection now; treat the price-write hook as its
 own scoped R&D spike (SigMaker/Address Library work against the
 ADR-0008-pinned binary), not bundled with routine next-slice work.**
 
+**Gap surfaced by detection's own implementation, resolved here rather
+than left open:** `BarterMenuSink`'s author correctly noticed that
+`chronicle/vendor_markup.py`'s `(holder_id, target_id)` pairs are pure
+NPC↔NPC `Grudge` state, and asked how a vendor's markup toward some
+OTHER NPC is supposed to affect the PLAYER's own barter transaction.
+Answer: it isn't supposed to — the pair the barter-menu consumer cares
+about is `(holder_id=<vendor's npc_id>, target_id="the_player")`.
+`"the_player"` is already this project's established convention for the
+player-as-an-actor identity (`chronicle/fixtures/north_star.py`'s
+`KILLER = "the_player"`), so no new Chronicle-side identity concept is
+needed — Rule 12's grudge-creation path already produces player-directed
+grudges exactly like any other pair whenever the player is the harm
+source. The only real gap is that the Whiterun named-cast fixtures
+(`chronicle/fixtures/whiterun_relationships.py`) don't currently seed
+any player-directed grudges to test against, and the eventual
+price-write consumer must filter `GET /whiterun/vendor-markup`'s
+response to `target_id == "the_player"` specifically (ignoring
+NPC-to-NPC markup pairs, which have no barter-menu meaning at all) —
+name this filter explicitly when that spike is built, don't assume the
+whole response array is player-relevant.
+
 Original design proposal follows, unchanged except where noted above:
 design proposal for a Python-only first cut, mirroring
 `docs/design/chronicle-bridge-hydration-out.md`/`chronicle-bridge-
