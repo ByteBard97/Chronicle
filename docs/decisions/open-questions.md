@@ -118,6 +118,57 @@ reports flagged as unconfirmed, not settled facts):
   exist to cover this gap, but a crash between co-save and `.ess` writes
   remains a residual risk worth a scenario test once the shim exists.
 
+## Mostly-closed, one real gap: event-log growth/compaction for long play sessions (2026-08-27)
+
+An external-AI conversation the owner had (Kimi) independently re-derived
+a save/reload architecture — a global `state_version` counter, an SKSE
+co-save mirror, "seek not rewrite" on reload, full-snapshot-every-N-
+versions compaction — and asked whether it should be written down. Most
+of it already is, in a more precise and more thoroughly-decided form:
+
+- **"State_version counter" / "seek not rewrite" is ADR-0004's
+  `(save_uuid, generation)` branch key + fork-on-reload, already
+  implemented** (`chronicle/events.py`'s branch-keyed `EventLog`,
+  `chronicle/fork.py`'s `fork_run()`). Loading an old save doesn't
+  rewrite history — it opens a new `generation`, exactly the "the log
+  contains every timeline branch that ever existed, you just move the
+  pointer" idea, just keyed by two numbers instead of one and with a
+  real GC/grace-period story for abandoned branches (ADR-0004's own
+  git-gc analogy) that the Kimi conversation's version didn't have.
+- **The SKSE co-save wire format** ("`{npc_id, form_id, state_version,
+  social_blob_hash}`") is already specified, in more detail, as
+  ADR-0005's co-save manifest schema table (`format_version`,
+  `save_uuid`, `generation`, `parent_generation`, `head_seq`, `gamets`,
+  `wall_ts`, `char_name_hash` — deliberately kept under ~100 bytes,
+  since SKSE's per-call co-save writes are slow for large payloads).
+- **"What if Python is unavailable at save/load"** is ADR-0005's
+  DEGRADED mode: the shim never blocks, buffers outbound events in a
+  bounded local queue (spilling to disk if full), and reconciles on
+  reconnect — a stronger guarantee than the Kimi conversation's proposed
+  "reconstruct from engine state + fixtures, log a warning" fallback,
+  which would lose real belief provenance DEGRADED mode doesn't have to.
+- **The RESOLVE decision table** (`chronicle/sync.py`, `chronicle
+  sync-check`) already implements the six-way CONTINUE/FORK/ADOPT/
+  NEW_TIMELINE/LEGACY_IMPORT/DEGRADED classification ADR-0005 specifies —
+  this is not a design gap, it's shipped, tested code.
+
+**The one part that's genuinely still open**: `chronicle/events.py`'s own
+ADR (`0002-event-sourcing.md`) explicitly flags "log size/performance at
+~1,000 NPCs over long play sessions needs attention eventually
+(snapshotting or compaction), but is out of scope for the initial
+skeleton." Nothing has closed that yet. Note the framing is different
+from the Kimi conversation's concern, though: Chronicle's log is already
+event-sourced (one small record per mutation), not periodic full-graph
+dumps, so "50 quicksaves × 4.5MB" doesn't apply as stated — a quicksave
+doesn't trigger any snapshot at all today, just whatever events already
+happened. The real open question is narrower: does an actively-played
+branch's append-only event log need periodic compaction (e.g. collapsing
+fully-decayed claims into aggregate reputation scalars, as the
+conversation itself suggested) once it's been running long enough, and
+if so, on what trigger (event count? wall-clock? explicit checkpoint
+saves only?). Deferred, not scheduled — revisit once a real long-session
+run's log size is actually measured, rather than budgeted from a guess.
+
 ## Deferred: economic simulation
 
 None of the four research prompts covered economic simulation (prices,
