@@ -57,9 +57,19 @@ Road" use) requires locating an internal engine function CommonLibSSE-NG
 doesn't expose by name -- this project's first genuine reverse-engineering
 task, a different risk category than every prior write (`BGSRelationship
 ::level`, a `TESGlobal`'s `value`) which all used documented public
-fields. **Ruling: build detection now; treat the price-write hook as its
-own scoped R&D spike (SigMaker/Address Library work against the
-ADR-0008-pinned binary), not bundled with routine next-slice work.**
+fields. **Update (2026-08-27), supersedes the ruling above:** `docs/research/
+28-vendor-price-hook-address-library-spike.md` read the actual
+open-source Dynamic Prices Framework implementation and found there is
+no unmapped internal function to hunt for at all — the real mechanism
+is a vtable-slot swap on `RE::IMenu::PostCreate()` (a documented,
+Address-Library-backed relocation this project's checkout already
+carries) plus a Scaleform `"UpdateItemCardInfo"` ActionScript callback
+swap, both fully inside already-vendored CommonLibSSE-NG surface.
+**Reclassified from `[RISK]` to `[BUILD-ON]` — this is now a normal
+next implementation slice, same tier as hydration/avoidance's C++
+halves, not a scoped R&D spike.** One caveat needs a live-game smoke
+test before relying on it: whether the multiplied AS3 `"value"` drives
+the real transaction gold or only the displayed figure.
 
 **Gap surfaced by detection's own implementation, resolved here rather
 than left open:** `BarterMenuSink`'s author correctly noticed that
