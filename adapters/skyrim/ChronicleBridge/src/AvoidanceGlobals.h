@@ -18,7 +18,9 @@
 //
 // 2026-08-27: real FormIDs, filled in from a real tools/chronicle-patcher/
 // run against Skyrim.esm + HearthFires.esm + USSEP (see AvoidanceGlobals.cpp
-// and IdentityMap.cpp's matching 2026-08-27 note). This table's SHAPE and
+// and tools/chronicle-patcher/src/IdentityMap.cs's matching 2026-08-27 note
+// -- that file, not this one's IdentityMap.cpp, is what the patcher run
+// needed fixed). This table's SHAPE and
 // lookup logic were already real and compile-checked; the VALUES are now
 // real too, for the 4 illustrative pairs listed. Still not load-ordered in
 // an actual running game -- that verification remains pending, like every

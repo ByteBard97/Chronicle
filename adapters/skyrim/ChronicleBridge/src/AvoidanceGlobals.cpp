@@ -17,7 +17,10 @@ namespace ChronicleBridge {
         // 2026-08-27: real FormIDs, filled in from tools/chronicle-patcher/
         // out/chronicle-globals.json after a real run of the patcher against
         // Skyrim.esm + HearthFires.esm + USSEP succeeded (171/171 pairs
-        // resolved -- see IdentityMap.cpp's 2026-08-27 fix). `pluginName`
+        // resolved -- see tools/chronicle-patcher/src/IdentityMap.cs's and
+        // AvoidancePatchBuilder.cs's 2026-08-27 fixes; this file's own
+        // IdentityMap.cpp was NOT changed -- its original plugin attributions
+        // were already correct, see its 2026-08-27 note). `pluginName`
         // confirmed to match the patcher's actual output filename.
         //
         // Entries are illustrative, not exhaustive -- see AvoidanceGlobals.h.

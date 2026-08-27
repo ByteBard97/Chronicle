@@ -14,15 +14,30 @@ public static class IdentityMap
 {
     /// <summary>
     /// Mirrors adapters/skyrim/ChronicleBridge/src/IdentityMap.cpp's kNamedCast
-    /// array verbatim (same order, same 19 entries, same plugin/FormID pairs).
-    /// Do not edit this table without also updating IdentityMap.cpp -- see
-    /// that file's kNamedCast for the source of truth.
+    /// array (same order, same 19 entries) -- EXCEPT for the plugin field on
+    /// 5 entries, which intentionally differs. See below.
     ///
-    /// NOTE: 2026-08-27 -- amren, idolaf_battle_born, lars_battle_born,
-    /// braith, and lillith_maiden_loom were previously misattributed to
-    /// HearthFires.esm/USSEP; verified against a real load order via direct
-    /// record dump and corrected to Skyrim.esm (their actual ACHR-owning
-    /// master).
+    /// NOTE (2026-08-27, corrected same day): a first pass "fixed" amren,
+    /// idolaf_battle_born, lars_battle_born, braith, and lillith_maiden_loom
+    /// to Skyrim.esm on BOTH sides, reasoning that IdentityMap.cpp's
+    /// HearthFires.esm/USSEP attributions were wrong. A live-capture
+    /// cross-check (adapters/skyrim/listener/whiterun-positions.json)
+    /// disproved that for the .cpp side: IdentityMap.cpp's original
+    /// attributions exactly match what ChronicleBridge's own
+    /// TESForm::GetFile(0) call observes at runtime, because that call
+    /// returns whichever plugin currently WINS the override chain for a
+    /// record (HearthFires.esm overrides Amren/Braith/Lars's placed refs;
+    /// USSEP overrides Idolaf's/Lillith's) -- a different, override-
+    /// sensitive identity than a record's static originating master.
+    /// IdentityMap.cpp was reverted to its original attributions for these
+    /// 5 entries; do not "fix" it to match this file again.
+    ///
+    /// THIS file legitimately needs Skyrim.esm instead: Mutagen's FormKey
+    /// resolution is keyed by originating master regardless of override
+    /// chain, so a FormKey built from HearthFires.esm/USSEP for these 5
+    /// simply fails to resolve (confirmed: 0/19 pairs resolved before this
+    /// fix, 171/171 after). The two tables' plugin fields are correct to
+    /// diverge on exactly these 5 rows -- this is not a sync bug.
     /// </summary>
     public static readonly IReadOnlyList<NamedCastEntry> NamedCast = new[]
     {

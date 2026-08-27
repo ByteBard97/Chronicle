@@ -30,16 +30,35 @@ namespace ChronicleBridge {
         // observed-at-runtime sourcing this table requires. That snapshot's
         // 6 "Whiterun Guard" entries and its 1 "Cow" entry are excluded for
         // the reasons below (guards) and because a cow is not an NPC.
-        // "lucia" uses HearthFires.esm as its origin plugin rather than
-        // Skyrim.esm -- that's the plugin actually observed owning the
-        // FormID at runtime, not an assumption, and is preserved verbatim.
+        // "lucia" uses HearthFires.esm, and amren/braith/lars_battle_born use
+        // HearthFires.esm, and idolaf_battle_born/lillith_maiden_loom use
+        // "unofficial skyrim special edition patch.esp", as their origin
+        // plugin rather than Skyrim.esm -- that's the plugin this table's
+        // own consumer, ResolveFormRef's form->GetFile(0), actually observed
+        // owning each FormID at runtime, not an assumption, and is preserved
+        // verbatim.
         //
-        // 2026-08-27: amren, braith, lars_battle_born, idolaf_battle_born, and
-        // lillith_maiden_loom were previously misattributed to HearthFires.esm
-        // or "unofficial skyrim special edition patch.esp" (a runtime
-        // observation artifact, not their real originating plugin); verified
-        // against a real Skyrim.esm + HearthFires.esm + USSEP load order via
-        // direct record dump and corrected to Skyrim.esm.
+        // 2026-08-27: this was almost "corrected" to Skyrim.esm for those 5
+        // entries (Skyrim.esm is where their ACHR records originate), then
+        // reverted after a live-capture cross-check
+        // (adapters/skyrim/listener/whiterun-positions.json) confirmed the
+        // ORIGINAL attributions above match real runtime output exactly.
+        // The reason both are "true": TESForm::GetFile(0) returns whichever
+        // plugin currently WINS the override chain for that record in the
+        // active load order (here: HearthFires.esm overrides Amren/Braith/
+        // Lars's placed refs, USSEP overrides Idolaf's/Lillith's) -- a
+        // different, override-sensitive identity than a record's static
+        // originating master. This table intentionally tracks the former,
+        // since that's what this file's own runtime lookups need to match
+        // against. tools/chronicle-patcher/src/IdentityMap.cs -- which needs
+        // to invoke Mutagen's FormKey resolution, keyed by originating
+        // master regardless of override -- correctly uses Skyrim.esm for
+        // these same 5 entries instead. The two tables are NOT verbatim
+        // mirrors for these 5 rows; see that file's own comment. This
+        // load-order-dependent behavior is the expected, permanent state of
+        // any environment carrying HearthFires.esm/USSEP (both load-bearing
+        // per docs/research/27-minimal-chronicle-dev-modlist.md's F3/F9),
+        // not a bug to chase further.
         //
         // jarl_balgruuf/irileth/proventus/hulda are not yet in this table --
         // they spend most of their time indoors (Dragonsreach, the Bannered
@@ -53,16 +72,16 @@ namespace ChronicleBridge {
         // fallback.
         constexpr std::array<NamedCastEntry, 19> kNamedCast{{
             {"Skyrim.esm", 0x01a69a, "ysolda"},
-            {"Skyrim.esm", 0x01a689, "idolaf_battle_born"},
+            {"unofficial skyrim special edition patch.esp", 0x01a689, "idolaf_battle_born"},
             {"Skyrim.esm", 0x01a66c, "saffir"},
             {"Skyrim.esm", 0x01a675, "carlotta_valentia"},
-            {"Skyrim.esm", 0x01a66a, "amren"},
+            {"HearthFires.esm", 0x01a66a, "amren"},
             {"Skyrim.esm", 0x01a67c, "adrianne_avenicci"},
-            {"Skyrim.esm", 0x01a68c, "lars_battle_born"},
-            {"Skyrim.esm", 0x01a66b, "braith"},
+            {"HearthFires.esm", 0x01a68c, "lars_battle_born"},
+            {"HearthFires.esm", 0x01a66b, "braith"},
             {"Skyrim.esm", 0x01a684, "fralia_gray_mane"},
             {"Skyrim.esm", 0x01a6a4, "nazeem"},
-            {"Skyrim.esm", 0x10e2b6, "lillith_maiden_loom"},
+            {"unofficial skyrim special edition patch.esp", 0x10e2b6, "lillith_maiden_loom"},
             {"Skyrim.esm", 0x02c90f, "brenuin"},
             {"Skyrim.esm", 0x01a680, "anoriath"},
             {"HearthFires.esm", 0x003f5e, "lucia"},

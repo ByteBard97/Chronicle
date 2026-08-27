@@ -20,21 +20,34 @@ the corrected authoring design. Both sides' naming/canonicalization were
 independently verified to match.
 
 **Status (2026-08-27): the "someone needs to run it" step above is
-done, and it surfaced a real bug beyond the note's own expectations.**
-A real Skyrim 1.6.1170 + HearthFires.esm + USSEP data set now exists in
-`~/Games/ChronicleDev/` (the minimal MO2 dev instance built this
-session), so the patcher was run for real. Two findings, not one:
-(1) every `IdentityMap.cpp`/`.cs` FormID is a placed-reference (ACHR)
-FormID, correct for the C++ runtime side but not directly resolvable
-as the `NPC_` base record the patcher needs to attach Flee packages to
-— fixed in `AvoidancePatchBuilder.cs` by resolving the ACHR first and
-following its `.Base` link, not by mutating the shared table; (2) 5 of
-the 19 named-cast entries (`amren`, `braith`, `lars_battle_born`,
-`idolaf_battle_born`, `lillith_maiden_loom`) were attributed to the
-wrong origin plugin (`HearthFires.esm`/USSEP instead of their real
-`Skyrim.esm`) — a bug that would have silently broken runtime identity
-resolution for those 5 actors too, not just the patcher. Both fixed in
-`IdentityMap.cpp` and its `.cs` mirror. The corrected run succeeded in
+done. It surfaced one real patcher-side gap and one false alarm that
+was caught and reverted before it could ship.** A real Skyrim 1.6.1170
++ HearthFires.esm + USSEP data set now exists in `~/Games/ChronicleDev/`
+(the minimal MO2 dev instance built this session), so the patcher was
+run for real. Real finding: every `IdentityMap.cpp`/`.cs` FormID is a
+placed-reference (ACHR) FormID, correct for the C++ runtime side (which
+resolves identity off the live `RE::Actor*`, itself a placed reference)
+but not directly resolvable via Mutagen's `TryResolve<INpcGetter>` as
+the `NPC_` base record the patcher needs to attach Flee packages to —
+fixed in `AvoidancePatchBuilder.cs` by resolving the ACHR first and
+following its `.Base` link. False alarm, caught and reverted same day:
+5 of the 19 named-cast entries (`amren`, `braith`, `lars_battle_born`,
+`idolaf_battle_born`, `lillith_maiden_loom`) were briefly "corrected"
+from `HearthFires.esm`/USSEP to `Skyrim.esm` in `IdentityMap.cpp`,
+reasoning that Skyrim.esm is where their ACHR records originate. A
+live-capture cross-check (`adapters/skyrim/listener/
+whiterun-positions.json`) disproved this for the C++ side: the original
+`HearthFires.esm`/USSEP attributions exactly match what `ResolveFormRef`'s
+`TESForm::GetFile(0)` call actually observes at runtime, because that
+call returns whichever plugin currently *wins the override chain* for a
+record, not its static originating master — HearthFires.esm genuinely
+overrides Amren/Braith/Lars's placed refs, and USSEP genuinely overrides
+Idolaf's/Lillith's. `IdentityMap.cpp` was reverted to its original
+attributions. `tools/chronicle-patcher/src/IdentityMap.cs` legitimately
+keeps `Skyrim.esm` for these 5 rows, since Mutagen's `FormKey` resolution
+is keyed by originating master regardless of override — the two tables'
+plugin fields are correct to diverge here, not a sync bug; both files'
+own doc comments now explain why. The corrected run succeeded in
 full: 171/171 pairs, 342 packages, 19 NPC overrides. `AvoidanceGlobals.
 cpp`'s 4 illustrative pairs now carry the real FormIDs from that run
 (`out/chronicle-globals.json`) instead of `0x000000` placeholders.
