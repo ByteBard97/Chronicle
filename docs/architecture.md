@@ -15,8 +15,15 @@ like the voice bank later, though `adapters/skyrim/`'s sync layer still
 prefers HTTP over file-polling IPC regardless (`docs/decisions/0005-sync-handshake.md`).
 
 v0.1 needs none of this — it's headless (`chronicle/` + `dashboard/`, pure
-Python + browser) and runs anywhere, including a MacBook. The Proton/SKSE
-seam only becomes relevant at v0.2.
+Python + browser) and runs anywhere, including a MacBook. v0.2 (the
+Proton/SKSE seam) is now under active construction: `adapters/skyrim/
+ChronicleBridge` has 7 landed slices (spatial streaming, hydration,
+avoidance, vendor-markup, crime-witness cascade, diegetic evidence, and
+its C++ `EvidencePoller` consumer), builds clean as a whole tree, and is
+deployed into a real game install (`~/Games/ChronicleDev`). See
+`adapters/skyrim/README.md` for the current slice-by-slice status —
+in-game launch/verification is still the open next step, tracked in
+`docs/design/next-phases-2026-08.md`.
 
 **Game version pin** (`docs/decisions/0008-game-version-pin.md`): Skyrim
 SE/AE **1.6.1170 + SKSE64 2.2.6**, not the 1.7.99 patch (shipped

@@ -1,6 +1,6 @@
 # Chronicle
 
-![status](https://img.shields.io/badge/status-research%20complete%2C%20entering%20build-blue)
+![status](https://img.shields.io/badge/status-v0.1%20done%2C%20v0.2%20bridge%20building-blue)
 ![python](https://img.shields.io/badge/python-3.12%2B-blue)
 
 **A world that remembers.** Chronicle is an external social-simulation
@@ -41,7 +41,25 @@ simulation — the sampling mechanics don't change shape when that data
 source does, only the caller supplying them.
 
 v0.1 is **headless**: no Skyrim installation required to build, run, or
-test it. The `adapters/skyrim/` SKSE seam only becomes relevant at v0.2.
+test it.
+
+**v0.2 (the `adapters/skyrim/` SKSE bridge) is now under active
+construction, not just planned.** `ChronicleBridge` (C++,
+CommonLibSSE-NG) has 7 landed slices — live NPC position streaming,
+hydration, avoidance, vendor-markup, a crime-witness cascade, diegetic
+evidence, and the `EvidencePoller` C++ consumer for it. The full plugin
+tree builds clean as a whole and is deployed into a real game install
+(`~/Games/ChronicleDev`, correct load order, a real 171-pair patched
+ESP). **What's not yet done: launching Skyrim against this build and
+verifying it live.** Every write path (hydration, avoidance,
+vendor-markup, evidence) is compiled and unit/scenario-tested on the
+Python side but explicitly unverified in a running game — see
+`adapters/skyrim/README.md` for per-slice status and
+`docs/design/next-phases-2026-08.md` for the current plan, including
+two known gaps: the bridge only streams game state *in* to Chronicle so
+far (no "sim state → visible game behavior" path exists yet), and only
+1 of Whiterun's ~28 live-captured NPCs is in the named-cast map that
+rules can act on.
 
 ## Development
 
