@@ -264,7 +264,7 @@ pass. This is the ladder's 20th and last rule at the current ~20
 ceiling — any future new mechanism needs a fresh consolidation ruling or
 an explicit ceiling raise.
 
-## 2. Flagged, not scheduled: v0.3's real remaining gaps
+## 2. Flagged, not scheduled: v0.3's real remaining gaps (updated 2026-08-26)
 
 `docs/vision-v2.2.md` §6's "v0.3" is mostly already built — thresholds
 (rule 11), hysteresis (doctrine 3), grudges (12/13), obligations (14),
@@ -280,31 +280,31 @@ opened:
   models) with a purpose-built bidirectional model either — the
   transferable pattern is generic control-theory hysteresis (a separate,
   lower de-escalation threshold plus a dwell count) layered onto the
-  existing rule-family idiom, not a new subsystem. Still the hardest real
-  open design problem beyond what's landed; not implemented.
-- **NPC action verbs — no longer just a gap, partially built.**
-  `docs/research/23-...md`'s Part B ranked three real options. #1
-  (dialogue-gating on `GetRelationshipRank`) is effectively already
-  delivered by the hydration-out slice's `SetRelationshipRank` writes
-  (§0f) once verified in-game — no new engineering needed. #3 (a "cold
-  shoulder" tier extending rule 18's avoidance) has its Python-only half
-  built (§0g), but its C++/game-side half hit a real, different-in-kind
-  blocker: `RE::Actor::EvaluatePackage()` can only re-evaluate an
-  *existing* CK-authored package, it can't create avoidance behavior
-  from nothing — the actual mechanism needs a real AI package authored
-  in the Creation Kit's GUI, conditioned on something Chronicle can
-  toggle. See §3's new CK-authoring category. #2 (vendor refusal/price
-  markup) needs new Chronicle-side state that doesn't exist yet — not
-  started.
+  existing rule-family idiom, not a new subsystem. **Still the single
+  hardest real open design problem left in the whole project** — it
+  needs a rule-budget consolidation ruling or ceiling raise (the ladder
+  is at its full 20-rule ceiling), a real ADR-weight decision. Not
+  implemented; per the narrowing below, researching and design-prepping
+  it further is not blocked, only spending the ceiling is a heads-up.
+- **NPC action verbs — all three now real, no longer a gap at all.** #1
+  (dialogue-gating on `GetRelationshipRank`) is delivered by hydration's
+  `SetRelationshipRank` writes (§0f), compiled, unverified in-game. #3
+  (avoidance) is now fully built end to end across all three layers
+  (Python §0g, C++ poller + Mutagen-authored content §0j) — the
+  Creation-Kit blocker below was retracted (`docs/research/24`). #2
+  (vendor markup) has its Python half (§0i) and C++ detection half
+  (`e41866d`) built; the actual price WRITE is correctly scoped as its
+  own R&D spike (`docs/research/26` — needs a reverse-engineered
+  function-detour hook, this project's first, a materially different
+  risk tier than everything else built so far).
 - **Named-cast identity gap — closed.** Grown from 6 to 19 NPCs matching
   real live-observed Whiterun actors (§0c), independently verified
   against source data.
 
-Two-way hysteresis and vendor-refusal mechanics would still need a
-fresh rule-budget consolidation ruling or ceiling raise (the ladder is
-at its full 20-rule ceiling) before landing as new Chronicle-side
-mechanisms — researching them further is not blocked; implementing them
-is a heads-up-worthy scope spend, not a stop.
+Two-way hysteresis would still need a fresh rule-budget consolidation
+ruling or ceiling raise before landing as a new Chronicle-side
+mechanism — researching it further is not blocked; implementing it is a
+heads-up-worthy scope spend, not a stop.
 
 ## 3. Genuinely stops the loop (narrow — most things don't belong here)
 
@@ -312,17 +312,28 @@ is a heads-up-worthy scope spend, not a stop.
 - Actually testing anything against a live Skyrim process/real save —
   the SSH build machine (§0b2) closes the "can't compile C++" gap, but
   running the game is still the owner's own interactive session, not
-  reachable from here.
-- **Creation Kit content authoring** (new, found via the avoidance
-  slice, `docs/design/chronicle-bridge-avoidance-out.md` §2b) — a GUI
-  editing tool, not batch-scriptable the way C++ compilation is. Making
-  an NPC actually avoid another needs a real AI package/condition/
-  quest-alias authored in the CK; SSH shell access does not reach an
-  interactive GUI editor. Different in kind from the SSH-solved
-  build-machine gap — don't conflate the two.
-- Spending a rule-budget slot on new scope (§2) deserves a heads-up in
-  the commit message, not a stop — but committing to it silently, with
-  no note, would be the wrong kind of quiet.
+  reachable from here. `docs/research/25`'s DevBench finding means this
+  gap may be more automatable than previously thought, but that's future
+  work, not a change to this stop-condition today.
+- **Creation Kit content authoring — RETRACTED, was never a real stop.**
+  `docs/research/24-programmatic-esp-authoring.md` found Mutagen
+  authors new `PACK`/`CTDA`/`Global` records entirely headlessly (no
+  CK GUI, no Windows machine even — runs on this Linux box via a
+  locally-installed .NET 8 SDK). Proven out end-to-end by avoidance's
+  slice (§0j). Do not re-list this as a stop condition in any future
+  summary of this project — it was an unresearched assumption, corrected
+  and closed.
+- A genuine, different-in-kind risk category exists now:
+  **reverse-engineering an unmapped internal engine function** (needed
+  only for vendor-markup's price WRITE, `docs/research/26`). This is a
+  real scoped spike (SigMaker/Address Library work), not a stop — but
+  it's the first time this project has needed anything beyond a
+  documented `RE::` API or a plain event sink, worth a heads-up when
+  picked up.
+- Spending a rule-budget slot on new scope (§2's hysteresis item)
+  deserves a heads-up in the commit message, not a stop — but
+  committing to it silently, with no note, would be the wrong kind of
+  quiet.
 
 **Narrowed per repeated, explicit owner feedback (this session): researching**
 **whether a mechanism is feasible, what the literature/prior art says, or**
