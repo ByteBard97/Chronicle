@@ -122,9 +122,16 @@ description.
   (`ssh -L 8920:127.0.0.1:8920 <windows-host>`) terminating on the Windows box
   itself — loopback-bound services are the textbook case this actually works for,
   unlike a service that additionally checks `Host`/origin headers or refuses
-  non-local `Bind`. This report did not test an actual tunnel end-to-end; the
-  reachability claim above is architectural, not empirically confirmed against
-  ChronicleBridge's specific machine topology.
+  non-local `Bind`. **Update (2026-08-26): the SSH transport half of this is
+  now empirically confirmed.** `ssh -L 8920:127.0.0.1:8920 geoff@192.168.0.211`
+  establishes cleanly (`ssh -o BatchMode=yes` succeeds, the local forwarded
+  socket accepts connections). What isn't confirmed yet — because nothing is
+  listening on the Windows box's port 8920 right now (`Test-NetConnection
+  -ComputerName 127.0.0.1 -Port 8920` returns `TcpTestSucceeded : False`,
+  i.e. DevBench isn't installed/running there, not that the tunnel failed) —
+  is the actual HTTP round-trip once a real DevBench+Skyrim session exists.
+  The mechanism is proven; the end-to-end reachability claim still needs
+  DevBench actually installed and a live game running to fully close.
 - **Port**: deterministic per runtime — **`8920` for SE/AE, `8921` for VR** —
   falling forward to the next free port if taken, with the actually-bound port
   written to `Data/SKSE/Plugins/devbench/runtime.json` for discovery. Matches the
