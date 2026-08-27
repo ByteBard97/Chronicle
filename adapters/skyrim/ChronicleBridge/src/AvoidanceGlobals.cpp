@@ -14,23 +14,24 @@ namespace ChronicleBridge {
             std::uint32_t localFormId;
         };
 
-        // TODO: fill in real FormIDs once tools/chronicle-patcher/'s
-        // ChroniclePatcher.esp is generated and load-ordered (see this
-        // file's header comment). `pluginName` is a placeholder guess
-        // ("ChroniclePatcher.esp", matching the design doc §1's named
-        // output file) -- confirm it against whatever the patcher actually
-        // emits once it exists.
+        // 2026-08-27: real FormIDs, filled in from tools/chronicle-patcher/
+        // out/chronicle-globals.json after a real run of the patcher against
+        // Skyrim.esm + HearthFires.esm + USSEP succeeded (171/171 pairs
+        // resolved -- see IdentityMap.cpp's 2026-08-27 fix). `pluginName`
+        // confirmed to match the patcher's actual output filename.
         //
         // Entries are illustrative, not exhaustive -- see AvoidanceGlobals.h.
         // Every npcA/npcB here is drawn from IdentityMap.cpp's kNamedCast
         // table (a pair not in THAT table can never resolve to a live actor
         // anyway, so this table is only ever consulted for named-cast
-        // pairs -- see AvoidancePoller.cpp's resolution order).
+        // pairs -- see AvoidancePoller.cpp's resolution order). Expanding
+        // this to the full 171-pair set the patcher now generates is future
+        // work, not done here.
         constexpr std::array<AvoidancePairEntry, 4> kAvoidancePairGlobals{{
-            {"nazeem", "ysolda", "ChroniclePatcher.esp", 0x000000},
-            {"carlotta_valentia", "saffir", "ChroniclePatcher.esp", 0x000000},
-            {"amren", "brenuin", "ChroniclePatcher.esp", 0x000000},
-            {"fralia_gray_mane", "idolaf_battle_born", "ChroniclePatcher.esp", 0x000000},
+            {"nazeem", "ysolda", "ChroniclePatcher.esp", 0x000818},
+            {"carlotta_valentia", "saffir", "ChroniclePatcher.esp", 0x000869},
+            {"amren", "brenuin", "ChroniclePatcher.esp", 0x0008d8},
+            {"fralia_gray_mane", "idolaf_battle_born", "ChroniclePatcher.esp", 0x000848},
         }};
 
     }  // namespace

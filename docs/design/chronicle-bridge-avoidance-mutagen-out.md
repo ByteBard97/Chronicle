@@ -19,16 +19,27 @@ sorted) and two Flee packages with hardcoded targets
 the corrected authoring design. Both sides' naming/canonicalization were
 independently verified to match.
 
-**What's left, and it's the owner's own machine now, not a design or
-code gap:** the patcher has never been run against real
-`Skyrim.esm`/`HearthFires.esm`/USSEP data (none exists in this
-headless environment) — someone needs to run
-`dotnet run --data-path <their Data folder>` from `tools/chronicle-
-patcher/`, load-order the resulting `ChroniclePatcher.esp`, then copy
-the real FormIDs it assigned into `AvoidanceGlobals.cpp`'s placeholder
-table (a small, mechanical edit, not a design decision). This is a
-concrete, narrow, one-time step — not the vague "needs CK access"
-blocker this doc originally (wrongly) carried.
+**Status (2026-08-27): the "someone needs to run it" step above is
+done, and it surfaced a real bug beyond the note's own expectations.**
+A real Skyrim 1.6.1170 + HearthFires.esm + USSEP data set now exists in
+`~/Games/ChronicleDev/` (the minimal MO2 dev instance built this
+session), so the patcher was run for real. Two findings, not one:
+(1) every `IdentityMap.cpp`/`.cs` FormID is a placed-reference (ACHR)
+FormID, correct for the C++ runtime side but not directly resolvable
+as the `NPC_` base record the patcher needs to attach Flee packages to
+— fixed in `AvoidancePatchBuilder.cs` by resolving the ACHR first and
+following its `.Base` link, not by mutating the shared table; (2) 5 of
+the 19 named-cast entries (`amren`, `braith`, `lars_battle_born`,
+`idolaf_battle_born`, `lillith_maiden_loom`) were attributed to the
+wrong origin plugin (`HearthFires.esm`/USSEP instead of their real
+`Skyrim.esm`) — a bug that would have silently broken runtime identity
+resolution for those 5 actors too, not just the patcher. Both fixed in
+`IdentityMap.cpp` and its `.cs` mirror. The corrected run succeeded in
+full: 171/171 pairs, 342 packages, 19 NPC overrides. `AvoidanceGlobals.
+cpp`'s 4 illustrative pairs now carry the real FormIDs from that run
+(`out/chronicle-globals.json`) instead of `0x000000` placeholders.
+Still not load-ordered in an actual running game — that verification,
+like every other ChronicleBridge write path, remains pending.
 
 Original design proposal follows, unchanged except where noted above.
 Written
