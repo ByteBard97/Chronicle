@@ -44,27 +44,44 @@ def format_entry(entry: dict) -> str:
     return f'            {{"{npc_a}", "{npc_b}", "{plugin}", 0x{local_form_id:06x}}},\n'
 
 
-def main() -> int:
-    entries = json.loads(JSON_PATH.read_text())
+def render_array(entries: list[dict]) -> str:
+    """Pure: entries (unsorted, as read from JSON) -> the full array-literal text."""
     entries = sorted(entries, key=lambda e: (e["npcA"], e["npcB"]))
-
     body = "".join(format_entry(e) for e in entries)
-    new_array = (
+    return (
         f"constexpr std::array<AvoidancePairEntry, {len(entries)}> kAvoidancePairGlobals{{{{\n"
         + body
         + ARRAY_END
     )
 
-    text = CPP_PATH.read_text()
+
+def apply_replacement(text: str, new_array: str) -> str:
+    """Pure: replace the kAvoidancePairGlobals array literal in `text` with `new_array`.
+
+    Raises ValueError if the array's start/end markers can't be found, rather
+    than silently leaving the file unchanged -- a missing marker means the
+    surrounding file changed shape in a way this regex-based approach no
+    longer understands, and that should fail loudly, not write nothing.
+    """
     match = ARRAY_START_RE.search(text)
     if not match:
-        print("ERROR: could not find kAvoidancePairGlobals array start in AvoidanceGlobals.cpp", file=sys.stderr)
-        return 1
+        raise ValueError("could not find kAvoidancePairGlobals array start")
     end_match = ARRAY_END_RE.search(text, match.end())
     if not end_match:
-        print("ERROR: could not find kAvoidancePairGlobals array end in AvoidanceGlobals.cpp", file=sys.stderr)
+        raise ValueError("could not find kAvoidancePairGlobals array end")
+    return text[: match.start()] + new_array + text[end_match.end() :]
+
+
+def main() -> int:
+    entries = json.loads(JSON_PATH.read_text())
+    new_array = render_array(entries)
+
+    text = CPP_PATH.read_text()
+    try:
+        new_text = apply_replacement(text, new_array)
+    except ValueError as exc:
+        print(f"ERROR: {exc} in {CPP_PATH}", file=sys.stderr)
         return 1
-    new_text = text[: match.start()] + new_array + text[end_match.end() :]
 
     CPP_PATH.write_text(new_text)
     print(f"Wrote {len(entries)} entries to {CPP_PATH}")
