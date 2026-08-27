@@ -8,8 +8,9 @@ Receives ChronicleBridge's outbound POSTs
   the dashboard's existing polling machinery reads -- per that doc's B4
   decision, a file-polling side-channel, not a live push server, so the
   dashboard's static-read/no-backend property never changes.
-- **`/whiterun/events`** -- discrete game events, currently NPC deaths only
-  (`docs/design/chronicle-bridge-death-extraction.md`). Appends to a
+- **`/whiterun/events`** -- discrete game events: NPC deaths
+  (`docs/design/chronicle-bridge-death-extraction.md`) and crime-witness
+  events (`docs/design/chronicle-bridge-crime-witness-out.md`). Appends to a
   single, developer-designated live run via `python -m chronicle inject`
   (shelled out to, never imported -- see below), stamped
   `--origin-kind adapter`. Disabled (503) unless the listener is started

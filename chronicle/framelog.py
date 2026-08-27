@@ -360,6 +360,7 @@ def event_payload(event: Event, *, origin: Mapping[str, str] | None) -> dict[str
             witness_id=event.witness_id,
             perpetrator_id=event.perpetrator_id,
             crime_type=event.crime_type,
+            victim_id=event.victim_id,
             location_id=event.location_id,
         )
     elif isinstance(event, RumorHeard):
@@ -443,6 +444,7 @@ def event_from_record(record: Mapping[str, Any]) -> Event:
             witness_id=payload["witness_id"],
             perpetrator_id=payload["perpetrator_id"],
             crime_type=payload["crime_type"],
+            victim_id=payload.get("victim_id"),
             location_id=payload.get("location_id"),
         )
     if event_type == "rumor_heard":

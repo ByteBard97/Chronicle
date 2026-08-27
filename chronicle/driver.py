@@ -931,6 +931,55 @@ class Driver:
             gamets=gamets,
         )
 
+    def crime_witnessed(
+        self,
+        *,
+        claim_id: str,
+        belief_id: str,
+        evidence_id: str,
+        witness_id: str,
+        perpetrator_id: str,
+        crime_type: str,
+        victim_id: str | None,
+        canonical_event_key: EventKey,
+        location_id: str | None,
+        gamets: float,
+    ) -> tuple[Claim, BeliefInstance, Evidence, Grudge | None]:
+        """A ``crime_witnessed`` event's cascade: always a belief (``witness()``), a
+        grudge (``suffer_harm()``, rule 12) only when the witness IS the victim.
+
+        ``victim_id`` is caller-supplied, never inferred (T2.3's lesson): a
+        witness is a self-victim exactly when ``victim_id == witness_id``;
+        ``None`` or any other id means bystander -- belief only, no grudge,
+        matching ``suffer_harm()``'s own documented self-victim invariant
+        (docs/design/chronicle-bridge-crime-witness-out.md §1/§3).
+        """
+        claim, belief, evidence = self.witness(
+            claim_id=claim_id,
+            belief_id=belief_id,
+            evidence_id=evidence_id,
+            kind=crime_type,
+            slots={
+                "perpetrator_id": perpetrator_id,
+                "victim_id": victim_id,
+                "location_id": location_id,
+            },
+            canonical_event_key=canonical_event_key,
+            witness_id=witness_id,
+            gamets=gamets,
+        )
+        grudge: Grudge | None = None
+        if victim_id == witness_id:
+            grudge = self.suffer_harm(
+                holder_id=witness_id,
+                target_id=perpetrator_id,
+                grievance_type=crime_type,
+                source_belief_id=belief.id,
+                evidentiary_strength=1.0,  # firsthand witnessed, T2.3: caller-supplied not derived
+                gamets=gamets,
+            )
+        return claim, belief, evidence, grudge
+
     def issue_obligation(self, **kwargs: object) -> Obligation:
         """Scripted obligation issuance; emits an obligation_issued trace record with the full Obligation fields (schema §4)."""
         obligation = self.social.add_obligation(issue_obligation(**kwargs))  # type: ignore[arg-type]

@@ -83,6 +83,7 @@ class CrimeWitnessed(Event):
     witness_id: str
     perpetrator_id: str
     crime_type: str
+    victim_id: str | None = None
     location_id: str | None = None
 
 

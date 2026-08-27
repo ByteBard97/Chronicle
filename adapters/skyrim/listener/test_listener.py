@@ -133,7 +133,20 @@ def test_events_endpoint_appends_a_real_death_event_via_chronicle_inject(server_
 
 def test_events_endpoint_rejects_a_malformed_payload(server_factory, live_run):
     post = server_factory(live_run=_RUN)
-    resp = post("/whiterun/events", {"event_type": "npc_died"})  # missing required gamets/npc_id
+    resp = post("/whiterun/events", {"event_type": "npc_died"})  # missing required gamets (schema-enforced)
+    assert resp.status == 400
+    reader = FrameLogReader(live_run)
+    assert not any(r["payload"].get("event_type") == "npc_died" for r in reader.records("events"))
+
+
+def test_events_endpoint_rejects_an_npc_died_payload_missing_npc_id(server_factory, live_run):
+    """npc_id is no longer schema-`required` on the now-shared GameEvent object
+    (docs/design/chronicle-bridge-crime-witness-out.md §4 -- required npc_id and
+    required witness_id/perpetrator_id/crime_type can't both live in one flat
+    JSON Schema `required` list), so this is enforced by the listener's own
+    per-kind check instead, same as the crime_witnessed case below."""
+    post = server_factory(live_run=_RUN)
+    resp = post("/whiterun/events", {"event_type": "npc_died", "gamets": 5.0})  # missing required npc_id
     assert resp.status == 400
     reader = FrameLogReader(live_run)
     assert not any(r["payload"].get("event_type") == "npc_died" for r in reader.records("events"))
@@ -165,6 +178,64 @@ def test_events_endpoint_surfaces_chronicles_own_rejection_reason(server_factory
     assert first.status == 204
     second = post("/whiterun/events", {"event_type": "npc_died", "gamets": 3.0, "npc_id": "nazeem"})
     assert second.status == 400
+
+
+def test_events_endpoint_appends_a_real_crime_witnessed_event_via_chronicle_inject(server_factory, live_run):
+    """docs/design/chronicle-bridge-crime-witness-out.md §4: the bystander
+    row (victim_id differs from witness_id) -- belief only, no grudge, but
+    that cascade is chronicle's own concern; the listener's job is just to
+    get the event appended with its fields intact."""
+    post = server_factory(live_run=_RUN)
+    resp = post(
+        "/whiterun/events",
+        {
+            "event_type": "crime_witnessed",
+            "gamets": 8.0,
+            "witness_id": "nazeem",
+            "perpetrator_id": "the_player",
+            "crime_type": "assault",
+            "victim_id": "brenuin",
+            "location_id": "whiterun_market",
+        },
+    )
+    assert resp.status == 204
+
+    reader = FrameLogReader(live_run)
+    events = [r for r in reader.records("events") if r["payload"].get("event_type") == "crime_witnessed"]
+    assert len(events) == 1
+    record = events[0]
+    assert record["tick"] == 8
+    assert record["payload"]["witness_id"] == "nazeem"
+    assert record["payload"]["perpetrator_id"] == "the_player"
+    assert record["payload"]["crime_type"] == "assault"
+    assert record["payload"]["victim_id"] == "brenuin"
+    assert record["payload"]["location_id"] == "whiterun_market"
+    assert record["payload"]["origin"] == {"kind": "adapter", "detail": "chronicle-bridge crime_witnessed event"}
+
+
+def test_events_endpoint_appends_a_crime_witnessed_event_with_no_victim(server_factory, live_run):
+    """victim_id omitted (property/bounty crime, design doc §2) -- optional, defaults to None."""
+    post = server_factory(live_run=_RUN)
+    resp = post(
+        "/whiterun/events",
+        {"event_type": "crime_witnessed", "gamets": 8.0, "witness_id": "nazeem", "perpetrator_id": "the_player", "crime_type": "theft"},
+    )
+    assert resp.status == 204
+    reader = FrameLogReader(live_run)
+    events = [r for r in reader.records("events") if r["payload"].get("event_type") == "crime_witnessed"]
+    assert len(events) == 1
+    assert events[0]["payload"].get("victim_id") is None
+
+
+def test_events_endpoint_rejects_a_crime_witnessed_payload_missing_required_fields(server_factory, live_run):
+    post = server_factory(live_run=_RUN)
+    # Valid per the flat GameEvent schema, but missing crime_witnessed's
+    # own required trio -- the listener's per-kind check must reject it
+    # (docs/design/chronicle-bridge-crime-witness-out.md §4).
+    resp = post("/whiterun/events", {"event_type": "crime_witnessed", "gamets": 1.0})
+    assert resp.status == 400
+    reader = FrameLogReader(live_run)
+    assert not any(r["payload"].get("event_type") == "crime_witnessed" for r in reader.records("events"))
 
 
 def test_positions_endpoint_still_works_after_the_events_route_was_added(server_factory, tmp_path):

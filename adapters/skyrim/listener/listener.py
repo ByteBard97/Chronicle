@@ -126,7 +126,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).parent))
-from models import GameEvent, PositionSnapshot
+from models import EventType, GameEvent, PositionSnapshot
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from chronicle.avoidance import is_avoiding
@@ -218,6 +218,48 @@ def _inject_death_event(event: GameEvent, *, live_run: str) -> tuple[bool, str]:
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
+    )
+    if result.returncode != 0:
+        return False, result.stderr.strip()
+    return True, result.stdout.strip()
+
+
+def _inject_crime_witnessed_event(event: GameEvent, *, live_run: str) -> tuple[bool, str]:
+    """Sibling of ``_inject_death_event`` for the crime-witness slice
+    (docs/design/chronicle-bridge-crime-witness-out.md §4): same shell-out-
+    to-``python -m chronicle inject`` discipline, ``--origin-kind adapter``,
+    never imports ``chronicle/`` directly.
+    """
+    payload = {
+        "event_type": event.event_type.value,
+        "gamets": event.gamets,
+        "witness_id": event.witness_id,
+        "perpetrator_id": event.perpetrator_id,
+        "crime_type": event.crime_type,
+    }
+    if event.victim_id is not None:
+        payload["victim_id"] = event.victim_id
+    if event.location_id is not None:
+        payload["location_id"] = event.location_id
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "chronicle",
+            "inject",
+            live_run,
+            "--event",
+            json.dumps(payload),
+            "--origin-kind",
+            "adapter",
+            "--origin-detail",
+            "chronicle-bridge crime_witnessed event",
+        ],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode != 0:
         return False, result.stderr.strip()
@@ -780,7 +822,24 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
                 self.end_headers()
                 return
 
-            ok, message = _inject_death_event(event, live_run=live_run)
+            # GameEvent is one flat schema across event kinds (JSON Schema
+            # can't express per-variant `required` on it -- contract's own
+            # note); this is where per-kind shape is actually enforced
+            # (docs/design/chronicle-bridge-crime-witness-out.md §4).
+            if event.event_type is EventType.crime_witnessed:
+                if event.witness_id is None or event.perpetrator_id is None or event.crime_type is None:
+                    print("rejected malformed event: crime_witnessed missing witness_id/perpetrator_id/crime_type", file=sys.stderr)
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                ok, message = _inject_crime_witnessed_event(event, live_run=live_run)
+            else:
+                if event.npc_id is None:
+                    print("rejected malformed event: npc_died missing npc_id", file=sys.stderr)
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                ok, message = _inject_death_event(event, live_run=live_run)
             if not ok:
                 print(f"chronicle inject rejected event: {message}", file=sys.stderr)
                 self.send_response(400)

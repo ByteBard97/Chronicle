@@ -147,7 +147,7 @@ def _resolve_at(reader: FrameLogReader, at: int | None) -> int:
 # (schema §3/§4) -- feed's --npc filter and inspect's unknown-NPC check.
 _NPC_FIELDS = (
     "npc_a", "npc_b", "holder_id", "teller_id", "hearer_id", "source_id",
-    "npc_id", "witness_id", "perpetrator_id", "killer_id",
+    "npc_id", "witness_id", "perpetrator_id", "killer_id", "victim_id",
     # Tier-3 record types (lanes 23-26): the entity slot each names, so
     # `feed --npc`/`inspect`'s participant match doesn't silently drop them.
     "target_id", "observer_id", "subject_id", "issuer_id", "debtor_id",
@@ -502,7 +502,13 @@ def feed_command(args: argparse.Namespace) -> int:
 _EVENT_FIELDS: dict[str, dict[str, bool]] = {
     # field_name -> required?
     "npc_died": {"npc_id": True, "cause": True, "killer_id": False, "location_id": False},
-    "crime_witnessed": {"witness_id": True, "perpetrator_id": True, "crime_type": True, "location_id": False},
+    "crime_witnessed": {
+        "witness_id": True,
+        "perpetrator_id": True,
+        "crime_type": True,
+        "victim_id": False,
+        "location_id": False,
+    },
     "rumor_heard": {"hearer_id": True, "source_id": True, "rumor_id": True, "content": True},
 }
 

@@ -14,7 +14,7 @@ import pytest
 
 from chronicle.claims import EventKey
 from chronicle.driver import Driver
-from chronicle.events import NPCDied
+from chronicle.events import CrimeWitnessed, NPCDied
 from chronicle.framelog import FrameLogReader
 from chronicle.rules import (
     ACCUMULATION_THRESHOLD,
@@ -131,6 +131,70 @@ def test_grudge_creation_rule_fires_once_then_latches(tmp_path):
     assert len(grudge_rows) == 2
     assert grudge_rows[0]["fired"] and grudge_rows[0]["inputs"]["already_exists"] is False
     assert not grudge_rows[1]["fired"] and grudge_rows[1]["inputs"]["already_exists"] is True
+
+
+def test_crime_witnessed_bystander_forms_belief_without_grudge(tmp_path):
+    """docs/design/chronicle-bridge-crime-witness-out.md §1/§6, bystander row: victim_id
+    differs from (or is None vs.) witness_id -- belief via witness(), no grudge."""
+    driver = _driver("rules-crime-witnessed-bystander-run", tmp_path, encounter_probability=0.0)
+    driver.inject_event(
+        CrimeWitnessed(
+            tick=0, save_uuid=_SAVE, generation=0, seq=1,
+            gamets=0.0, wall_ts=0.0, witness_id="irileth",
+            perpetrator_id="proventus", crime_type="assault",
+            victim_id="hulda", location_id="bannered_mare",
+        ),
+        origin={"kind": "scenario", "detail": "test_rules"},
+    )
+    claim, belief, _evidence, grudge = driver.crime_witnessed(
+        claim_id="claim-assault-1",
+        belief_id="belief-irileth-assault",
+        evidence_id="evidence-irileth-assault",
+        witness_id="irileth",
+        perpetrator_id="proventus",
+        crime_type="assault",
+        victim_id="hulda",
+        canonical_event_key=EventKey(_SAVE, 0, 1),
+        location_id="bannered_mare",
+        gamets=0.0,
+    )
+    assert grudge is None
+    assert belief.holder_id == "irileth"
+    assert claim.kind == "assault"
+    assert driver.social.grudge("irileth", "proventus") is None
+    driver.close()
+
+
+def test_crime_witnessed_self_victim_forms_belief_and_grudge(tmp_path):
+    """docs/design/chronicle-bridge-crime-witness-out.md §1/§6, self-victim row: victim_id
+    == witness_id -- belief via witness() AND a grudge via suffer_harm()/rule 12."""
+    driver = _driver("rules-crime-witnessed-self-victim-run", tmp_path, encounter_probability=0.0)
+    driver.inject_event(
+        CrimeWitnessed(
+            tick=0, save_uuid=_SAVE, generation=0, seq=1,
+            gamets=0.0, wall_ts=0.0, witness_id="irileth",
+            perpetrator_id="proventus", crime_type="assault",
+            victim_id="irileth", location_id="bannered_mare",
+        ),
+        origin={"kind": "scenario", "detail": "test_rules"},
+    )
+    _claim, belief, _evidence, grudge = driver.crime_witnessed(
+        claim_id="claim-assault-2",
+        belief_id="belief-irileth-assault-2",
+        evidence_id="evidence-irileth-assault-2",
+        witness_id="irileth",
+        perpetrator_id="proventus",
+        crime_type="assault",
+        victim_id="irileth",
+        canonical_event_key=EventKey(_SAVE, 0, 1),
+        location_id="bannered_mare",
+        gamets=0.0,
+    )
+    assert grudge is not None
+    assert grudge.holder_id == "irileth" and grudge.target_id == "proventus"
+    assert grudge.source_belief_id == belief.id
+    assert driver.social.grudge("irileth", "proventus") is grudge
+    driver.close()
 
 
 def test_disabling_grudge_creation_suppresses_it(tmp_path):

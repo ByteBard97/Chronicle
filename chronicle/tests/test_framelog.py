@@ -22,6 +22,7 @@ from chronicle.framelog import (
     FrameLogReader,
     FrameLogWriter,
     default_runs_dir,
+    event_from_record,
     event_payload,
     load_state,
     serialize_state,
@@ -560,6 +561,53 @@ def test_event_payload_maps_rumor_heard():
     assert payload["hearer_id"] == "hulda"
     assert payload["source_id"] == "irileth"
     assert payload["content"] == "the jarl is dead"
+
+
+def test_event_payload_maps_crime_witnessed_victim_id():
+    """CrimeWitnessed's additive victim_id field (docs/design/
+    chronicle-bridge-crime-witness-out.md §2), same optional-field pattern
+    as npc_died's killer_id.
+    """
+    event = CrimeWitnessed(
+        tick=0, save_uuid="save-1", generation=0, seq=1, gamets=0.0, wall_ts=0.0,
+        witness_id="irileth", perpetrator_id="proventus", crime_type="assault",
+        victim_id="hulda", location_id="bannered_mare",
+    )
+    payload = event_payload(event, origin=None)
+    assert payload["event_type"] == "crime_witnessed"
+    assert payload["witness_id"] == "irileth"
+    assert payload["perpetrator_id"] == "proventus"
+    assert payload["crime_type"] == "assault"
+    assert payload["victim_id"] == "hulda"
+    assert payload["location_id"] == "bannered_mare"
+
+
+def test_crime_witnessed_victim_id_round_trips_through_event_from_record():
+    """event_payload/event_from_record round-trip for the new victim_id field,
+    both when present and when None (npc_died's killer_id precedent)."""
+    record_with_victim = {
+        "tick": 0, "save_uuid": "save-1", "generation": 0, "seq": 1,
+        "payload": {
+            "event_type": "crime_witnessed", "gamets": 0.0, "wall_ts": 0.0,
+            "witness_id": "irileth", "perpetrator_id": "proventus",
+            "crime_type": "assault", "victim_id": "irileth", "location_id": "bannered_mare",
+        },
+    }
+    rebuilt = event_from_record(record_with_victim)
+    assert isinstance(rebuilt, CrimeWitnessed)
+    assert rebuilt.victim_id == "irileth"
+
+    record_without_victim = {
+        "tick": 0, "save_uuid": "save-1", "generation": 0, "seq": 2,
+        "payload": {
+            "event_type": "crime_witnessed", "gamets": 0.0, "wall_ts": 0.0,
+            "witness_id": "irileth", "perpetrator_id": "unknown",
+            "crime_type": "theft", "location_id": None,
+        },
+    }
+    rebuilt_bystander = event_from_record(record_without_victim)
+    assert isinstance(rebuilt_bystander, CrimeWitnessed)
+    assert rebuilt_bystander.victim_id is None
 
 
 def test_event_payload_maps_status_changed():
