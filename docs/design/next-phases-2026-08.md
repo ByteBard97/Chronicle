@@ -10,11 +10,15 @@ off what closes the distance to the actual goal (`docs/vision-v2.2.md`):
 a Skyrim world that visibly reacts to the player. Two concrete blockers
 for that, now promoted to the top of this doc: the seam's **"out"**
 direction (sim state → game, `adapters/skyrim/README.md`'s charter)
-doesn't exist at all — only "in" (positions, deaths) has ever been built
-— and the **named-cast gap** means almost none of the rules just landed
-apply to any NPC the player can actually meet (verified: `IdentityMap.
-cpp`'s `kNamedCast` has exactly one entry against 28 live-captured
-Whiterun NPCs in `whiterun-positions.json`).
+still doesn't exist in a *visible* form (writes land in save-relevant
+game state, but nothing has been confirmed to visibly change in a
+running game) — and the **named-cast gap**, real when this note was
+written, closed substantially two minutes later in the same session:
+`IdentityMap.cpp`'s `kNamedCast` grew from 1 to 19 entries against 28
+live-captured Whiterun NPCs (`2f27cc8`, see §0c below). **Correction
+added 2026-08-27**: don't cite "exactly one entry" as current status —
+it describes a state that existed for about two minutes. 19/28 is
+current as of `edd6989`.
 
 ## 0o. Landed: full 171-pair avoidance table, verified DevBench runbook automation with a real seeding recipe (`48d827c`, `c32e307`, `7d13012`)
 

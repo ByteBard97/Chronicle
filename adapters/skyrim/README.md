@@ -48,9 +48,10 @@ against a different engine, only this directory changes.
      resolving NPCs via `IdentityMap` and calling `PlaceObjectAtMe`.
 
   Two gaps this slice list doesn't close: the named-cast map
-  (`IdentityMap.cpp`'s `kNamedCast`) covers only 1 of Whiterun's ~28
-  live-captured NPCs, so almost none of the landed rules apply to an
-  NPC the player can actually meet yet; and none of this is visible
+  (`IdentityMap.cpp`'s `kNamedCast`) covers 19 of Whiterun's 28
+  live-captured NPCs (grown from 1, `2f27cc8`) — real coverage, not
+  the full cast, so some landed rules still can't apply to every NPC
+  the player might meet; and none of this is visible
   in-game until someone launches Skyrim against the ChronicleDev
   deployment and works through `docs/design/
   chronicle-bridge-verification-runbook.md`.

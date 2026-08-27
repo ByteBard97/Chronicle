@@ -1,7 +1,8 @@
 # ChronicleBridge
 
 The Chronicle project's SKSE plugin (`adapters/skyrim/README.md`'s "only
-place in the repo allowed to know Skyrim exists"). Three slices so far:
+place in the repo allowed to know Skyrim exists"). Seven slices landed
+as of 2026-08-27:
 
 - **Slice 1** (`docs/design/chronicle-bridge-spatial-streamer.md`):
   samples every actor currently outdoors in Whiterun at ~1Hz and pushes
@@ -20,15 +21,43 @@ place in the repo allowed to know Skyrim exists"). Three slices so far:
   something); a pair with no authored vanilla relationship is skipped,
   never created (a real save-integrity risk this project doesn't yet
   understand well enough to take on — see that design doc's §3c).
+- **Slice 4** (`docs/design/chronicle-bridge-avoidance-mutagen-out.md`):
+  `AvoidancePoller` + a Mutagen-authored patcher content pack
+  (`tools/chronicle-patcher/`) drive Flee-package avoidance between 171
+  real NPC pairs (all 19-choose-2 of the named cast), gated by a
+  per-pair global. Real FormIDs deployed via a real patcher run, no
+  placeholders left in `AvoidanceGlobals.cpp`.
+- **Slice 5** (`docs/research/28-vendor-price-hook-address-library-spike.md`):
+  `VendorPriceHook.{h,cpp}` — the first vtable/UI hook, swapping
+  `RE::VTABLE_BarterMenu`'s `PostCreate` and the barter menu's
+  `UpdateItemCardInfo` callback to multiply prices for a marked-up
+  vendor.
+- **Slice 6** (`docs/design/chronicle-bridge-crime-witness-out.md`):
+  Python-only cut of the crime-witness cascade (`Driver.
+  crime_witnessed()`); no C++ event sink yet — `docs/research/29`/`30`
+  found no clean `TESCrimeEvent`-style sink exists, and identified
+  poll-based bounty/witness reads (no hook needed) as the likely path,
+  with one live-game check still open (which actor's `extraList`
+  vanilla populates `ExtraPlayerCrimeList` on).
+- **Slice 7** (`docs/design/chronicle-bridge-diegetic-evidence-out.md`):
+  `EvidencePoller.{h,cpp}` — belief/evidence state spawns as a real
+  authored `MiscItem` in the world at a believer's live position, gated
+  on `BeliefInstance.confidence`.
 
-All three slices compile cleanly against the real CommonLibSSE-NG
-headers (independently re-verified with full clean rebuilds, not just
-trusted from a report) — **none of the three has ever run against a
-live game.** "Compiles and matches the design" and "verified safe in an
-actual play session" are different claims; only the first is true for
-any of this as of the last update to this file. Slice 3 in particular
-mutates persistent save-relevant game state and must not be treated as
-tested until someone confirms it manually in a real play session.
+The named-cast map (`IdentityMap.cpp`'s `kNamedCast`) covers 19 of
+Whiterun's 28 live-captured NPCs (`2f27cc8`), up from 1 at slice-1 time.
+
+The whole tree (all 7 slices, 24 files) builds clean together
+(previously only spot-checked individually), and the compiled DLL plus
+a real 171-pair patched ESP are deployed into a live dev install
+(`~/Games/ChronicleDev`, correct load order). **None of the seven
+slices has ever run against a live game.** "Compiles and matches the
+design" and "verified safe in an actual play session" are different
+claims; only the first is true for any of this as of the last update to
+this file. Slices 3, 4, 5, and 7 in particular mutate persistent
+save-relevant game state or live UI and must not be treated as tested
+until someone confirms them manually in a real play session — see
+`docs/design/chronicle-bridge-verification-runbook.md`.
 
 No save/reload sync yet — ChronicleBridge targets a single
 developer-designated live run with no multi-save branch awareness (the

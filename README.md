@@ -57,9 +57,9 @@ Python side but explicitly unverified in a running game — see
 `adapters/skyrim/README.md` for per-slice status and
 `docs/design/next-phases-2026-08.md` for the current plan, including
 two known gaps: the bridge only streams game state *in* to Chronicle so
-far (no "sim state → visible game behavior" path exists yet), and only
-1 of Whiterun's ~28 live-captured NPCs is in the named-cast map that
-rules can act on.
+far (no "sim state → visible game behavior" path exists yet), and the
+named-cast map (`IdentityMap.cpp`'s `kNamedCast`) currently covers 19 of
+Whiterun's 28 live-captured NPCs.
 
 ## Development
 
