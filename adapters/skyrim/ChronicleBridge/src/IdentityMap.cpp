@@ -30,10 +30,16 @@ namespace ChronicleBridge {
         // observed-at-runtime sourcing this table requires. That snapshot's
         // 6 "Whiterun Guard" entries and its 1 "Cow" entry are excluded for
         // the reasons below (guards) and because a cow is not an NPC.
-        // Several of these use HearthFires.esm or "unofficial skyrim
-        // special edition patch.esp" as their origin plugin rather than
+        // "lucia" uses HearthFires.esm as its origin plugin rather than
         // Skyrim.esm -- that's the plugin actually observed owning the
         // FormID at runtime, not an assumption, and is preserved verbatim.
+        //
+        // 2026-08-27: amren, braith, lars_battle_born, idolaf_battle_born, and
+        // lillith_maiden_loom were previously misattributed to HearthFires.esm
+        // or "unofficial skyrim special edition patch.esp" (a runtime
+        // observation artifact, not their real originating plugin); verified
+        // against a real Skyrim.esm + HearthFires.esm + USSEP load order via
+        // direct record dump and corrected to Skyrim.esm.
         //
         // jarl_balgruuf/irileth/proventus/hulda are not yet in this table --
         // they spend most of their time indoors (Dragonsreach, the Bannered
@@ -47,16 +53,16 @@ namespace ChronicleBridge {
         // fallback.
         constexpr std::array<NamedCastEntry, 19> kNamedCast{{
             {"Skyrim.esm", 0x01a69a, "ysolda"},
-            {"unofficial skyrim special edition patch.esp", 0x01a689, "idolaf_battle_born"},
+            {"Skyrim.esm", 0x01a689, "idolaf_battle_born"},
             {"Skyrim.esm", 0x01a66c, "saffir"},
             {"Skyrim.esm", 0x01a675, "carlotta_valentia"},
-            {"HearthFires.esm", 0x01a66a, "amren"},
+            {"Skyrim.esm", 0x01a66a, "amren"},
             {"Skyrim.esm", 0x01a67c, "adrianne_avenicci"},
-            {"HearthFires.esm", 0x01a68c, "lars_battle_born"},
-            {"HearthFires.esm", 0x01a66b, "braith"},
+            {"Skyrim.esm", 0x01a68c, "lars_battle_born"},
+            {"Skyrim.esm", 0x01a66b, "braith"},
             {"Skyrim.esm", 0x01a684, "fralia_gray_mane"},
             {"Skyrim.esm", 0x01a6a4, "nazeem"},
-            {"unofficial skyrim special edition patch.esp", 0x10e2b6, "lillith_maiden_loom"},
+            {"Skyrim.esm", 0x10e2b6, "lillith_maiden_loom"},
             {"Skyrim.esm", 0x02c90f, "brenuin"},
             {"Skyrim.esm", 0x01a680, "anoriath"},
             {"HearthFires.esm", 0x003f5e, "lucia"},

@@ -78,9 +78,11 @@ public sealed record AvoidancePairPatchResult(
 /// Targeting mechanism: `PackageTargetSpecificReference` (the schema's
 /// dedicated "specific reference" target type) requires a
 /// `FormLink&lt;ILinkedReferenceGetter&gt;`, which only placed-reference
-/// records (ACHR/REFR) implement -- NOT `NPC_` base records, which is all
-/// `IdentityMap`'s FormKeys resolve to. Named-cast NPCs' placed-reference
-/// (ACHR) FormKeys are not tracked anywhere in this project. This builder
+/// records (ACHR/REFR) implement -- NOT `NPC_` base records, which is what
+/// this builder attaches Flee packages to (resolved by following each
+/// named-cast NPC's ACHR `.Base` link -- see `Build`'s resolution loop and
+/// 2026-08-27's IdentityMap.cs doc-comment update: `IdentityMap`'s FormKeys
+/// are themselves ACHR FormIDs, not NPC_ ones). This builder
 /// therefore reuses `PackageTargetReference` instead (the schema's
 /// generically-typed "linked reference" target variant, positionally the
 /// 4th `APackageTarget` subclass -- see the previous version of this file's
@@ -137,8 +139,21 @@ public static class AvoidancePatchBuilder
 
         foreach (var entry in namedCast)
         {
+            // IdentityMap's FormKeys are placed-reference (ACHR) FormIDs, not
+            // NPC_ base-record FormIDs -- correct for the C++ runtime side,
+            // which resolves identity off the live RE::Actor* (itself a
+            // placed reference). Verified against a real Skyrim.esm +
+            // HearthFires.esm + USSEP load order: every one of the 19
+            // named-cast FormKeys resolves as IPlacedNpcGetter (ACHR), not
+            // INpcGetter (NPC_). This patcher, unlike the C++ side, needs the
+            // actual NPC_ base record to attach Flee packages to, so it
+            // resolves the ACHR first and follows its Base link (a
+            // FormLinkNullable<INpcGetter>, confirmed to exist and resolve
+            // cleanly on the installed Mutagen.Bethesda.Skyrim 23.4.0
+            // assembly) to get there.
             var formKey = new FormKey(ModKey.FromNameAndExtension(entry.PluginName), entry.LocalFormId);
-            if (linkCache.TryResolve<INpcGetter>(formKey, out var npcGetter))
+            if (linkCache.TryResolve<IPlacedNpcGetter>(formKey, out var placedNpc)
+                && placedNpc.Base.TryResolve(linkCache, out var npcGetter))
             {
                 resolved.Add((entry, npcGetter));
             }

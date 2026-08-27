@@ -8,12 +8,17 @@ namespace ChroniclePatcher.Tests;
 /// Exercises AvoidancePatchBuilder end-to-end against synthetic, in-memory
 /// stub masters -- no real Skyrim.esm/HearthFires.esm/USSEP available in
 /// this environment (see tools/chronicle-patcher/README.md's verification
-/// status). These stub masters are built at the *exact* FormKeys
-/// IdentityMap.cs (mirroring ChronicleBridge's IdentityMap.cpp) expects, so
-/// this test exercises real FormKey resolution via a real ILinkCache, real
-/// override-record creation (Npcs.GetOrAddAsOverride), real record
-/// construction (Global/Package), and a real binary write + read-back --
-/// everything this patcher does except load actual Bethesda game files.
+/// status). These stub masters place a PlacedNpc (ACHR) at the *exact*
+/// FormKeys IdentityMap.cs (mirroring ChronicleBridge's IdentityMap.cpp)
+/// expects -- matching the real load order's shape, verified 2026-08-27
+/// against actual Skyrim.esm/HearthFires.esm/USSEP data: every named-cast
+/// FormKey is a placed reference, not an NPC_ base record -- with each
+/// ACHR's Base link pointing at its own stub NPC_ record. This test
+/// exercises real FormKey resolution via a real ILinkCache (ACHR lookup
+/// followed by a Base-link NPC_ lookup), real override-record creation
+/// (Npcs.GetOrAddAsOverride), real record construction (Global/Package),
+/// and a real binary write + read-back -- everything this patcher does
+/// except load actual Bethesda game files.
 ///
 /// Covers the per-PAIR design (see AvoidancePatchBuilder's own doc comment
 /// for why): one shared ChronicleAvoidingPair_&lt;a&gt;_&lt;b&gt; global per
@@ -41,9 +46,30 @@ public class AvoidancePatchBuilderTests
         foreach (var entry in namedCast)
         {
             var mod = byPlugin[entry.PluginName];
-            var formKey = new FormKey(mod.ModKey, entry.LocalFormId);
-            var npc = mod.Npcs.AddNew(formKey);
-            npc.EditorID = "Stub_" + entry.NpcId;
+
+            // The base NPC_ record the ACHR's Base link points at -- its own
+            // FormKey doesn't matter to the resolution logic under test, only
+            // that the ACHR's Base link resolves to it.
+            var baseNpc = mod.Npcs.AddNew();
+            baseNpc.EditorID = "Stub_" + entry.NpcId;
+
+            // The ACHR itself, at the exact FormKey IdentityMap.cs declares
+            // for this entry -- mirroring the real load order, where
+            // IdentityMap's FormKeys are placed-reference FormIDs.
+            var placedFormKey = new FormKey(mod.ModKey, entry.LocalFormId);
+            var placed = new PlacedNpc(placedFormKey, SkyrimRelease.SkyrimSE)
+            {
+                EditorID = "Stub_" + entry.NpcId + "REF",
+                Base = new FormLinkNullable<INpcGetter>(baseNpc.FormKey),
+            };
+
+            var block = new CellBlock();
+            var subBlock = new CellSubBlock();
+            var cell = new Cell(mod);
+            cell.Temporary.Add(placed);
+            subBlock.Cells.Add(cell);
+            block.SubBlocks.Add(subBlock);
+            mod.Cells.Records.Add(block);
         }
 
         return (skyrim, hearthfires, ussep);
