@@ -25,41 +25,57 @@ that mutates as it travels to Riften, guard patrols that shift as a
 | [`docs/decisions/`](docs/decisions/) | Numbered ADRs and `open-questions.md` — the project's working memory for every design tension research surfaced. |
 | [`docs/research/00-index.md`](docs/research/00-index.md) | Every research report behind this design, with tagged findings and merged build-on/risk lists. |
 
-## Status
+## Project status (August 2026)
 
-Research phase complete — 14 reports, 8 accepted ADRs.
-`docs/v0.1-spec.md` is accepted, and its full ~20-rule budget is now
-implemented and scenario-proven headless: the claim/variant/belief store
-with the rumor stage machine (`chronicle/claims.py`), the social-state
-store — relationships, grudges, obligations, observer-local reputation
-(`chronicle/social.py`) — and schedule-driven encounter sampling
-(`chronicle/schedule.py`, `chronicle/propagate.py`), which replaces
-hand-picked teller/hearer pairs with real NPC-schedule-based propagation.
-Schedules and relationships are still hand-seeded for the v0.1 Whiterun
-cast (`chronicle/fixtures/`) rather than derived from a full math-tier
-simulation — the sampling mechanics don't change shape when that data
-source does, only the caller supplying them.
+**Chronicle is a headless social-simulation engine with a live Skyrim
+bridge deployed — but no visible in-game effects confirmed yet.**
 
-v0.1 is **headless**: no Skyrim installation required to build, run, or
-test it.
+- **v0.1 headless sim: done.** `docs/v0.1-spec.md`'s full ~20-rule
+  budget is implemented and scenario-proven: the claim/variant/belief
+  store with the rumor stage machine (`chronicle/claims.py`), the
+  social-state store — relationships, grudges, obligations,
+  observer-local reputation (`chronicle/social.py`) — and
+  schedule-driven encounter sampling (`chronicle/schedule.py`,
+  `chronicle/propagate.py`). No Skyrim installation required to build,
+  run, or test any of it. Schedules/relationships are still hand-seeded
+  for the v0.1 Whiterun cast (`chronicle/fixtures/`) rather than derived
+  from a full math-tier simulation.
+- **ChronicleBridge builds and deploys: done.** 7 SKSE slices (C++,
+  CommonLibSSE-NG) — live position streaming, death events, hydration,
+  avoidance, vendor-markup (barter-menu price hook), a crime-witness
+  cascade, and diegetic evidence — compile clean as a whole tree. The
+  DLL and a real 171-pair patched ESP are deployed into a live dev
+  install (`~/Games/ChronicleDev`, correct load order).
+- **In-game validation: not started.** The bridge has never been
+  launched against a live game save. Every write path (hydration,
+  avoidance, vendor-markup, evidence) is unit/scenario-tested on the
+  Python side but unverified in a running game — see
+  `docs/design/chronicle-bridge-verification-runbook.md`.
+- **The "out" direction doesn't visibly exist yet.** Writes land in
+  save-relevant game state, but nothing has been confirmed to actually
+  change what a player sees. Only "in" (positions, deaths) has ever been
+  observed working.
+- **Named-cast coverage: 19 of 28.** `IdentityMap.cpp`'s `kNamedCast`
+  resolves 19 of Whiterun's 28 live-captured NPCs to a Chronicle
+  identity (grown from 1); the rest stream as generic fallbacks the
+  landed rules can't act on.
 
-**v0.2 (the `adapters/skyrim/` SKSE bridge) is now under active
-construction, not just planned.** `ChronicleBridge` (C++,
-CommonLibSSE-NG) has 7 landed slices — live NPC position streaming,
-hydration, avoidance, vendor-markup, a crime-witness cascade, diegetic
-evidence, and the `EvidencePoller` C++ consumer for it. The full plugin
-tree builds clean as a whole and is deployed into a real game install
-(`~/Games/ChronicleDev`, correct load order, a real 171-pair patched
-ESP). **What's not yet done: launching Skyrim against this build and
-verifying it live.** Every write path (hydration, avoidance,
-vendor-markup, evidence) is compiled and unit/scenario-tested on the
-Python side but explicitly unverified in a running game — see
-`adapters/skyrim/README.md` for per-slice status and
-`docs/design/next-phases-2026-08.md` for the current plan, including
-two known gaps: the bridge only streams game state *in* to Chronicle so
-far (no "sim state → visible game behavior" path exists yet), and the
-named-cast map (`IdentityMap.cpp`'s `kNamedCast`) currently covers 19 of
-Whiterun's 28 live-captured NPCs.
+**What this means:** you can clone and run the simulation + dashboard
+today with no Skyrim install. You cannot yet install it as a mod and
+see the world react. That's the next milestone.
+
+| Milestone | What it means | Status |
+|---|---|---|
+| M0: Headless proof | Belief cascade (Jarl dies → rumors spread → grudges form), scenario-tested, no game required | Done |
+| M1: Bridge compiles | All 7 ChronicleBridge slices build clean against CommonLibSSE-NG | Done |
+| M2: Bridge deploys | DLL + patched ESP in a real MO2 install, listener wired, ready to launch | Done |
+| M3: In-game validation | Launch the game, confirm each slice live via the verification runbook | Next |
+| M4: Named-cast coverage | Resolve the remaining 9 of 28 Whiterun NPCs to Chronicle identities | In progress (19/28) |
+| M5: Visible "out" direction | Sim state actually changes what the player sees | Blocked on M3 |
+| M6: Player-shareable | Downloadable artifact, install instructions, save-safety guarantee | Blocked on M5 |
+
+See `adapters/skyrim/README.md` for per-slice status and
+`docs/design/next-phases-2026-08.md` for the current plan.
 
 ## Development
 
