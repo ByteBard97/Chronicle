@@ -46,6 +46,12 @@ namespace ChronicleBridge {
         // path above -- not a second config block.
         std::string avoidancePath = "/whiterun/avoidance";
         std::string avoidanceAckPath = "/whiterun/avoidance/ack";
+        // Fifth slice's optional read-only piece (BarterMenuSink.h,
+        // docs/design/chronicle-bridge-vendor-markup-out.md): GET only, no
+        // ack path -- this slice never writes a price, so there is nothing
+        // to report back to the listener. Same host/port/sharedSecret as
+        // every path above -- not a second config block.
+        std::string vendorMarkupPath = "/whiterun/vendor-markup";
         // Sent as the X-Chronicle-Bridge-Token header when set -- must match
         // the listener's --shared-secret exactly (adapters/skyrim/listener/
         // listener.py). Not real authentication (no TLS) -- a lightweight
@@ -189,5 +195,33 @@ namespace ChronicleBridge {
     // Fire-and-forget, same discipline as PostHydrationAck. Returns true if
     // the listener responded 2xx.
     bool PostAvoidanceAck(const OutboundConfig& config, const std::vector<AvoidanceAckEntry>& acks);
+
+    // One (holder, target, markup_multiplier) entry, matching the listener's
+    // GET /whiterun/vendor-markup response shape exactly (adapters/skyrim/
+    // listener/listener.py's _vendor_markup_pairs): a JSON array of
+    // {"holder_id": str, "target_id": str, "markup_multiplier": float}.
+    // Directed like HydrationPair, not symmetric like AvoidancePair -- see
+    // docs/design/chronicle-bridge-vendor-markup-out.md.
+    //
+    // This slice (BarterMenuSink.h/.cpp) only ever reads this to log an
+    // informational "this is the multiplier that WOULD apply" line when a
+    // named-cast vendor's barter menu opens (matching a pair's holder_id
+    // against that vendor's resolved npc_id) -- it never applies the
+    // multiplier to an actual price and never POSTs an ack, per
+    // research/26's scope split (the write itself needs a
+    // reverse-engineered hook, deliberately not attempted here).
+    struct VendorMarkupPair {
+        std::string holderId;
+        std::string targetId;
+        double markupMultiplier = 1.0;
+    };
+
+    // GETs the listener's current vendor-markup pairs. Same "empty means
+    // nothing changed OR the request failed, and the caller's response to
+    // either is identical" contract as FetchHydrationPairs/
+    // FetchAvoidancePairs -- see FetchHydrationPairs's comment. There is no
+    // corresponding ack POST for this fetch -- see VendorMarkupPair's own
+    // comment for why.
+    std::vector<VendorMarkupPair> FetchVendorMarkupPairs(const OutboundConfig& config);
 
 }  // namespace ChronicleBridge

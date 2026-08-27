@@ -215,6 +215,77 @@ namespace ChronicleBridge {
             }
         }
 
+        // Same narrow-purpose parser as ParseJsonIntField, extended to accept
+        // a decimal point (and exponent) -- markup_multiplier is a float
+        // (chronicle.vendor_markup.markup_multiplier_for's return type),
+        // unlike relationship_rank's plain int, so ParseJsonIntField's
+        // digits-only scan doesn't apply here. NOTE: the scan below is
+        // looser than a real JSON-number grammar (it doesn't police where
+        // '+'/'-'/'e' may appear within the run), so a malformed numeric
+        // token could still be accepted as a substring std::stod parses
+        // successfully rather than being rejected outright -- acceptable
+        // here only because the one real producer (Python's json.dumps of a
+        // float) never emits anything std::stod would misparse this way,
+        // same "not a general parser" caveat every sibling parser in this
+        // file already carries.
+        std::optional<double> ParseJsonDoubleField(std::string_view body, std::size_t& pos, std::string_view key) {
+            auto keyPos = body.find(std::format(R"("{}")", key), pos);
+            if (keyPos == std::string_view::npos) return std::nullopt;
+            auto colon = body.find(':', keyPos);
+            if (colon == std::string_view::npos) return std::nullopt;
+
+            std::size_t i = colon + 1;
+            while (i < body.size() && (body[i] == ' ' || body[i] == '\t')) ++i;
+            std::size_t start = i;
+            if (i < body.size() && (body[i] == '-' || body[i] == '+')) ++i;
+            while (i < body.size() &&
+                   (std::isdigit(static_cast<unsigned char>(body[i])) || body[i] == '.' || body[i] == 'e' ||
+                    body[i] == 'E' || body[i] == '+' || body[i] == '-')) {
+                ++i;
+            }
+            if (i == start) return std::nullopt;
+
+            try {
+                double value = std::stod(std::string(body.substr(start, i - start)));
+                pos = i;
+                return value;
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
+
+        // Same narrow-purpose parser discipline as ParseHydrationPairsJson --
+        // matches listener.py's GET /whiterun/vendor-markup response shape
+        // exactly: a JSON array of {"holder_id": str, "target_id": str,
+        // "markup_multiplier": float} objects.
+        std::vector<VendorMarkupPair> ParseVendorMarkupPairsJson(std::string_view body) {
+            std::vector<VendorMarkupPair> out;
+            std::size_t pos = 0;
+            while (true) {
+                auto objStart = body.find('{', pos);
+                if (objStart == std::string_view::npos) break;
+                auto objEnd = body.find('}', objStart);
+                if (objEnd == std::string_view::npos) break;
+
+                std::size_t fieldPos = objStart;
+                auto holderId = ParseJsonStringField(body, fieldPos, "holder_id");
+                fieldPos = objStart;
+                auto targetId = ParseJsonStringField(body, fieldPos, "target_id");
+                fieldPos = objStart;
+                auto multiplier = ParseJsonDoubleField(body, fieldPos, "markup_multiplier");
+
+                if (holderId && targetId && multiplier) {
+                    out.push_back(
+                        VendorMarkupPair{.holderId = *holderId, .targetId = *targetId, .markupMultiplier = *multiplier});
+                } else {
+                    SKSE::log::warn("ChronicleBridge: skipping unparseable vendor-markup pair object");
+                }
+
+                pos = objEnd + 1;
+            }
+            return out;
+        }
+
         // Matches listener.py's POST /whiterun/hydration/ack body shape
         // exactly: a JSON array of {"holder_id": str, "target_id": str,
         // "outcome": str} objects. `outcome` string values are chosen to
@@ -457,6 +528,39 @@ namespace ChronicleBridge {
             return false;
         }
         return true;
+    }
+
+    std::vector<VendorMarkupPair> FetchVendorMarkupPairs(const OutboundConfig& config) {
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Get(config.vendorMarkupPath, headers);
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: GET {}:{}{} failed: {}", config.host, config.port,
+                             config.vendorMarkupPath, httplib::to_string(result.error()));
+            return {};
+        }
+        if (result->status < 200 || result->status >= 300) {
+            // Same 503-means-"no --live-run" convention as
+            // FetchHydrationPairs/FetchAvoidancePairs -- see
+            // FetchHydrationPairs's comment.
+            if (result->status == 503) {
+                SKSE::log::trace("ChronicleBridge: GET {}:{}{} returned 503 (no --live-run configured)", config.host,
+                                  config.port, config.vendorMarkupPath);
+            } else {
+                SKSE::log::warn("ChronicleBridge: GET {}:{}{} returned status {}", config.host, config.port,
+                                 config.vendorMarkupPath, result->status);
+            }
+            return {};
+        }
+        return ParseVendorMarkupPairsJson(result->body);
     }
 
     bool PostGameEvent(const OutboundConfig& config, const PendingGameEvent& event) {
