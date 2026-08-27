@@ -52,6 +52,12 @@ namespace ChronicleBridge {
         // to report back to the listener. Same host/port/sharedSecret as
         // every path above -- not a second config block.
         std::string vendorMarkupPath = "/whiterun/vendor-markup";
+        // Seventh slice (docs/design/chronicle-bridge-diegetic-evidence-out.md
+        // §2): same poll/ack shape as hydration/avoidance, single-key
+        // (holder_id, belief_id) instead of a pair. Same host/port/
+        // sharedSecret as every path above -- not a second config block.
+        std::string evidencePath = "/whiterun/evidence";
+        std::string evidenceAckPath = "/whiterun/evidence/ack";
         // Sent as the X-Chronicle-Bridge-Token header when set -- must match
         // the listener's --shared-secret exactly (adapters/skyrim/listener/
         // listener.py). Not real authentication (no TLS) -- a lightweight
@@ -230,5 +236,60 @@ namespace ChronicleBridge {
     // either is identical" contract as FetchHydrationPairs/
     // FetchAvoidancePairs -- see FetchHydrationPairs's comment.
     std::vector<VendorMarkupPair> FetchVendorMarkupPairs(const OutboundConfig& config);
+
+    // One (holder_id, belief_id, claim_id) entry, matching the listener's GET
+    // /whiterun/evidence response shape exactly (adapters/skyrim/listener/
+    // listener.py's _evidence_entries): a JSON array of {"holder_id": str,
+    // "belief_id": str, "claim_id": str}. Single-key, not a pair, unlike
+    // Hydration/Avoidance/VendorMarkup -- there is no second party (design
+    // doc §2's own ruling: evidence is bound to the believer's own position,
+    // not the claim's subject). `claimId` is carried for logging/future
+    // per-claim-kind object selection (design doc §3's non-goal: this cut's
+    // consumer spawns one fixed base object regardless of claim kind), never
+    // sent back in the ack body below.
+    struct EvidenceEntry {
+        std::string holderId;
+        std::string beliefId;
+        std::string claimId;
+    };
+
+    // GETs the listener's pending-evidence queue and parses the response.
+    // Same "empty means nothing changed OR the request failed, and the
+    // caller's response to either is identical" contract as
+    // FetchHydrationPairs/FetchAvoidancePairs/FetchVendorMarkupPairs -- see
+    // FetchHydrationPairs's comment.
+    std::vector<EvidenceEntry> FetchEvidenceEntries(const OutboundConfig& config);
+
+    // What actually happened when EvidencePoller.cpp's ApplyEvidenceEntry
+    // tried to spawn one entry's evidence object. Two outcomes, like
+    // avoidance/vendor-markup, not hydration's three -- design doc §2's own
+    // reasoning: a PlaceObjectAtMe call has no permanent-failure mode the way
+    // hydration's "no authored vanilla relationship" does (report 31's F1/F2
+    // confirm PlaceObjectAtMe is a plain, unconditional, documented call).
+    //   kApplied -- the believer's Actor* resolved and PlaceObjectAtMe was
+    //               called. The listener should mark this entry "applied"
+    //               (a true terminal state here -- see design doc §3: unlike
+    //               every other slice's "applied", nothing ever re-offers
+    //               this exact (holder_id, belief_id) again).
+    //   kRetry   -- the believer's Actor* failed to resolve, or no game was
+    //               active. TEMPORARY -- the listener should offer this
+    //               entry again as if it had never been offered.
+    enum class EvidenceApplyOutcome { kApplied, kRetry };
+
+    // One entry's ack outcome, matching the listener's POST
+    // /whiterun/evidence/ack body shape exactly: a JSON array of
+    // {"holder_id": str, "belief_id": str, "outcome": "applied" | "retry"}.
+    // Deliberately no claimId field here -- the ack protocol's dedupe key is
+    // (holder_id, belief_id) only, per design doc §2.
+    struct EvidenceAckEntry {
+        std::string holderId;
+        std::string beliefId;
+        EvidenceApplyOutcome outcome = EvidenceApplyOutcome::kRetry;
+    };
+
+    // POSTs the outcomes of one poll's whole batch back to the listener.
+    // Fire-and-forget, same discipline as PostHydrationAck/PostAvoidanceAck.
+    // Returns true if the listener responded 2xx.
+    bool PostEvidenceAck(const OutboundConfig& config, const std::vector<EvidenceAckEntry>& acks);
 
 }  // namespace ChronicleBridge

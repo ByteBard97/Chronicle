@@ -402,6 +402,66 @@ namespace ChronicleBridge {
             return out;
         }
 
+        // Matches listener.py's GET /whiterun/evidence response shape
+        // exactly: a JSON array of {"holder_id": str, "belief_id": str,
+        // "claim_id": str} objects -- three string fields, no int/double
+        // parse needed (see OutboundClient.h's EvidenceEntry comment for why
+        // there's no numeric "value" field the way the other three slices
+        // have).
+        std::vector<EvidenceEntry> ParseEvidenceEntriesJson(std::string_view body) {
+            std::vector<EvidenceEntry> out;
+            std::size_t pos = 0;
+            while (true) {
+                auto objStart = body.find('{', pos);
+                if (objStart == std::string_view::npos) break;
+                auto objEnd = body.find('}', objStart);
+                if (objEnd == std::string_view::npos) break;
+
+                std::size_t fieldPos = objStart;
+                auto holderId = ParseJsonStringField(body, fieldPos, "holder_id");
+                fieldPos = objStart;
+                auto beliefId = ParseJsonStringField(body, fieldPos, "belief_id");
+                fieldPos = objStart;
+                auto claimId = ParseJsonStringField(body, fieldPos, "claim_id");
+
+                if (holderId && beliefId && claimId) {
+                    out.push_back(EvidenceEntry{.holderId = *holderId, .beliefId = *beliefId, .claimId = *claimId});
+                } else {
+                    SKSE::log::warn("ChronicleBridge: skipping unparseable evidence entry object");
+                }
+
+                pos = objEnd + 1;
+            }
+            return out;
+        }
+
+        // Matches listener.py's POST /whiterun/evidence/ack body shape
+        // exactly: a JSON array of {"holder_id": str, "belief_id": str,
+        // "outcome": str} objects. Only two outcome strings, per
+        // OutboundClient.h's EvidenceApplyOutcome comment.
+        std::string_view EvidenceOutcomeToString(EvidenceApplyOutcome outcome) {
+            switch (outcome) {
+                case EvidenceApplyOutcome::kApplied:
+                    return "applied";
+                case EvidenceApplyOutcome::kRetry:
+                default:
+                    return "retry";
+            }
+        }
+
+        std::string BuildEvidenceAckJson(const std::vector<EvidenceAckEntry>& acks) {
+            std::ostringstream body;
+            body << '[';
+            for (std::size_t i = 0; i < acks.size(); ++i) {
+                if (i > 0) body << ',';
+                body << std::format(R"({{"holder_id":"{}","belief_id":"{}","outcome":"{}"}})",
+                                     EscapeJsonString(acks[i].holderId), EscapeJsonString(acks[i].beliefId),
+                                     EvidenceOutcomeToString(acks[i].outcome));
+            }
+            body << ']';
+            return body.str();
+        }
+
     }  // namespace
 
     std::vector<HydrationPair> FetchHydrationPairs(const OutboundConfig& config) {
@@ -561,6 +621,67 @@ namespace ChronicleBridge {
             return {};
         }
         return ParseVendorMarkupPairsJson(result->body);
+    }
+
+    std::vector<EvidenceEntry> FetchEvidenceEntries(const OutboundConfig& config) {
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Get(config.evidencePath, headers);
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: GET {}:{}{} failed: {}", config.host, config.port, config.evidencePath,
+                             httplib::to_string(result.error()));
+            return {};
+        }
+        if (result->status < 200 || result->status >= 300) {
+            // Same 503-means-"no --live-run" convention as
+            // FetchHydrationPairs/FetchAvoidancePairs/FetchVendorMarkupPairs
+            // -- see FetchHydrationPairs's comment.
+            if (result->status == 503) {
+                SKSE::log::trace("ChronicleBridge: GET {}:{}{} returned 503 (no --live-run configured)", config.host,
+                                  config.port, config.evidencePath);
+            } else {
+                SKSE::log::warn("ChronicleBridge: GET {}:{}{} returned status {}", config.host, config.port,
+                                 config.evidencePath, result->status);
+            }
+            return {};
+        }
+        return ParseEvidenceEntriesJson(result->body);
+    }
+
+    bool PostEvidenceAck(const OutboundConfig& config, const std::vector<EvidenceAckEntry>& acks) {
+        if (acks.empty()) return true;  // nothing to report -- not an error, just a no-op.
+
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        const auto body = BuildEvidenceAckJson(acks);
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Post(config.evidenceAckPath, headers, body, "application/json");
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} failed: {}", config.host, config.port,
+                             config.evidenceAckPath, httplib::to_string(result.error()));
+            return false;
+        }
+        if (result->status < 200 || result->status >= 300) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} returned status {}", config.host, config.port,
+                             config.evidenceAckPath, result->status);
+            return false;
+        }
+        return true;
     }
 
     bool PostGameEvent(const OutboundConfig& config, const PendingGameEvent& event) {

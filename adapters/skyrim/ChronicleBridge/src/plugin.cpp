@@ -31,6 +31,7 @@
 #include "BarterMenuSink.h"
 #include "Config.h"
 #include "DeathEventSink.h"
+#include "EvidencePoller.h"
 #include "HydrationPoller.h"
 #include "OutboundClient.h"
 #include "SpatialStreamer.h"
@@ -235,11 +236,14 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     SKSE::log::info(
         "ChronicleBridge loaded -- spatial streamer + death-event + hydration-poll + avoidance-poll + "
-        "barter-menu-detection + vendor-price-write slices (see docs/design/chronicle-bridge-spatial-streamer.md, "
+        "barter-menu-detection + vendor-price-write + diegetic-evidence-poll slices (see "
+        "docs/design/chronicle-bridge-spatial-streamer.md, "
         "docs/design/chronicle-bridge-death-extraction.md, docs/design/chronicle-bridge-hydration-out.md, "
         "docs/design/chronicle-bridge-avoidance-mutagen-out.md, "
         "docs/design/chronicle-bridge-vendor-markup-out.md, "
-        "docs/research/28-vendor-price-hook-address-library-spike.md)");
+        "docs/research/28-vendor-price-hook-address-library-spike.md, "
+        "docs/design/chronicle-bridge-diegetic-evidence-out.md, "
+        "docs/research/31-diegetic-evidence-object-placement-spike.md)");
 
     // Data/SKSE/Plugins/ChronicleBridge.ini overrides host/port/sharedSecret
     // when present (Config.cpp); a fresh install with no ini yet keeps
@@ -274,6 +278,14 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // in-process multiplier cache current. Same config as every other loop
     // above.
     std::thread(ChronicleBridge::VendorMarkupCachePollerThreadLoop, config).detach();
+    // Seventh slice (docs/design/chronicle-bridge-diegetic-evidence-out.md):
+    // polls the listener for newly-revealable (holder, belief, claim)
+    // evidence entries and spawns a placeholder evidence object at the
+    // believer's own live position via PlaceObjectAtMe. Same config as
+    // every other loop above. See EvidencePoller.h for the "compiles only,
+    // never exercised against a live save" caveat this write path shares
+    // with every other ChronicleBridge write.
+    std::thread(ChronicleBridge::EvidencePollerThreadLoop, config).detach();
 
     // Death-event sink registration is deferred to kDataLoaded (see
     // OnSkseMessage's own comment) -- RegisterListener must be called here,
