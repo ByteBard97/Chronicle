@@ -16,6 +16,38 @@ apply to any NPC the player can actually meet (verified: `IdentityMap.
 cpp`'s `kNamedCast` has exactly one entry against 28 live-captured
 Whiterun NPCs in `whiterun-positions.json`).
 
+## 0n. Landed: EvidencePoller, whole-tree build, ChronicleDev deployment, home-location research (`3f5489b`, `5b61234`, `a34caa5`, ChronicleDev deployed)
+
+Closed the diegetic-evidence slice end to end and moved ChronicleBridge
+from "compiles" to "actually installed in a launchable dev environment"
+for the first time. In order: (1) the full 7-slice/24-file
+ChronicleBridge tree was synced and built together on the Windows
+build machine for the first time — previously only individual files
+had been spot-checked; zero errors/warnings, confirming no cross-slice
+integration issues. (2) `EvidencePoller.h/.cpp` written, wired into
+`plugin.cpp`, and built clean — the C++ consumer for diegetic evidence,
+resolving a believer's `Actor*` via `IdentityMap` and calling
+`PlaceObjectAtMe`. (3) An external AI's manual live-game test script
+was fact-checked against real project state and real console-command
+references; 2 of its 4 tests targeted the wrong mechanism entirely
+(vendor markup and evidence are driven by injected Chronicle events,
+not vanilla console state) — corrected into `docs/design/
+chronicle-bridge-verification-runbook.md`. (4) The placeholder `Gold001`
+evidence object was replaced with a real authored `MiscItem` record
+(`tools/chronicle-patcher/src/EvidenceItemPatchBuilder.cs`), verified
+via a real patcher run and Mutagen read-back. (5) `docs/research/
+32-npc-home-location-data-spike.md` closed report 31's deferred
+location-modeling question: real home-location data exists in Skyrim's
+package system but is unevenly covered across NPCs and not worth
+building — the already-shipped live-position proxy stays the answer.
+(6) The compiled `ChronicleBridge.dll` and the real 171-pair
+`ChroniclePatcher.esp` were deployed into `~/Games/ChronicleDev`'s mod
+folders and load order (verified: correct MO2 mod-folder shape, correct
+load order after all 4 real masters, DLL re-synced after the evidence-
+object rebuild to avoid deploying a stale binary). The game itself was
+NOT launched — that's the owner's own next step, with a corrected,
+verified runbook now waiting.
+
 ## 0m. Landed: diegetic evidence, Python-only cut (`20c478b`) — seventh ChronicleBridge slice
 
 A Kimi-conversation architecture-delta proposal was audited
