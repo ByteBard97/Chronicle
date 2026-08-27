@@ -1,5 +1,65 @@
 # Design prep — ChronicleBridge, a seventh slice: diegetic evidence objects
 
+**Status (2026-08-27): the Python-only first cut described below is now
+implemented.** `chronicle/diegetic_evidence.py`'s
+`should_reveal_evidence(belief, *, at_gamets, threshold=EVIDENCE_CONFIDENCE_THRESHOLD)`
+decays `belief` via the already-public `chronicle.claims.decay()` and
+compares the decayed `confidence` against a placeholder threshold (`0.6`,
+named `EVIDENCE_CONFIDENCE_THRESHOLD`, `>=` boundary) -- exactly this
+doc's §1/§2, no second decay formula invented, no change to
+`chronicle/claims.py`.
+
+`GET /whiterun/evidence` and `POST /whiterun/evidence/ack`
+(`adapters/skyrim/listener/listener.py`) are live, gated identically to
+the other three slices (503 without `--live-run`, same shared-secret
+auth, restricted to `NAMED_CAST_NPC_IDS`). Single-key
+(`holder_id`+`belief_id`), not a pair, per this doc's own §2 ruling. A new
+`_EvidenceEntryState` dataclass carries `status`/`awaiting_since` only --
+deliberately no tracked value field, unlike the other three's
+`_*PairState` dataclasses, since evidence has no "changed value" to diff
+against: a poll that computes `should_reveal_evidence() is False` for an
+entry with no current tracked state is simply skipped, never surfaced as
+a false/reverted value. `applied` is a true terminal state (§3's own named
+limitation) -- unlike the other three's `applied`, no condition ever
+re-offers an entry again once applied, not even a later confidence rise.
+`retry`, or a dropped/timed-out ack (reusing `_AWAITING_ACK_TIMEOUT_SECONDS`
+unchanged), forgets the entry for fresh re-evaluation, same as the other
+three.
+
+**One explicit deviation from this doc's own literal instruction, made and
+recorded rather than silently followed:** this doc's build note nowhere
+proposes adding routes/schemas to `adapters/skyrim/contracts/
+chronicle-bridge.openapi.yaml` or regenerating `models.py`, and neither do
+any of the three prior "Out" slices -- `listener.py`'s own module
+docstring says of each of their GET/ack pairs, verbatim, "neither is part
+of the OpenAPI contract; both are this listener's own read/ack protocol
+layered on top of it." The implementation follows that actual precedent:
+no contract/model changes for `/whiterun/evidence` or its ack route
+either. A later task description asked for OpenAPI/models.py updates
+"matching the existing three slices' style exactly" -- the existing three
+slices' style is zero contract entries, so matching it exactly means
+adding none here too.
+
+Tests: `chronicle/tests/test_diegetic_evidence.py` (unit tests for
+`should_reveal_evidence`'s threshold boundary, decay-awareness, and a
+custom-threshold override) and 14 new cases in
+`adapters/skyrim/listener/test_listener.py` (endpoint behavior, dedupe,
+`applied`-is-terminal-even-after-a-later-decay, ack outcomes, dropped-ack
+timeout, 503 gating, malformed-body rejection, shared-secret auth,
+non-named-cast exclusion), mirroring the other three slices' test suites'
+own fixture/style patterns -- built through `Driver.inject_event()`/
+`Driver.witness()` (the real store-and-replay path, matching
+`chronicle/tests/test_agent_debug_cli.py`'s own fixture pattern) rather
+than a hand-constructed bare `BeliefInstance`, since a belief persisted
+with no grounding `Evidence` record would `KeyError` on `FrameLogReader`
+replay (`framelog.load_state`'s rumor-source rebuild indexes
+`evidence_by_belief[id][0]`).
+
+Still not built: `EvidencePoller.h/.cpp` and everything else this doc's
+§5/§3 name as future C++ work -- untouched, as scoped.
+
+---
+
 Design proposal only. Nothing here is implemented. Mirrors the precedent
 of `docs/design/chronicle-bridge-hydration-out.md`, `chronicle-bridge-
 avoidance-mutagen-out.md`, and `chronicle-bridge-vendor-markup-out.md`

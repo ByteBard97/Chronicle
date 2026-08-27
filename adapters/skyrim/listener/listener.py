@@ -90,12 +90,49 @@ retry-worthy conditions, never a permanent "no such record" case. See
 `_AvoidancePairState`'s: two outcomes, no per-rank scoping, since there
 is only ever one tracked fact per pair -- its current multiplier).
 
+GET /whiterun/evidence and POST /whiterun/evidence/ack (docs/design/
+chronicle-bridge-diegetic-evidence-out.md): the same poll/ack protocol
+shape as the other three, applied to `chronicle.diegetic_evidence.
+should_reveal_evidence`'s decayed-belief-confidence threshold gate
+instead of a `Grudge` read -- this is the first of the four "Out" slices
+to read `chronicle.claims.ClaimStore` rather than `chronicle.social.
+SocialStateStore`. Structurally different from all three prior slices in
+two ways, both because "an NPC's belief crossed a confidence threshold"
+is a different shape of fact than any of theirs: **single-key, not a
+pair** -- there is no second party, so the tracked key is
+`(holder_id, belief_id)`, not a directed or symmetric pair of NPC ids
+(design doc §2's own framing: "near the NPC who now believes it," not
+"near the claim's subject" -- `Claim.slots` has no standardized subject
+field to resolve one from generically); and **one-shot, with no re-offer
+on decay**, unlike hydration's re-offered-on-any-rank-change or
+avoidance's re-evaluated-every-poll booleans -- a `PlaceObjectAtMe` spawn
+has no retraction mechanism in this cut, so once an entry reaches
+`applied` it is a true terminal state, never re-offered again even if the
+belief's confidence later decays back below threshold or rises again
+(design doc §3, a named limitation, not a bug). Two-outcome ack
+(`applied`/`retry`), same as avoidance/vendor-markup and unlike
+hydration's three: a `PlaceObjectAtMe` call has no `no_relationship`-
+equivalent permanent-failure mode. Gated identically to the other three
+(503 without `--live-run`, same auth, restricted to `NAMED_CAST_NPC_IDS`
+-- only named-cast NPCs have a resolvable `Actor*` for a C++ consumer to
+spawn evidence at). See `_EvidenceEntryState`'s docstring for the state
+machine.
+
+Like the other three slices, evidence's in-memory state does not survive
+a listener restart -- same named gap, same "identical to a `retry` ack"
+restart behavior EXCEPT for an already-`applied` entry, which a restart
+forgets entirely (there is no persistence across restarts for any of
+these state machines) even though this cut's own within-process contract
+says `applied` is otherwise permanent -- a real, named limitation of the
+in-memory-only state, not a new one specific to evidence.
+
 Read-only exception, /whiterun/hydration (docs/design/chronicle-bridge-
 hydration-out.md §3b): this one route DOES import chronicle/ directly
 (`chronicle.framelog.FrameLogReader`/`state_at`, `chronicle.social`,
 `chronicle.hydration.relationship_rank_for`, `chronicle.avoidance.
-is_avoiding`, `chronicle.vendor_markup.markup_multiplier_for`), unlike
-every write path in this file. The house rule above -- "shell out to `python -m chronicle`,
+is_avoiding`, `chronicle.vendor_markup.markup_multiplier_for`,
+`chronicle.diegetic_evidence.should_reveal_evidence`), unlike every write
+path in this file. The house rule above -- "shell out to `python -m chronicle`,
 never import chronicle/ directly" -- exists to keep *writes* going
 through the CLI's own validation/refusal logic (fork-territory checks,
 origin stamping) so this listener can never silently corrupt a run. This
@@ -130,6 +167,7 @@ from models import EventType, GameEvent, PositionSnapshot
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from chronicle.avoidance import is_avoiding
+from chronicle.diegetic_evidence import should_reveal_evidence
 from chronicle.framelog import FrameLogReader, default_runs_dir
 from chronicle.hydration import RANK_NO_GRUDGE, relationship_rank_for
 from chronicle.vendor_markup import MARKUP_NO_MARKUP, markup_multiplier_for
@@ -708,6 +746,136 @@ def _apply_vendor_markup_ack(
         del pair_states[(holder_id, target_id)]
 
 
+@dataclasses.dataclass
+class _EvidenceEntryState:
+    """One entry in the per-(holder_id, belief_id) diegetic-evidence state
+    machine -- the same protocol shape as `_HydrationPairState`'s/
+    `_AvoidancePairState`'s/`_VendorMarkupPairState`'s, applied to a
+    single-key fact (one NPC's one belief, not a pair) with no tracked
+    value: unlike the other three, whose entries carry a rank/avoiding/
+    multiplier VALUE to compare a freshly computed one against, evidence
+    is a one-shot reveal with no re-offer on decay (design doc §2/§3) --
+    there is nothing to compare a later poll's computed boolean against,
+    only whether this entry has ALREADY been offered or applied. A
+    `should_reveal_evidence() is False` poll therefore never touches this
+    state machine at all (see `_evidence_entries`): the absence of a value
+    field here is deliberate, not an oversight -- adding one back would
+    invite exactly the bug this shape avoids, re-deriving a "revealed"
+    boolean to diff against and accidentally re-offering (or worse,
+    forgetting) an already-`applied` entry once confidence later drops
+    back below threshold.
+
+        (absent from the dict)  -- "not-yet-offered": baseline. Every
+                                    entry starts here, and a `retry` ack
+                                    (or a listener restart) sends it back
+                                    here.
+        status="awaiting_ack"   -- offered in a GET response, no ack
+                                    received yet. A poll while awaiting-ack
+                                    is a no-op.
+        status="applied"        -- the C++ poller confirmed the spawn was
+                                    attempted. TERMINAL -- unlike every
+                                    other state machine in this file, there
+                                    is no condition under which an
+                                    "applied" entry is ever re-offered
+                                    again, not even if the belief's
+                                    confidence later decays below threshold
+                                    and rises back above it (design doc
+                                    §3's own named, deliberate limitation:
+                                    "one object per belief, ever").
+
+    No third status, same reasoning `_AvoidancePairState`'s/
+    `_VendorMarkupPairState`'s docstrings give for their own two-outcome
+    shape: a `PlaceObjectAtMe` call has no `no_relationship`-equivalent
+    permanent-failure case (design doc §2's own F1/F2 citation) -- it
+    depends only on whether the NPC is named-cast (already filtered) and
+    whether a live game/actor reference is available (`retry`, temporary).
+
+    `awaiting_since` closes the identical dropped-ack gap
+    `_HydrationPairState`/`_AvoidancePairState`/`_VendorMarkupPairState`
+    document: an "awaiting_ack" entry older than
+    `_AWAITING_ACK_TIMEOUT_SECONDS` is treated as expired and re-offered on
+    the next poll.
+    """
+
+    status: str  # "awaiting_ack" | "applied"
+    awaiting_since: float | None = None  # time.monotonic() when status became "awaiting_ack"; None otherwise.
+
+
+_EVIDENCE_ACK_OUTCOMES = frozenset({"applied", "retry"})
+
+
+def _evidence_entries(live_run: str, entry_states: dict[tuple[str, str], _EvidenceEntryState]) -> list[dict[str, object]]:
+    """Compute newly-revealable (holder_id, belief_id, claim_id) entries for
+    the live run's named-cast NPCs' beliefs.
+
+    Loops `NAMED_CAST_NPC_IDS` and calls `ClaimStore.beliefs_of(holder_id)`
+    per NPC (at most 19 calls, design doc §2's own bound) rather than
+    adding a store-wide `beliefs()` enumerator `ClaimStore` doesn't have
+    and nothing else needs yet -- deliberately not the `for grudge in
+    state.social.grudges()` scan-and-filter the other three slices use,
+    since there is no equivalent store-wide enumerator here to scan.
+
+    Unlike `_hydration_pairs`/`_avoidance_pairs`/`_vendor_markup_pairs`,
+    there is no "computed value differs from tracked value" comparison --
+    evidence has no tracked value (see `_EvidenceEntryState`'s docstring).
+    An entry already `applied` is a permanent no-op regardless of what
+    `should_reveal_evidence` computes on this or any future poll; an entry
+    that has never been offered (or whose `awaiting_ack` has expired) is
+    offered if-and-only-if `should_reveal_evidence` is currently True.
+    `should_reveal_evidence() is False` for an entry with no current
+    tracked state is simply skipped -- there is nothing to revert to
+    "not revealed," since it was never offered in the first place.
+    """
+    reader = FrameLogReader(default_runs_dir() / live_run)
+    max_tick = _max_tick(reader)
+    if max_tick is None:
+        return []
+    state = reader.state_at(max_tick)
+    at_gamets = float(max_tick)
+
+    changed: list[dict[str, object]] = []
+    for holder_id in NAMED_CAST_NPC_IDS:
+        for belief in state.claims.beliefs_of(holder_id):
+            key = (holder_id, belief.id)
+            entry = entry_states.get(key)
+
+            if entry is not None and entry.status == "applied":
+                continue  # terminal -- never re-offered, per design doc §3.
+
+            expired = (
+                entry is not None
+                and entry.status == "awaiting_ack"
+                and entry.awaiting_since is not None
+                and time.monotonic() - entry.awaiting_since > _AWAITING_ACK_TIMEOUT_SECONDS
+            )
+            if entry is not None and not expired:
+                continue  # already offered, awaiting_ack, not yet expired -- no-op.
+
+            if not should_reveal_evidence(belief, at_gamets=at_gamets):
+                continue  # not (yet) well-evidenced enough -- nothing to offer.
+
+            entry_states[key] = _EvidenceEntryState(status="awaiting_ack", awaiting_since=time.monotonic())
+            changed.append({"holder_id": holder_id, "belief_id": belief.id, "claim_id": belief.claim_id})
+    return changed
+
+
+def _apply_evidence_ack(entry_states: dict[tuple[str, str], _EvidenceEntryState], holder_id: str, belief_id: str, outcome: str) -> None:
+    """Advance one entry's state machine per an ack's outcome.
+
+    Silently ignores an ack for an entry with no current state -- same
+    reasoning as `_apply_hydration_ack`/`_apply_avoidance_ack`/
+    `_apply_vendor_markup_ack`: nothing to update, and a stale/racing ack
+    must never crash this endpoint.
+    """
+    entry = entry_states.get((holder_id, belief_id))
+    if entry is None:
+        return
+    if outcome == "applied":
+        entry_states[(holder_id, belief_id)] = _EvidenceEntryState(status="applied")
+    elif outcome == "retry":
+        del entry_states[(holder_id, belief_id)]
+
+
 def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str | None) -> type[BaseHTTPRequestHandler]:
     # Per-pair hydration state machine (design doc §3b + the ack protocol
     # that closes fad0d79's "delivered before confirmed" gap) -- see
@@ -735,6 +903,12 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
     # hydration_pair_states/avoidance_pair_states above -- see
     # _VendorMarkupPairState's docstring.
     vendor_markup_pair_states: dict[tuple[str, str], _VendorMarkupPairState] = {}
+
+    # Per-(holder_id, belief_id) diegetic-evidence state machine (design
+    # doc chronicle-bridge-diegetic-evidence-out.md), same closure-scoped,
+    # in-memory-only, does-not-survive-a-restart shape as the three state
+    # dicts above -- see _EvidenceEntryState's docstring.
+    evidence_entry_states: dict[tuple[str, str], _EvidenceEntryState] = {}
 
     class Handler(BaseHTTPRequestHandler):
         def _check_auth(self) -> bool:
@@ -772,6 +946,8 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
                 self._handle_avoidance_ack()
             elif self.path == "/whiterun/vendor-markup/ack":
                 self._handle_vendor_markup_ack()
+            elif self.path == "/whiterun/evidence/ack":
+                self._handle_evidence_ack()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -857,6 +1033,8 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
                 self._handle_avoidance()
             elif self.path == "/whiterun/vendor-markup":
                 self._handle_vendor_markup()
+            elif self.path == "/whiterun/evidence":
+                self._handle_evidence()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -1074,6 +1252,78 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
 
             for holder_id, target_id, outcome in parsed:
                 _apply_vendor_markup_ack(vendor_markup_pair_states, holder_id, target_id, outcome)
+
+            self.send_response(204)
+            self.end_headers()
+
+        def _handle_evidence(self) -> None:
+            """GET /whiterun/evidence -- same gating as /whiterun/hydration
+            (503 without --live-run, same auth), single-key response shape
+            (docs/design/chronicle-bridge-diegetic-evidence-out.md)."""
+            if live_run is None:
+                self.send_response(503)
+                self.end_headers()
+                return
+            if not self._check_auth():
+                return
+
+            entries = _evidence_entries(live_run, evidence_entry_states)
+            body = json.dumps(entries).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _handle_evidence_ack(self) -> None:
+            """POST /whiterun/evidence/ack -- the same ack protocol as the
+            other three ack routes, applied to evidence's single-key shape
+            and a two-outcome ("applied" | "retry") shape (see module
+            docstring for why evidence has no third, permanent-failure
+            outcome). `applied` is terminal here, unlike the other three's
+            `applied` (see `_EvidenceEntryState`'s docstring).
+
+            Body: a JSON array of {"holder_id": str, "belief_id": str,
+            "outcome": "applied" | "retry"} objects -- not part of the
+            OpenAPI contract, same hand-rolled-JSON precedent as every
+            other ack/GET pair in this file. A malformed body is rejected
+            wholesale with a 400, same reject-the-whole-batch style as the
+            other three ack endpoints.
+            """
+            if live_run is None:
+                self.send_response(503)
+                self.end_headers()
+                return
+            if not self._check_auth():
+                return
+            raw = self._read_body()
+            if raw is None:
+                return
+
+            try:
+                payload = json.loads(raw)
+                if not isinstance(payload, list):
+                    raise TypeError("expected a JSON array")
+                parsed: list[tuple[str, str, str]] = []
+                for item in payload:
+                    if not isinstance(item, dict):
+                        raise TypeError("expected an array of objects")
+                    holder_id = item["holder_id"]
+                    belief_id = item["belief_id"]
+                    outcome = item["outcome"]
+                    if not isinstance(holder_id, str) or not isinstance(belief_id, str):
+                        raise TypeError("holder_id/belief_id must be strings")
+                    if outcome not in _EVIDENCE_ACK_OUTCOMES:
+                        raise ValueError(f"unknown outcome: {outcome!r}")
+                    parsed.append((holder_id, belief_id, outcome))
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                print(f"rejected malformed evidence ack: {exc}", file=sys.stderr)
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            for holder_id, belief_id, outcome in parsed:
+                _apply_evidence_ack(evidence_entry_states, holder_id, belief_id, outcome)
 
             self.send_response(204)
             self.end_headers()

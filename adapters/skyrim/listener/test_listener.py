@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from listener import NAMED_CAST_NPC_IDS, _make_handler  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+from chronicle.claims import CONFIDENCE_DECAY_HALF_LIFE, EventKey  # noqa: E402
 from chronicle.driver import Driver  # noqa: E402
 from chronicle.events import NPCDied  # noqa: E402
 from chronicle.framelog import FrameLogReader  # noqa: E402
@@ -1014,6 +1015,278 @@ def test_vendor_markup_ack_endpoint_enforces_the_shared_secret(server_factory, g
         token="s3cret",
     )
     assert authed.status == 204
+
+
+_BELIEF_RUN = "listener-test-belief-run"
+
+
+@pytest.fixture()
+def belief_run(tmp_path, monkeypatch):
+    """A run with one named-cast NPC (nazeem) holding a high-confidence
+    witnessed belief (WITNESS_CONFIDENCE=0.95, well above
+    EVIDENCE_CONFIDENCE_THRESHOLD=0.6), for exercising /whiterun/evidence.
+
+    Built through driver.inject_event()+driver.witness() -- the same
+    pattern chronicle/tests/test_agent_debug_cli.py's own run_dir fixture
+    uses -- rather than hand-constructing a bare BeliefInstance, so the
+    belief has a real grounding Evidence record and round-trips through
+    FrameLogReader.state_at() the same way a real run would (framelog.
+    load_state's rumor-source rebuild indexes evidence_by_belief[id][0],
+    which would KeyError for a belief persisted with no Evidence at all)."""
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=_BELIEF_RUN,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(ScheduleBlock(npc_id="nazeem", location_id="whiterun_market", start_tick=0, end_tick=1000),),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.inject_event(
+        NPCDied(
+            tick=5, save_uuid=_SAVE_UUID, generation=0, seq=1,
+            gamets=5.0, wall_ts=0.0, npc_id="ysolda",
+            cause="unknown", killer_id=None, location_id="whiterun_market",
+        ),
+        origin={"kind": "scenario", "detail": "test_listener belief_run fixture"},
+    )
+    driver.witness(
+        claim_id="claim-ysolda-death",
+        belief_id="belief-nazeem-ysolda-death",
+        evidence_id="evidence-nazeem-ysolda-death",
+        kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "unknown", "location": "whiterun_market"},
+        canonical_event_key=EventKey(_SAVE_UUID, 0, 1),
+        witness_id="nazeem",
+        gamets=5.0,
+    )
+    driver.run(5, 6)
+    driver.close()
+    return driver, tmp_path
+
+
+def test_evidence_endpoint_returns_503_without_live_run(server_factory):
+    post = server_factory(live_run=None)
+    status, _ = post.get("/whiterun/evidence")
+    assert status == 503
+
+
+def test_evidence_endpoint_returns_empty_array_with_no_beliefs(server_factory, live_run):
+    post = server_factory(live_run=_RUN)
+    status, body = post.get("/whiterun/evidence")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_evidence_endpoint_surfaces_a_well_evidenced_belief_between_named_cast(server_factory, belief_run):
+    _driver, _tmp_path = belief_run
+    post = server_factory(live_run=_BELIEF_RUN)
+
+    status, body = post.get("/whiterun/evidence")
+    assert status == 200
+    entries = json.loads(body)
+    assert entries == [
+        {"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "claim_id": "claim-ysolda-death"}
+    ]
+
+
+def test_evidence_endpoint_is_idempotent_on_a_second_immediate_poll(server_factory, belief_run):
+    post = server_factory(live_run=_BELIEF_RUN)
+    first_status, first_body = post.get("/whiterun/evidence")
+    assert first_status == 200
+    assert json.loads(first_body) != []
+
+    second_status, second_body = post.get("/whiterun/evidence")
+    assert second_status == 200
+    assert json.loads(second_body) == []
+
+
+def test_evidence_ack_applied_means_never_reoffered_again(server_factory, belief_run):
+    """applied is a true terminal state (design doc §3) -- unlike
+    hydration/avoidance/vendor-markup's `applied`, this must hold even
+    once the belief's decayed confidence later drops back below threshold
+    and (hypothetically) rises again -- there is no re-offer path at all
+    once applied."""
+    post = server_factory(live_run=_BELIEF_RUN)
+    status, body = post.get("/whiterun/evidence")
+    assert json.loads(body) == [
+        {"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "claim_id": "claim-ysolda-death"}
+    ]
+
+    ack = post(
+        "/whiterun/evidence/ack",
+        [{"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "outcome": "applied"}],
+    )
+    assert ack.status == 204
+
+    status, body = post.get("/whiterun/evidence")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_evidence_confidence_decaying_below_threshold_after_applied_is_never_reoffered(server_factory, belief_run):
+    """The design doc's own named limitation (§3): once `applied`, a
+    belief's confidence later decaying below threshold (a poll returning
+    empty either way) and then -- hypothetically -- rising back above it
+    must never re-trigger a second reveal. Pushing the run's max tick well
+    past CONFIDENCE_DECAY_HALF_LIFE and polling again must still be empty,
+    both immediately after decay and on a subsequent poll."""
+    post = server_factory(live_run=_BELIEF_RUN)
+    status, body = post.get("/whiterun/evidence")
+    assert json.loads(body) == [
+        {"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "claim_id": "claim-ysolda-death"}
+    ]
+
+    ack = post(
+        "/whiterun/evidence/ack",
+        [{"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "outcome": "applied"}],
+    )
+    assert ack.status == 204
+
+    far_future = 5.0 + 10 * CONFIDENCE_DECAY_HALF_LIFE
+    death = post("/whiterun/events", {"event_type": "npc_died", "gamets": far_future, "npc_id": "brenuin"})
+    assert death.status == 204
+
+    status, body = post.get("/whiterun/evidence")
+    assert status == 200
+    assert json.loads(body) == []
+
+    status, body = post.get("/whiterun/evidence")
+    assert status == 200
+    assert json.loads(body) == []
+
+
+def test_evidence_ack_retry_is_reoffered_on_the_next_poll(server_factory, belief_run):
+    post = server_factory(live_run=_BELIEF_RUN)
+    status, body = post.get("/whiterun/evidence")
+    assert json.loads(body) == [
+        {"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "claim_id": "claim-ysolda-death"}
+    ]
+
+    ack = post(
+        "/whiterun/evidence/ack",
+        [{"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "outcome": "retry"}],
+    )
+    assert ack.status == 204
+
+    status, body = post.get("/whiterun/evidence")
+    assert status == 200
+    assert json.loads(body) == [
+        {"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "claim_id": "claim-ysolda-death"}
+    ]
+
+
+def test_evidence_entry_is_reoffered_if_its_ack_times_out(server_factory, belief_run, monkeypatch):
+    """Same dropped-ack timeout coverage as
+    test_hydration_pair_is_reoffered_if_its_ack_times_out/
+    test_avoidance_pair_is_reoffered_if_its_ack_times_out/
+    test_vendor_markup_pair_is_reoffered_if_its_ack_times_out, applied to
+    the evidence endpoint's own state machine."""
+    import listener as listener_module
+
+    fake_now = [1000.0]
+    monkeypatch.setattr(listener_module.time, "monotonic", lambda: fake_now[0])
+
+    post = server_factory(live_run=_BELIEF_RUN)
+    status, body = post.get("/whiterun/evidence")
+    assert json.loads(body) == [
+        {"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "claim_id": "claim-ysolda-death"}
+    ]
+
+    # No ack sent. Immediately re-polling (still within the timeout
+    # window) must NOT re-offer.
+    status, body = post.get("/whiterun/evidence")
+    assert json.loads(body) == []
+
+    # Advance past the timeout with no ack ever having arrived (same
+    # server, no restart). The entry must be re-offered.
+    fake_now[0] += listener_module._AWAITING_ACK_TIMEOUT_SECONDS + 1.0
+    status, body = post.get("/whiterun/evidence")
+    assert status == 200
+    assert json.loads(body) == [
+        {"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "claim_id": "claim-ysolda-death"}
+    ]
+
+
+def test_evidence_ack_endpoint_returns_503_without_live_run(server_factory):
+    post = server_factory(live_run=None)
+    resp = post("/whiterun/evidence/ack", [{"holder_id": "nazeem", "belief_id": "belief-x", "outcome": "applied"}])
+    assert resp.status == 503
+
+
+def test_evidence_ack_endpoint_rejects_a_non_array_body(server_factory, belief_run):
+    post = server_factory(live_run=_BELIEF_RUN)
+    resp = post("/whiterun/evidence/ack", {"holder_id": "nazeem", "belief_id": "belief-x", "outcome": "applied"})
+    assert resp.status == 400
+
+
+def test_evidence_ack_endpoint_rejects_an_unknown_outcome(server_factory, belief_run):
+    post = server_factory(live_run=_BELIEF_RUN)
+    resp = post(
+        "/whiterun/evidence/ack",
+        [{"holder_id": "nazeem", "belief_id": "belief-x", "outcome": "no_relationship"}],
+    )
+    assert resp.status == 400
+
+
+def test_evidence_ack_endpoint_rejects_a_missing_field(server_factory, belief_run):
+    post = server_factory(live_run=_BELIEF_RUN)
+    resp = post("/whiterun/evidence/ack", [{"holder_id": "nazeem", "outcome": "applied"}])
+    assert resp.status == 400
+
+
+def test_evidence_ack_endpoint_enforces_the_shared_secret(server_factory, belief_run):
+    post = server_factory(live_run=_BELIEF_RUN, shared_secret="s3cret")
+    unauth = post("/whiterun/evidence/ack", [{"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "outcome": "applied"}])
+    assert unauth.status == 401
+    authed = post(
+        "/whiterun/evidence/ack",
+        [{"holder_id": "nazeem", "belief_id": "belief-nazeem-ysolda-death", "outcome": "applied"}],
+        token="s3cret",
+    )
+    assert authed.status == 204
+
+
+def test_evidence_endpoint_only_considers_named_cast_holders(server_factory, tmp_path, monkeypatch):
+    """A belief held by an NPC outside NAMED_CAST_NPC_IDS must never be
+    surfaced -- only named-cast NPCs have a resolvable Actor* for a C++
+    consumer to spawn evidence at (design doc §2)."""
+    run_id = "listener-test-evidence-non-named-cast-run"
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=run_id,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(ScheduleBlock(npc_id="not_named_cast", location_id="whiterun_market", start_tick=0, end_tick=50),),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.inject_event(
+        NPCDied(
+            tick=5, save_uuid=_SAVE_UUID, generation=0, seq=1,
+            gamets=5.0, wall_ts=0.0, npc_id="ysolda",
+            cause="unknown", killer_id=None, location_id="whiterun_market",
+        ),
+        origin={"kind": "scenario", "detail": "test_listener non-named-cast fixture"},
+    )
+    driver.witness(
+        claim_id="claim-ysolda-death-2",
+        belief_id="belief-outsider-ysolda-death",
+        evidence_id="evidence-outsider-ysolda-death",
+        kind="npc_death",
+        slots={"perpetrator": "unknown", "cause": "unknown", "location": "whiterun_market"},
+        canonical_event_key=EventKey(_SAVE_UUID, 0, 1),
+        witness_id="not_named_cast",
+        gamets=5.0,
+    )
+    driver.close()
+
+    post = server_factory(live_run=run_id)
+    status, body = post.get("/whiterun/evidence")
+    assert status == 200
+    assert json.loads(body) == []
 
 
 def test_unknown_path_is_404(server_factory):

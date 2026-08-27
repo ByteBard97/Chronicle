@@ -125,19 +125,59 @@ Like the other two slices, vendor-markup's in-memory state does not
 survive a listener restart -- same named gap, same "identical to a
 `retry` ack" restart behavior.
 
+- **`GET /whiterun/evidence`** -- the diegetic-evidence slice's pending
+  queue (`docs/design/chronicle-bridge-diegetic-evidence-out.md`), for a
+  future C++ poller to consume (not built yet -- Python-only, same split
+  as the other three). Reads the live run's current on-disk state the
+  same way `/whiterun/hydration` does, loops `NAMED_CAST_NPC_IDS`, and
+  calls `ClaimStore.beliefs_of(holder_id)` for each -- not the `for grudge
+  in state.social.grudges()` scan the other three use, since this reads
+  `chronicle.claims.ClaimStore`, not `chronicle.social.SocialStateStore`.
+  Computes each belief's `chronicle.diegetic_evidence.
+  should_reveal_evidence` (a decayed-confidence threshold gate, reusing
+  the already-public `chronicle.claims.decay()`, never a second decay
+  formula). Returns only the `{holder_id, belief_id, claim_id}` entries
+  that just crossed the threshold. **Single-key, not a pair** -- there is
+  no second party (design doc §2: "near the NPC who now believes it," not
+  "near the claim's subject"). **One-shot, with no re-offer on decay** --
+  unlike the other three, an entry that reaches `applied` is a true
+  terminal state and is never re-offered again, even if the belief's
+  confidence later decays below threshold and rises back above it (a
+  named, deliberate limitation, not a bug -- design doc §3). Gated
+  identically to `/whiterun/hydration` (503 without `--live-run`, same
+  auth).
+- **`POST /whiterun/evidence/ack`** -- the same ack protocol as the other
+  three, applied to evidence's single-key shape. Body: a JSON array of
+  `{"holder_id": str, "belief_id": str, "outcome": "applied" | "retry"}`
+  objects. Only two outcomes, like avoidance/vendor-markup: a
+  `PlaceObjectAtMe` call has no `no_relationship`-equivalent permanent-
+  failure case. `applied` here is TERMINAL, not just settled-at-a-value
+  like the other three's `applied` -- there is no condition that ever
+  re-offers an applied entry again; `retry`, or a dropped/timed-out ack,
+  forgets the entry for fresh re-evaluation next poll (`listener.py`'s
+  `_EvidenceEntryState`, same dropped-ack timeout mechanism as the other
+  three state machines).
+
+Like the other three slices, evidence's in-memory state does not survive
+a listener restart -- same named gap, same "identical to a `retry` ack"
+restart behavior (which, for evidence, also means a restart forgets even
+an already-`applied` entry -- there is no persistence layer for any of
+these state machines to make that limitation more or less severe than the
+others').
+
 Not part of `chronicle/` -- this is Skyrim-adapter-side plumbing, per
 `adapters/skyrim/README.md`'s charter. `/whiterun/events` does not import
 `chronicle/` either; it shells out to the same `chronicle inject` CLI
 write path a human uses at the console, the documented seam boundary.
-`/whiterun/hydration`, `/whiterun/avoidance`, and `/whiterun/vendor-markup`
-are the deliberate exceptions to that never-import boundary: none has a
-write path (each only reads a run's existing on-disk state and computes a
-pure function over it), so there is nothing for the CLI boundary to
-protect -- a fresh `python -m chronicle` subprocess would still pay
-interpreter startup on top of the same log replay a direct import already
-does, for no safety benefit in exchange. Write access to a run still goes
-through the CLI exclusively -- see the exceptions' full rationale in
-`listener.py`'s own module docstring.
+`/whiterun/hydration`, `/whiterun/avoidance`, `/whiterun/vendor-markup`,
+and `/whiterun/evidence` are the deliberate exceptions to that
+never-import boundary: none has a write path (each only reads a run's
+existing on-disk state and computes a pure function over it), so there is
+nothing for the CLI boundary to protect -- a fresh `python -m chronicle`
+subprocess would still pay interpreter startup on top of the same log
+replay a direct import already does, for no safety benefit in exchange.
+Write access to a run still goes through the CLI exclusively -- see the
+exceptions' full rationale in `listener.py`'s own module docstring.
 
 ## Testing
 
