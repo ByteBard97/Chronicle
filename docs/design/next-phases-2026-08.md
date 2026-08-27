@@ -16,6 +16,49 @@ apply to any NPC the player can actually meet (verified: `IdentityMap.
 cpp`'s `kNamedCast` has exactly one entry against 28 live-captured
 Whiterun NPCs in `whiterun-positions.json`).
 
+## 0m. Landed: diegetic evidence, Python-only cut (`20c478b`) — seventh ChronicleBridge slice
+
+A Kimi-conversation architecture-delta proposal was audited
+(`docs/design/kimi-architecture-delta-audit.md`) against existing
+ADRs; most of it was already-decided or too expensive (Named Pipes IPC
+would rewrite the whole HTTP-based seam for no demonstrated problem),
+but "Diegetic Evidence" — belief/evidence state showing up as physical
+objects in the game world — was genuinely new and cheap. A follow-up
+research pass (`docs/research/31-diegetic-evidence-object-placement-
+spike.md`) verified `[BUILD-ON]`: `RE::TESObjectREFR::PlaceObjectAtMe()`
+and `Enable()`/`Disable()` are both documented, non-reverse-engineered
+API, confirmed against real .cpp sources and two real shipped plugins.
+The real constraint was Chronicle's own data model, not the engine —
+no NPC has home/incident-location data — so the design (`docs/design/
+chronicle-bridge-diegetic-evidence-out.md`) scoped the cheapest path:
+spawn at an NPC's own already-tracked live position, gated on
+`BeliefInstance.confidence` (decayed via the existing
+`chronicle.claims.decay()`, not a new formula over `Evidence.strength`,
+which doesn't decay). Zero new rules, zero rule-budget spend — the
+budget stays at 19/20, one slot open for rule 11 hysteresis if it's
+ever approved. `GET /whiterun/evidence` + `POST /whiterun/evidence/ack`,
+single-keyed (not paired, unlike the other three slices), two-outcome
+ack, `applied` a true one-shot terminal state (no retraction/re-fire —
+a named limitation, not a bug). 344→349 chronicle/scenarios tests,
+61→75 listener tests, zero regressions. **C++ side (`EvidencePoller`)
+stays explicitly unscoped**, like every other write path's live-game
+verification.
+
+Also worth noting from this same work: an `IdentityMap.cpp` plugin-
+attribution "fix" was made, found wrong via a live-capture cross-check,
+and reverted same day (`78dd0ec`) — `TESForm::GetFile(0)` returns
+whichever plugin currently wins a record's override chain, not its
+static originating master, so the original HearthFires.esm/USSEP
+attributions were correct all along for the C++ side; the patcher's
+C# mirror legitimately keeps `Skyrim.esm` instead, since Mutagen's
+`FormKey` addresses records by originating master regardless of
+override. The two tables are intentionally not verbatim mirrors for
+those 5 rows now. Separately, avoidance's game-side is no longer
+inert: a real patcher run against `~/Games/ChronicleDev/`'s data
+succeeded in full (171/171 pairs), and `AvoidanceGlobals.cpp`'s 4
+illustrative pairs carry real FormIDs instead of placeholders
+(`bf0ae82`).
+
 ## 0l. Landed: crime_witnessed cascade, Python-only cut (`b644675`)
 
 `crime_witnessed` existed as a tier-0 canonical event kind
