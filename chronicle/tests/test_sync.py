@@ -20,15 +20,15 @@ from chronicle.sync import (
 
 
 def _manifest(**overrides):
-    defaults = dict(
-        format_version=1,
-        save_uuid="s1",
-        generation=0,
-        parent_generation=None,
-        head_seq=5,
-        gamets=100.0,
-        wall_ts=1000.0,
-    )
+    defaults = {
+        "format_version": 1,
+        "save_uuid": "s1",
+        "generation": 0,
+        "parent_generation": None,
+        "head_seq": 5,
+        "gamets": 100.0,
+        "wall_ts": 1000.0,
+    }
     defaults.update(overrides)
     return Manifest(**defaults)
 

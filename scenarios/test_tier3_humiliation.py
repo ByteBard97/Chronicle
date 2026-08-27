@@ -41,7 +41,11 @@ from chronicle.driver import Driver
 from chronicle.events import CrimeWitnessed
 from chronicle.framelog import FrameLogReader
 from chronicle.schedule import ScheduleBlock
-from chronicle.social import GRUDGE_EMOTIONAL_HALF_LIFE, GRUDGE_EVIDENTIARY_HALF_LIFE, grudge_at
+from chronicle.social import (
+    GRUDGE_EMOTIONAL_HALF_LIFE,
+    GRUDGE_EVIDENTIARY_HALF_LIFE,
+    grudge_at,
+)
 
 _SEED = "tier3-humiliation"
 _SAVE = "whiterun-save-1"
