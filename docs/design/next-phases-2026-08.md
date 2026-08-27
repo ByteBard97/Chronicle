@@ -16,6 +16,27 @@ apply to any NPC the player can actually meet (verified: `IdentityMap.
 cpp`'s `kNamedCast` has exactly one entry against 28 live-captured
 Whiterun NPCs in `whiterun-positions.json`).
 
+## 0l. Landed: crime_witnessed cascade, Python-only cut (`b644675`)
+
+`crime_witnessed` existed as a tier-0 canonical event kind
+(`chronicle/events.py`) with zero cascade wiring — same "objective log
+only" state `npc_died` was left in until the death-extraction slice.
+`docs/research/29`/`30` established the C++ side needs real, separately-
+scoped R&D (no clean event sink, an open question about whether
+`extraList` polling yields real vanilla witness data); the design-prep
+pass (`docs/design/chronicle-bridge-crime-witness-out.md`) determined
+the *Python* cascade needs neither — `Driver.crime_witnessed()`
+dispatches to `witness()` (always) and `suffer_harm()`/rule 12 (only
+when the witness is the crime's own victim), reusing two already-
+registered primitives with zero new rules and zero rule-budget spend,
+so no owner sign-off was needed here (unlike rule 11 hysteresis, still
+parked). Extends the existing `POST /whiterun/events` contract with a
+`crime_witnessed` variant rather than a new route. 340→344
+chronicle/scenarios tests, 57→61 listener tests, zero regressions.
+**C++ side stays explicitly unscoped** — report 30's two open questions
+(witness-set real-data uncertainty, event-detection R&D-spike tier)
+are not resolved by this cut.
+
 ## 0k. Landed: vendor-markup's price-write hook (`d8dd01d`) — sixth slice, first vtable/UI hook
 
 `docs/research/28`'s `[BUILD-ON]` finding turned into real code:
