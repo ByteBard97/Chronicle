@@ -40,6 +40,12 @@ namespace ChronicleBridge {
         // pair FetchHydrationPairs handed out. Same host/port/sharedSecret
         // as every other path above -- not a second config block.
         std::string hydrationAckPath = "/whiterun/hydration/ack";
+        // Fourth slice (docs/design/chronicle-bridge-avoidance-mutagen-out.md
+        // §2): same poll/ack shape as hydration, symmetric pair instead of
+        // directed (holder, target). Same host/port/sharedSecret as every
+        // path above -- not a second config block.
+        std::string avoidancePath = "/whiterun/avoidance";
+        std::string avoidanceAckPath = "/whiterun/avoidance/ack";
         // Sent as the X-Chronicle-Bridge-Token header when set -- must match
         // the listener's --shared-secret exactly (adapters/skyrim/listener/
         // listener.py). Not real authentication (no TLS) -- a lightweight
@@ -134,5 +140,54 @@ namespace ChronicleBridge {
     // "offer again later" (retry semantics), so there is nothing unsafe
     // about losing one. Returns true if the listener responded 2xx.
     bool PostHydrationAck(const OutboundConfig& config, const std::vector<HydrationAckEntry>& acks);
+
+    // One changed (npc_a, npc_b, avoiding) pair, matching the listener's GET
+    // /whiterun/avoidance response shape exactly (adapters/skyrim/listener/
+    // listener.py's _avoidance_pairs): a JSON array of {"npc_a": str,
+    // "npc_b": str, "avoiding": bool}. Both ids are Chronicle npc_ids.
+    // Unlike HydrationPair this is symmetric -- the listener always returns
+    // npc_a/npc_b in canonical (lexicographically sorted) order, but nothing
+    // here depends on that; AvoidancePoller.cpp/AvoidanceGlobals.cpp
+    // canonicalize independently before any lookup.
+    struct AvoidancePair {
+        std::string npcA;
+        std::string npcB;
+        bool avoiding = false;
+    };
+
+    // GETs the listener's pending-avoidance queue and parses the response.
+    // Same "empty means nothing changed OR the request failed, and the
+    // caller's response to either is identical" contract as
+    // FetchHydrationPairs -- see that function's comment.
+    std::vector<AvoidancePair> FetchAvoidancePairs(const OutboundConfig& config);
+
+    // What actually happened when AvoidancePoller.cpp's ApplyAvoidancePair
+    // tried to apply one pair. Only two outcomes -- avoidance has no
+    // hydration-style permanent-failure case (see listener.py's module
+    // docstring and _AvoidancePairState's own comment):
+    //   kApplied -- both actors resolved, a per-pair global was found for
+    //               this pair, and its value was written. The listener
+    //               should mark this pair "applied" at this avoiding value.
+    //   kRetry   -- either actor failed to resolve, no game was active, OR
+    //               (a case hydration's kRetry never had to cover) no
+    //               ChronicleAvoidingPair_* global has been authored for
+    //               this pair yet (AvoidanceGlobals.cpp). All three are
+    //               TEMPORARY from the listener's point of view -- it
+    //               should offer the pair again as if never offered.
+    enum class AvoidanceApplyOutcome { kApplied, kRetry };
+
+    // One pair's ack outcome, matching the listener's POST
+    // /whiterun/avoidance/ack body shape exactly: a JSON array of
+    // {"npc_a": str, "npc_b": str, "outcome": "applied" | "retry"}.
+    struct AvoidanceAckEntry {
+        std::string npcA;
+        std::string npcB;
+        AvoidanceApplyOutcome outcome = AvoidanceApplyOutcome::kRetry;
+    };
+
+    // POSTs the outcomes of one poll's whole batch back to the listener.
+    // Fire-and-forget, same discipline as PostHydrationAck. Returns true if
+    // the listener responded 2xx.
+    bool PostAvoidanceAck(const OutboundConfig& config, const std::vector<AvoidanceAckEntry>& acks);
 
 }  // namespace ChronicleBridge

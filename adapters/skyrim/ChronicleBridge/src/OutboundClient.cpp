@@ -168,6 +168,31 @@ namespace ChronicleBridge {
             return value;
         }
 
+        // Same narrow-purpose parser as ParseJsonStringField/ParseJsonIntField
+        // above, for the one JSON literal shape this file's incoming
+        // payloads ever need beyond string/int: a bare `true`/`false`
+        // (listener.py's _avoidance_pairs emits Python bool -> JSON's
+        // lowercase `true`/`false` via json.dumps -- never `1`/`0`, never
+        // quoted). Not a general JSON parser, same caveat as its siblings.
+        std::optional<bool> ParseJsonBoolField(std::string_view body, std::size_t& pos, std::string_view key) {
+            auto keyPos = body.find(std::format(R"("{}")", key), pos);
+            if (keyPos == std::string_view::npos) return std::nullopt;
+            auto colon = body.find(':', keyPos);
+            if (colon == std::string_view::npos) return std::nullopt;
+
+            std::size_t i = colon + 1;
+            while (i < body.size() && (body[i] == ' ' || body[i] == '\t')) ++i;
+            if (body.compare(i, 4, "true") == 0) {
+                pos = i + 4;
+                return true;
+            }
+            if (body.compare(i, 5, "false") == 0) {
+                pos = i + 5;
+                return false;
+            }
+            return std::nullopt;
+        }
+
         std::optional<int> ParseJsonIntField(std::string_view body, std::size_t& pos, std::string_view key) {
             auto keyPos = body.find(std::format(R"("{}")", key), pos);
             if (keyPos == std::string_view::npos) return std::nullopt;
@@ -248,6 +273,64 @@ namespace ChronicleBridge {
             return out;
         }
 
+        // Matches listener.py's POST /whiterun/avoidance/ack body shape
+        // exactly: a JSON array of {"npc_a": str, "npc_b": str, "outcome":
+        // str} objects. Only two outcome strings, per
+        // OutboundClient.h's AvoidanceApplyOutcome comment.
+        std::string_view AvoidanceOutcomeToString(AvoidanceApplyOutcome outcome) {
+            switch (outcome) {
+                case AvoidanceApplyOutcome::kApplied:
+                    return "applied";
+                case AvoidanceApplyOutcome::kRetry:
+                default:
+                    return "retry";
+            }
+        }
+
+        std::string BuildAvoidanceAckJson(const std::vector<AvoidanceAckEntry>& acks) {
+            std::ostringstream body;
+            body << '[';
+            for (std::size_t i = 0; i < acks.size(); ++i) {
+                if (i > 0) body << ',';
+                body << std::format(R"({{"npc_a":"{}","npc_b":"{}","outcome":"{}"}})",
+                                     EscapeJsonString(acks[i].npcA), EscapeJsonString(acks[i].npcB),
+                                     AvoidanceOutcomeToString(acks[i].outcome));
+            }
+            body << ']';
+            return body.str();
+        }
+
+        // Same hand-rolled, non-general parser discipline as
+        // ParseHydrationPairsJson -- matches listener.py's GET
+        // /whiterun/avoidance response shape exactly: a JSON array of
+        // {"npc_a": str, "npc_b": str, "avoiding": bool} objects.
+        std::vector<AvoidancePair> ParseAvoidancePairsJson(std::string_view body) {
+            std::vector<AvoidancePair> out;
+            std::size_t pos = 0;
+            while (true) {
+                auto objStart = body.find('{', pos);
+                if (objStart == std::string_view::npos) break;
+                auto objEnd = body.find('}', objStart);
+                if (objEnd == std::string_view::npos) break;
+
+                std::size_t fieldPos = objStart;
+                auto npcA = ParseJsonStringField(body, fieldPos, "npc_a");
+                fieldPos = objStart;
+                auto npcB = ParseJsonStringField(body, fieldPos, "npc_b");
+                fieldPos = objStart;
+                auto avoiding = ParseJsonBoolField(body, fieldPos, "avoiding");
+
+                if (npcA && npcB && avoiding) {
+                    out.push_back(AvoidancePair{.npcA = *npcA, .npcB = *npcB, .avoiding = *avoiding});
+                } else {
+                    SKSE::log::warn("ChronicleBridge: skipping unparseable avoidance pair object");
+                }
+
+                pos = objEnd + 1;
+            }
+            return out;
+        }
+
     }  // namespace
 
     std::vector<HydrationPair> FetchHydrationPairs(const OutboundConfig& config) {
@@ -311,6 +394,66 @@ namespace ChronicleBridge {
         if (result->status < 200 || result->status >= 300) {
             SKSE::log::warn("ChronicleBridge: POST to {}:{}{} returned status {}", config.host, config.port,
                              config.hydrationAckPath, result->status);
+            return false;
+        }
+        return true;
+    }
+
+    std::vector<AvoidancePair> FetchAvoidancePairs(const OutboundConfig& config) {
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Get(config.avoidancePath, headers);
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: GET {}:{}{} failed: {}", config.host, config.port, config.avoidancePath,
+                             httplib::to_string(result.error()));
+            return {};
+        }
+        if (result->status < 200 || result->status >= 300) {
+            // Same 503-means-"no --live-run" convention as
+            // FetchHydrationPairs -- see that function's comment.
+            if (result->status == 503) {
+                SKSE::log::trace("ChronicleBridge: GET {}:{}{} returned 503 (no --live-run configured)", config.host,
+                                  config.port, config.avoidancePath);
+            } else {
+                SKSE::log::warn("ChronicleBridge: GET {}:{}{} returned status {}", config.host, config.port,
+                                 config.avoidancePath, result->status);
+            }
+            return {};
+        }
+        return ParseAvoidancePairsJson(result->body);
+    }
+
+    bool PostAvoidanceAck(const OutboundConfig& config, const std::vector<AvoidanceAckEntry>& acks) {
+        if (acks.empty()) return true;  // nothing to report -- not an error, just a no-op.
+
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        const auto body = BuildAvoidanceAckJson(acks);
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Post(config.avoidanceAckPath, headers, body, "application/json");
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} failed: {}", config.host, config.port,
+                             config.avoidanceAckPath, httplib::to_string(result.error()));
+            return false;
+        }
+        if (result->status < 200 || result->status >= 300) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} returned status {}", config.host, config.port,
+                             config.avoidanceAckPath, result->status);
             return false;
         }
         return true;

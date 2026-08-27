@@ -27,6 +27,7 @@
 #include <mutex>
 #include <thread>
 
+#include "AvoidancePoller.h"
 #include "Config.h"
 #include "DeathEventSink.h"
 #include "HydrationPoller.h"
@@ -151,9 +152,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SetupLog();
 
     SKSE::log::info(
-        "ChronicleBridge loaded -- spatial streamer + death-event + hydration-poll slices (see docs/design/"
-        "chronicle-bridge-spatial-streamer.md, docs/design/chronicle-bridge-death-extraction.md, docs/design/"
-        "chronicle-bridge-hydration-out.md)");
+        "ChronicleBridge loaded -- spatial streamer + death-event + hydration-poll + avoidance-poll slices (see "
+        "docs/design/chronicle-bridge-spatial-streamer.md, docs/design/chronicle-bridge-death-extraction.md, "
+        "docs/design/chronicle-bridge-hydration-out.md, docs/design/chronicle-bridge-avoidance-mutagen-out.md)");
 
     // Data/SKSE/Plugins/ChronicleBridge.ini overrides host/port/sharedSecret
     // when present (Config.cpp); a fresh install with no ini yet keeps
@@ -172,6 +173,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // two loops -- no second config path. See HydrationPoller.h for why
     // this write path is unverified beyond "it compiles."
     std::thread(ChronicleBridge::HydrationPollerThreadLoop, config).detach();
+    // Fourth slice (docs/design/chronicle-bridge-avoidance-mutagen-out.md):
+    // polls the listener for changed avoidance pairs and applies them via
+    // per-pair TESGlobal writes + EvaluatePackage. Same config as every
+    // other loop above. See AvoidancePoller.h for the SetLinkedRef finding
+    // that shaped this slice's write path.
+    std::thread(ChronicleBridge::AvoidancePollerThreadLoop, config).detach();
 
     // Death-event sink registration is deferred to kDataLoaded (see
     // OnSkseMessage's own comment) -- RegisterListener must be called here,
