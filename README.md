@@ -16,6 +16,108 @@ relationships, an economic ripple through dependent merchants, a rumor
 that mutates as it travels to Riften, guard patrols that shift as a
 *consequence* of the simulation, not a scripted quest branch.
 
+## How it works
+
+Chronicle is two things talking to each other over plain HTTP: a small
+C++ plugin living inside the Skyrim process, and a Python simulation
+service running natively on the host. The plugin never simulates
+anything — it only reads/writes game state and relays events. All the
+actual social reasoning (who believes what, how a rumor mutates, when a
+grudge cools) happens outside the game entirely, which is what makes it
+possible to test, replay, and inspect the whole simulation without ever
+launching Skyrim.
+
+```mermaid
+flowchart TB
+    subgraph SKYRIM["Inside the Skyrim process (C++)"]
+        direction TB
+        GAME["Skyrim game state<br/>NPCs, relationships, cells, inventory"]
+        BRIDGE["ChronicleBridge -- SKSE plugin<br/>(CommonLibSSE-NG)"]
+        GAME <--> BRIDGE
+        BRIDGE --> POS["Position streamer"]
+        BRIDGE --> HYD["Hydration poller<br/>writes relationship rank"]
+        BRIDGE --> AVOID["Avoidance poller<br/>flips AI-package globals"]
+        BRIDGE --> VEND["Vendor price hook<br/>marks up barter prices"]
+        BRIDGE --> EVID["Evidence poller<br/>spawns authored world objects"]
+    end
+
+    subgraph HOST["Outside the game: native host (Python)"]
+        direction TB
+        LISTENER["listener.py<br/>HTTP receiver + poll/ack responder"]
+        CORE["chronicle/ engine<br/>EventLog -&gt; ClaimStore -&gt; SocialStateStore -&gt; Rules -&gt; Driver"]
+        LOG["Frame log: runs/RUN_ID/*.jsonl<br/>append-only, replayable, never mutated"]
+        DASH["dashboard/ (Vue)<br/>belief graph, timelines, evidence drill-down"]
+        LISTENER --> CORE --> LOG --> DASH
+    end
+
+    BRIDGE -- "events in: deaths, crimes witnessed, positions" --> LISTENER
+    LISTENER -- "derived state out: ranks, avoidance flags,<br/>price multipliers, evidence spawns" --> BRIDGE
+```
+
+Everything under `chronicle/` never imports anything Skyrim-specific —
+it would run the exact same way against a different game entirely. The
+only place allowed to know Skyrim exists is `adapters/skyrim/`.
+
+### How a rumor spreads and mutates
+
+Gossip travels only through sampled encounters (shared location +
+schedule overlap), never a broadcast. Each retelling can mutate one
+detail and always loses some confidence:
+
+```mermaid
+sequenceDiagram
+    participant World as Game event
+    participant A as NPC A (witness)
+    participant B as NPC B
+    participant C as NPC C
+    World->>A: crime witnessed / NPC death
+    A->>A: forms a Claim + Belief<br/>(confidence, verbatim/gist strength)
+    Note over A,B: encounter sampled: shared location, probability roll
+    A->>B: tells the claim (tell-probability gate)
+    B->>B: hears it -- may mutate one slot
+    Note over B,C: later encounter, different location
+    B->>C: retells it -- confidence decays another hop
+    C->>C: forms its own belief:<br/>weaker, possibly a mutated variant
+```
+
+### How a rumor ages: heard, repeated, dormant, forgotten
+
+```mermaid
+stateDiagram-v2
+    [*] --> Heard: witnessed or told for the first time
+    Heard --> Repeated: NPC retells it to someone else
+    Repeated --> Repeated: retold again (variant may drift further)
+    Heard --> Dormant: ~45 game-days with no activity
+    Repeated --> Dormant: ~45 game-days with no activity
+    Dormant --> Repeated: someone retells it, reactivating the story
+    Heard --> Forgotten: underlying belief's gist decays past the floor
+    Repeated --> Forgotten: underlying belief's gist decays past the floor
+    Dormant --> Forgotten: underlying belief's gist decays past the floor
+    Forgotten --> [*]
+```
+
+### How a grudge turns into visible avoidance
+
+Grudges decay continuously rather than clearing instantly, so a fresh
+harm and a genuinely-forgiven one behave differently even at the same
+raw severity:
+
+```mermaid
+stateDiagram-v2
+    [*] --> NoGrudge
+    NoGrudge --> Grudge: harm suffered/witnessed by someone with a relationship to the victim
+    Grudge --> Avoiding: decayed severity crosses the avoidance threshold
+    Avoiding --> Grudge: decayed severity falls back below threshold (still unforgiven)
+    Grudge --> Cooled: decayed severity drops below the forgiveness floor
+    Avoiding --> Cooled: decayed severity drops below the forgiveness floor
+    Cooled --> Grudge: a new harm re-forms the grudge from scratch
+    Cooled --> [*]
+```
+
+`Avoiding` is what a live game session would show as visible behavior —
+two NPCs breaking off their usual routine to keep apart — driven purely
+by decayed grudge severity, no scripting involved.
+
 ## Read next
 
 | | |
