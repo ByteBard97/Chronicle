@@ -33,18 +33,19 @@ launching Skyrim.
 ```mermaid
 flowchart TB
     ENGINE["Skyrim Engine (base game)"] <--> BRIDGE["ChronicleBridge -- SKSE C++ plugin"]
-    BRIDGE --> POS["Position Streamer"]
-    BRIDGE --> HYD["Hydration Poller"]
-    BRIDGE --> AVOID["Avoidance Poller"]
-    BRIDGE --> VEND["Vendor Price Hook"]
-    BRIDGE --> EVID["Evidence Poller"]
-
     BRIDGE =="HTTP: events in / state out"==> LISTENER
 
     subgraph PYTHON["Outside Skyrim"]
         LISTENER["listener.py (HTTP)"] --> CORE["chronicle/ engine"] --> LOG["Frame log (JSONL)"]
     end
     LOG --> DASH["dashboard (Vue) -- debug UI"]
+
+    DASH ~~~ POS
+    BRIDGE --> MECH
+
+    subgraph MECH["Game-side mechanisms the bridge drives"]
+        POS["Position Streamer"] ~~~ HYD["Hydration Poller"] ~~~ AVOID["Avoidance Poller"] ~~~ VEND["Vendor Price Hook"] ~~~ EVID["Evidence Poller"]
+    end
 
     classDef ingame fill:#fdf6d8,stroke:#c9b458,color:#4a3f1a;
     classDef host fill:#e6e9f7,stroke:#8892c9,color:#22254a;
@@ -53,9 +54,10 @@ flowchart TB
     class LISTENER,CORE,LOG host
     class DASH debug
     style PYTHON stroke-dasharray: 6 4,fill:none,stroke:#8892c9
+    style MECH stroke-dasharray: 6 4,fill:none,stroke:#c9b458
 ```
 
-🟨 the mod: Skyrim engine + the ChronicleBridge SKSE plugin (C++) &nbsp;&nbsp; 🟦 the service: native Python, outside the game &nbsp;&nbsp; 🟪 the dashboard: Vue debugging UI, reads the service's logs
+<img src="docs/assets/swatch-ingame.svg" width="14" height="14"> the mod: Skyrim engine + the ChronicleBridge SKSE plugin (C++) &nbsp;&nbsp; <img src="docs/assets/swatch-host.svg" width="14" height="14"> the service: native Python, outside the game &nbsp;&nbsp; <img src="docs/assets/swatch-debug.svg" width="14" height="14"> the dashboard: Vue debugging UI, reads the service's logs
 
 Everything under `chronicle/` never imports anything Skyrim-specific —
 it would run the exact same way against a different game entirely. The
