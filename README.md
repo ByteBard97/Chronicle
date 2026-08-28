@@ -32,30 +32,22 @@ launching Skyrim.
 
 ```mermaid
 flowchart TB
-    subgraph SKYRIM["Inside the Skyrim process (C++)"]
-        direction TB
-        GAME["Skyrim game state<br/>NPCs, relationships, cells, inventory"]
-        BRIDGE["ChronicleBridge -- SKSE plugin<br/>(CommonLibSSE-NG)"]
-        GAME <--> BRIDGE
-        BRIDGE --> POS["Position streamer"]
-        BRIDGE --> HYD["Hydration poller<br/>writes relationship rank"]
-        BRIDGE --> AVOID["Avoidance poller<br/>flips AI-package globals"]
-        BRIDGE --> VEND["Vendor price hook<br/>marks up barter prices"]
-        BRIDGE --> EVID["Evidence poller<br/>spawns authored world objects"]
-    end
+    GAME["Skyrim game state<br/>NPCs, relationships, cells, inventory"] <--> BRIDGE["ChronicleBridge -- SKSE plugin (C++)<br/>CommonLibSSE-NG"]
+    BRIDGE <=="events in (deaths, crimes, positions)<br/>derived state out (ranks, avoidance, price, evidence)"==> LISTENER["listener.py<br/>HTTP receiver + poll/ack responder"]
+    LISTENER --> CORE["chronicle/ engine<br/>EventLog -&gt; ClaimStore -&gt; SocialStateStore -&gt; Rules -&gt; Driver"] --> LOG["Frame log: runs/RUN_ID/*.jsonl<br/>append-only, replayable"] --> DASH["dashboard/ (Vue)<br/>belief graph, timelines, drill-down"]
+    BRIDGE --> POS["Position streamer"]
+    BRIDGE --> HYD["Hydration poller"]
+    BRIDGE --> AVOID["Avoidance poller"]
+    BRIDGE --> VEND["Vendor price hook"]
+    BRIDGE --> EVID["Evidence poller"]
 
-    subgraph HOST["Outside the game: native host (Python)"]
-        direction TB
-        LISTENER["listener.py<br/>HTTP receiver + poll/ack responder"]
-        CORE["chronicle/ engine<br/>EventLog -&gt; ClaimStore -&gt; SocialStateStore -&gt; Rules -&gt; Driver"]
-        LOG["Frame log: runs/RUN_ID/*.jsonl<br/>append-only, replayable, never mutated"]
-        DASH["dashboard/ (Vue)<br/>belief graph, timelines, evidence drill-down"]
-        LISTENER --> CORE --> LOG --> DASH
-    end
-
-    BRIDGE -- "events in: deaths, crimes witnessed, positions" --> LISTENER
-    LISTENER -- "derived state out: ranks, avoidance flags,<br/>price multipliers, evidence spawns" --> BRIDGE
+    classDef ingame fill:#fdf6d8,stroke:#c9b458,color:#4a3f1a;
+    classDef host fill:#e6e9f7,stroke:#8892c9,color:#22254a;
+    class GAME,BRIDGE,POS,HYD,AVOID,VEND,EVID ingame
+    class LISTENER,CORE,LOG,DASH host
 ```
+
+🟨 runs inside the Skyrim process (C++) &nbsp;&nbsp; 🟦 runs natively outside the game (Python)
 
 Everything under `chronicle/` never imports anything Skyrim-specific —
 it would run the exact same way against a different game entirely. The
