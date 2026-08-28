@@ -115,7 +115,8 @@ hydration's three: a `PlaceObjectAtMe` call has no `no_relationship`-
 equivalent permanent-failure mode. Gated identically to the other three
 (503 without `--live-run`, same auth, restricted to `NAMED_CAST_NPC_IDS`
 -- only named-cast NPCs have a resolvable `Actor*` for a C++ consumer to
-spawn evidence at). See `_EvidenceEntryState`'s docstring for the state
+spawn evidence at; vendor-markup is the one exception to that parity,
+accepting `PLAYER_ID` on its target side, see `_vendor_markup_pairs`). See `_EvidenceEntryState`'s docstring for the state
 machine.
 
 Like the other three slices, evidence's in-memory state does not survive
