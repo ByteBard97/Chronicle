@@ -41,10 +41,11 @@ flowchart TB
     end
     LOG --> DASH["dashboard (Vue) -- debug UI"]
 
-    subgraph MECH["Game-side mechanisms (built, not yet verified live)"]
+    subgraph MECH["Game-side mechanisms"]
         direction TB
         POS["Position Streamer -- live NPC coords"] ~~~ HYD["Hydration Poller -- writes grudge as rank"] ~~~ AVOID["Avoidance Poller -- flips AI-package flag"] ~~~ VEND["Vendor Price Hook -- marks up barter price"] ~~~ EVID["Evidence Poller -- spawns object from a belief"]
     end
+    MECH -- "writes back into game state" --> ENGINE
 
     classDef ingame fill:#fdf6d8,stroke:#c9b458,color:#4a3f1a;
     classDef host fill:#e6e9f7,stroke:#8892c9,color:#22254a;
@@ -55,6 +56,9 @@ flowchart TB
     style PYTHON stroke-dasharray: 6 4,fill:none,stroke:#8892c9
     style MECH stroke-dasharray: 6 4,fill:none,stroke:#c9b458
 ```
+
+The mechanisms are all built and compiled, but none has been confirmed
+working against a live, running game yet — see Project status below.
 
 <img src="docs/assets/swatch-ingame.svg" width="14" height="14"> the mod: Skyrim engine + the ChronicleBridge SKSE plugin (C++) &nbsp;&nbsp; <img src="docs/assets/swatch-host.svg" width="14" height="14"> the service: native Python, outside the game &nbsp;&nbsp; <img src="docs/assets/swatch-debug.svg" width="14" height="14"> the dashboard: Vue debugging UI, reads the service's logs
 
