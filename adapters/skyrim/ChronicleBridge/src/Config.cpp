@@ -25,16 +25,44 @@ namespace ChronicleBridge {
 
         constexpr auto kSection = "General";
 
+        // Deliberately NOT spdlog::level::from_str: that returns level::off
+        // for anything it doesn't recognize, so a typo like "infi" would
+        // silence the log entirely -- the exact opposite of what this key
+        // exists for. Unknown values fall back to info and say so.
+        spdlog::level::level_enum ParseLogLevel(std::string_view name) {
+            if (name == "trace") return spdlog::level::trace;
+            if (name == "debug") return spdlog::level::debug;
+            if (name == "info") return spdlog::level::info;
+            if (name == "warn") return spdlog::level::warn;
+            if (name == "error") return spdlog::level::err;
+            SKSE::log::warn("ChronicleBridge.ini: unrecognized LogLevel '{}' -- using info", std::string(name));
+            return spdlog::level::info;
+        }
+
+        // The canonical spelling of whatever ParseLogLevel settled on, for
+        // the "ini loaded" line -- echoing the raw ini string back would lie
+        // about the effective level whenever the value was unrecognized.
+        const char* LogLevelName(spdlog::level::level_enum level) {
+            switch (level) {
+                case spdlog::level::trace: return "trace";
+                case spdlog::level::debug: return "debug";
+                case spdlog::level::warn: return "warn";
+                case spdlog::level::err: return "error";
+                default: return "info";
+            }
+        }
+
     }  // namespace
 
-    OutboundConfig LoadConfigFromIni() {
-        OutboundConfig config{};
+    BridgeConfig LoadConfigFromIni() {
+        BridgeConfig bridge{};
+        OutboundConfig& config = bridge.outbound;
 
         const auto iniPath = IniPath();
         if (!std::filesystem::exists(iniPath)) {
-            SKSE::log::info("ChronicleBridge.ini not found at {} -- using defaults (host={}, port={})",
+            SKSE::log::info("ChronicleBridge.ini not found at {} -- using defaults (host={}, port={}, logLevel=info)",
                              iniPath.string(), config.host, config.port);
-            return config;
+            return bridge;
         }
         const auto iniPathStr = iniPath.string();
 
@@ -51,9 +79,14 @@ namespace ChronicleBridge {
             config.sharedSecret = std::string(secretBuf);
         }
 
-        SKSE::log::info("ChronicleBridge.ini loaded from {} -- host={}, port={}, sharedSecret={}", iniPathStr,
-                         config.host, config.port, config.sharedSecret ? "set" : "unset");
-        return config;
+        char logLevelBuf[32]{};
+        GetPrivateProfileStringA(kSection, "LogLevel", "info", logLevelBuf, sizeof(logLevelBuf), iniPathStr.c_str());
+        bridge.logLevel = ParseLogLevel(logLevelBuf);
+
+        SKSE::log::info("ChronicleBridge.ini loaded from {} -- host={}, port={}, sharedSecret={}, logLevel={}",
+                         iniPathStr, config.host, config.port, config.sharedSecret ? "set" : "unset",
+                         LogLevelName(bridge.logLevel));
+        return bridge;
     }
 
 }  // namespace ChronicleBridge

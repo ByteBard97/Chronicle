@@ -85,7 +85,7 @@ namespace ChronicleBridge {
         RE::TESNPC* ResolveLiveNpc(const std::string& chronicleNpcId) {
             auto ref = ResolveChronicleNpcId(chronicleNpcId);
             if (!ref) {
-                SKSE::log::trace("ChronicleBridge hydration: '{}' has no reverse named-cast entry -- skipping",
+                SKSE::log::debug("ChronicleBridge hydration: '{}' has no reverse named-cast entry -- skipping",
                                   chronicleNpcId);
                 return nullptr;
             }
@@ -95,7 +95,7 @@ namespace ChronicleBridge {
 
             auto* actor = dataHandler->LookupForm<RE::Actor>(ref->localFormId, ref->pluginName);
             if (!actor) {
-                SKSE::log::trace(
+                SKSE::log::debug(
                     "ChronicleBridge hydration: '{}' ({}:{:06x}) did not resolve to a live actor this poll -- "
                     "skipping",
                     chronicleNpcId, ref->pluginName, ref->localFormId);
@@ -233,7 +233,7 @@ namespace ChronicleBridge {
                 // explicitly is the more honest, self-correcting choice.
                 auto* main = RE::Main::GetSingleton();
                 if (!main || !main->gameActive) {
-                    SKSE::log::trace("ChronicleBridge hydration: no active game -- reporting this poll's pairs as retry");
+                    SKSE::log::debug("ChronicleBridge hydration: no active game -- reporting this poll's pairs as retry");
                     for (const auto& pair : pairs) {
                         acks.push_back({.holderId = pair.holderId, .targetId = pair.targetId,
                                          .outcome = HydrationApplyOutcome::kRetry});

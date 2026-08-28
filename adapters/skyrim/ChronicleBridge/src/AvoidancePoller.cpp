@@ -27,7 +27,7 @@ namespace ChronicleBridge {
         RE::Actor* ResolveLiveActor(const std::string& chronicleNpcId) {
             auto ref = ResolveChronicleNpcId(chronicleNpcId);
             if (!ref) {
-                SKSE::log::trace("ChronicleBridge avoidance: '{}' has no reverse named-cast entry -- skipping",
+                SKSE::log::debug("ChronicleBridge avoidance: '{}' has no reverse named-cast entry -- skipping",
                                   chronicleNpcId);
                 return nullptr;
             }
@@ -37,7 +37,7 @@ namespace ChronicleBridge {
 
             auto* actor = dataHandler->LookupForm<RE::Actor>(ref->localFormId, ref->pluginName);
             if (!actor) {
-                SKSE::log::trace(
+                SKSE::log::debug(
                     "ChronicleBridge avoidance: '{}' ({}:{:06x}) did not resolve to a live actor this poll -- "
                     "skipping",
                     chronicleNpcId, ref->pluginName, ref->localFormId);
@@ -67,7 +67,7 @@ namespace ChronicleBridge {
             // permanent-skip outcome the way hydration's does.
             auto ref = ResolveAvoidancePairGlobal(pair.npcA, pair.npcB);
             if (!ref) {
-                SKSE::log::trace(
+                SKSE::log::debug(
                     "ChronicleBridge avoidance: no ChronicleAvoidingPair_* global authored yet for ({}, {}) -- "
                     "retrying later",
                     pair.npcA, pair.npcB);
@@ -79,7 +79,7 @@ namespace ChronicleBridge {
 
             auto* global = dataHandler->LookupForm<RE::TESGlobal>(ref->localFormId, ref->pluginName);
             if (!global) {
-                SKSE::log::trace(
+                SKSE::log::debug(
                     "ChronicleBridge avoidance: ChronicleAvoidingPair_* global for ({}, {}) ({}:{:06x}) did not "
                     "resolve this poll -- retrying later",
                     pair.npcA, pair.npcB, ref->pluginName, ref->localFormId);
@@ -133,7 +133,7 @@ namespace ChronicleBridge {
                 // function's comment for the full reasoning.
                 auto* main = RE::Main::GetSingleton();
                 if (!main || !main->gameActive) {
-                    SKSE::log::trace("ChronicleBridge avoidance: no active game -- reporting this poll's pairs as retry");
+                    SKSE::log::debug("ChronicleBridge avoidance: no active game -- reporting this poll's pairs as retry");
                     for (const auto& pair : pairs) {
                         acks.push_back(
                             {.npcA = pair.npcA, .npcB = pair.npcB, .outcome = AvoidanceApplyOutcome::kRetry});

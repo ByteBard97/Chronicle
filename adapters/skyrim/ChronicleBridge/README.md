@@ -106,14 +106,39 @@ different machine than Chronicle:
 Host=192.168.1.50
 Port=8765
 SharedSecret=whatever-the-listener-was-started-with
+LogLevel=debug
 ```
 
 Any key left out (or the file itself being absent) falls back to the
-built-in default for that field (`127.0.0.1:8765`, no shared secret) --
-so a fresh install with no ini yet behaves exactly as before this
-existed. `SharedSecret` must match whatever the listener was started
-with (`--shared-secret`, `adapters/skyrim/listener/listener.py`) or every
-POST gets rejected with 401.
+built-in default for that field (`127.0.0.1:8765`, no shared secret,
+`LogLevel=info`) -- so a fresh install with no ini yet behaves exactly as
+before this existed. `SharedSecret` must match whatever the listener was
+started with (`--shared-secret`, `adapters/skyrim/listener/listener.py`)
+or every POST gets rejected with 401.
+
+`LogLevel` (`trace` | `debug` | `info` | `warn` | `error`, default
+`info`) sets the verbosity of `ChronicleBridge.log` in Skyrim's SKSE logs
+folder. It is applied right after the ini is read, so the startup banner
+lines written before that point are always at `info` regardless. An
+unrecognized value logs a warning and falls back to `info` rather than
+silencing the log. What each level buys you:
+
+- `info` (default) -- startup banner, sink registration, and the
+  state-change lines an unattended harness needs: each vendor-markup
+  multiplier cached, each barter menu opened (whether or not it resolved
+  to a named-cast vendor), each hydration/avoidance/evidence batch
+  applied.
+- `warn` -- every failed or non-2xx HTTP call, including the GET 503 the
+  listener returns when it was started without `--live-run`. These repeat
+  once per poll interval (~8s) per poller while that condition holds,
+  which is deliberate: it is the signal that the listener is up but not
+  serving live state.
+- `debug` -- adds the per-poll "did not resolve to a live actor" / "no
+  reverse named-cast entry" / "no active game" / "no
+  `ChronicleAvoidingPair_*` global authored yet" diagnostics that explain
+  why an individual pair is not being applied. Expect a few lines every
+  8s while a game is loaded.
+- `trace` -- nothing above `debug` today; reserved.
 
 ## Filling in the named-cast identity table
 

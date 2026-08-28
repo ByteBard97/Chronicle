@@ -251,7 +251,18 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // runs on the same machine as the game. sharedSecret must match whatever
     // the listener was started with (--shared-secret, adapters/skyrim/
     // listener/listener.py) or every POST gets rejected with 401.
-    ChronicleBridge::OutboundConfig config = ChronicleBridge::LoadConfigFromIni();
+    ChronicleBridge::BridgeConfig bridgeConfig = ChronicleBridge::LoadConfigFromIni();
+    ChronicleBridge::OutboundConfig config = bridgeConfig.outbound;
+
+    // Applied here, not in SetupLog: the logger has to exist before the ini
+    // can be read (the read itself logs), so every banner line above stays
+    // at the hardcoded info level and only the steady-state diagnostics
+    // below obey [General] LogLevel. flush_on(trace) so an unattended
+    // harness tailing ChronicleBridge.log sees lines as they happen rather
+    // than whenever spdlog's buffer happens to drain -- the whole point of
+    // making these levels selectable.
+    spdlog::set_level(bridgeConfig.logLevel);
+    spdlog::flush_on(spdlog::level::trace);
 
     std::thread(TimerThreadLoop).detach();
     std::thread(SenderThreadLoop, config).detach();

@@ -74,6 +74,13 @@ namespace ChronicleBridge {
             std::lock_guard lock(g_mutex);
             for (auto& [holderId, multiplier] : changed) {
                 g_multiplierByHolderId[holderId] = multiplier;
+                // info, not trace: this is a state CHANGE, not per-poll
+                // spam -- `changed` is only non-empty when the listener
+                // reported a genuinely new multiplier for a player-facing
+                // pair, so an unattended harness reading the log can treat
+                // each of these as one real cache write.
+                SKSE::log::info("ChronicleBridge vendor-markup: cached {:.2f}x for vendor '{}' (target the_player)",
+                                 multiplier, holderId);
             }
         }
     }

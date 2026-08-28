@@ -26,20 +26,31 @@ namespace ChronicleBridge {
 
                 auto* vendor = ResolveBarterVendorActor();
                 if (!vendor) {
+                    SKSE::log::info(
+                        "ChronicleBridge barter: BarterMenu opened but the vendor actor did not resolve -- no "
+                        "Chronicle vendor for this menu");
                     return RE::BSEventNotifyControl::kContinue;
                 }
 
                 auto npcId = ResolveNpcIdForActor(vendor);
                 if (!npcId) {
                     // Not a named-cast NPC (a generic merchant) -- nothing
-                    // Chronicle-relevant to report. Deliberately NOT falling
+                    // Chronicle-relevant to act on. Deliberately NOT falling
                     // back to FallbackIdentity() the way DeathEventSink does
                     // for deaths: there is no grudge/markup state keyed on a
-                    // generic "<plugin>:<hex>" identity, so logging one here
-                    // would be noise with nothing to act on.
+                    // generic "<plugin>:<hex>" identity, so there is nothing
+                    // to report onward. Still logged at info (once per menu
+                    // open, not per item) because "the menu opened and no
+                    // named-cast vendor came out of it" is precisely the
+                    // state an unattended harness has to be able to tell
+                    // apart from "nothing happened at all".
+                    SKSE::log::info(
+                        "ChronicleBridge barter: BarterMenu opened for a vendor with no named-cast entry -- no "
+                        "Chronicle vendor id");
                     return RE::BSEventNotifyControl::kContinue;
                 }
 
+                SKSE::log::info("ChronicleBridge barter: BarterMenu opened for vendor '{}'", *npcId);
                 onBarterOpen(PendingBarterOpen{.npcId = *npcId});
                 return RE::BSEventNotifyControl::kContinue;
             }
@@ -53,7 +64,7 @@ namespace ChronicleBridge {
         auto handle = RE::BarterMenu::GetTargetRefHandle();
         auto refPtr = RE::TESObjectREFR::LookupByHandle(handle);
         if (!refPtr) {
-            SKSE::log::trace(
+            SKSE::log::debug(
                 "ChronicleBridge barter: BarterMenu opened but GetTargetRefHandle() did not resolve to a "
                 "live reference");
             return nullptr;
@@ -61,7 +72,7 @@ namespace ChronicleBridge {
 
         auto* vendor = refPtr->As<RE::Actor>();
         if (!vendor) {
-            SKSE::log::trace("ChronicleBridge barter: BarterMenu's target reference is not an Actor -- skipping");
+            SKSE::log::debug("ChronicleBridge barter: BarterMenu's target reference is not an Actor -- skipping");
             return nullptr;
         }
         return vendor;
@@ -79,7 +90,7 @@ namespace ChronicleBridge {
         // which this direction doesn't use).
         auto ref = ResolveFormRef(actor);
         if (!ref) {
-            SKSE::log::trace("ChronicleBridge barter: vendor actor has no resolvable FormRef -- skipping");
+            SKSE::log::debug("ChronicleBridge barter: vendor actor has no resolvable FormRef -- skipping");
             return std::nullopt;
         }
 

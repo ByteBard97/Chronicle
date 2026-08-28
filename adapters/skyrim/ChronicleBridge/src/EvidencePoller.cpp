@@ -77,7 +77,7 @@ namespace ChronicleBridge {
         RE::Actor* ResolveLiveActor(const std::string& chronicleNpcId) {
             auto ref = ResolveChronicleNpcId(chronicleNpcId);
             if (!ref) {
-                SKSE::log::trace("ChronicleBridge evidence: '{}' has no reverse named-cast entry -- skipping",
+                SKSE::log::debug("ChronicleBridge evidence: '{}' has no reverse named-cast entry -- skipping",
                                   chronicleNpcId);
                 return nullptr;
             }
@@ -87,7 +87,7 @@ namespace ChronicleBridge {
 
             auto* actor = dataHandler->LookupForm<RE::Actor>(ref->localFormId, ref->pluginName);
             if (!actor) {
-                SKSE::log::trace(
+                SKSE::log::debug(
                     "ChronicleBridge evidence: '{}' ({}:{:06x}) did not resolve to a live actor this poll -- "
                     "skipping",
                     chronicleNpcId, ref->pluginName, ref->localFormId);
@@ -183,7 +183,7 @@ namespace ChronicleBridge {
                 // comment for the full reasoning.
                 auto* main = RE::Main::GetSingleton();
                 if (!main || !main->gameActive) {
-                    SKSE::log::trace("ChronicleBridge evidence: no active game -- reporting this poll's entries as retry");
+                    SKSE::log::debug("ChronicleBridge evidence: no active game -- reporting this poll's entries as retry");
                     for (const auto& entry : entries) {
                         acks.push_back({.holderId = entry.holderId,
                                          .beliefId = entry.beliefId,
