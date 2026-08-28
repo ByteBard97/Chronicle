@@ -34,17 +34,16 @@ launching Skyrim.
 flowchart TB
     ENGINE["Skyrim Engine (base game)"] <--> BRIDGE["ChronicleBridge -- SKSE C++ plugin"]
     BRIDGE =="HTTP: events in / state out"==> LISTENER
+    BRIDGE --> POS
 
     subgraph PYTHON["Outside Skyrim"]
         LISTENER["listener.py (HTTP)"] --> CORE["chronicle/ engine"] --> LOG["Frame log (JSONL)"]
     end
     LOG --> DASH["dashboard (Vue) -- debug UI"]
 
-    DASH ~~~ POS
-    BRIDGE --> MECH
-
-    subgraph MECH["Game-side mechanisms the bridge drives"]
-        POS["Position Streamer"] ~~~ HYD["Hydration Poller"] ~~~ AVOID["Avoidance Poller"] ~~~ VEND["Vendor Price Hook"] ~~~ EVID["Evidence Poller"]
+    subgraph MECH["Game-side mechanisms (built, not yet verified live)"]
+        direction TB
+        POS["Position Streamer -- live NPC coords"] ~~~ HYD["Hydration Poller -- writes grudge as rank"] ~~~ AVOID["Avoidance Poller -- flips AI-package flag"] ~~~ VEND["Vendor Price Hook -- marks up barter price"] ~~~ EVID["Evidence Poller -- spawns object from a belief"]
     end
 
     classDef ingame fill:#fdf6d8,stroke:#c9b458,color:#4a3f1a;
