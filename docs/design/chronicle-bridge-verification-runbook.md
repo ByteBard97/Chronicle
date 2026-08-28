@@ -6,6 +6,8 @@ diegetic evidence) has only ever been verified by compiling cleanly
 against real CommonLibSSE-NG headers — none has ever run against a live
 game. This doc is the concrete checklist for closing that gap.
 
+**Update (2026-08-28):** the unattended version of this runbook now exists as a pytest suite, `adapters/skyrim/livetest/` (`make live-check`), designed in `docs/design/live-test-harness.md`. This doc remains the reference for what each slice should do in-game; the suite is how it gets checked without a human at the keyboard.
+
 **Update (2026-08-27):** an external AI ("Kimi") produced a 4-path manual
 test script (hydration, vendor markup, diegetic evidence, avoidance). Its
 test *ordering*, time budgets, and cheat-sheet framing were good and are

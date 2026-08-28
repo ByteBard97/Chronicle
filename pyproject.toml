@@ -18,6 +18,7 @@ docs = [
 
 [tool.pytest.ini_options]
 testpaths = ["chronicle/tests", "scenarios"]
+markers = ["live: needs a real Skyrim process (CHRONICLE_LIVE=1, see docs/design/live-test-harness.md)"]
 
 [tool.ruff]
 extend-exclude = ["tools/"]

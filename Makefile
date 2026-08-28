@@ -15,3 +15,8 @@ check-dashboard:
 # Full acceptance battery: sim tests + lint + dashboard build/tests/Range.
 # Run `npm run visual-diff` separately when the map view changes (heavier).
 check: test lint check-dashboard
+
+# Live-game suite: launches ChronicleDev + DevBench, drives every ChronicleBridge slice
+# unattended (docs/design/live-test-harness.md). Never part of `make check`.
+live-check:
+	CHRONICLE_LIVE=1 uv run --with pydantic --with pytest pytest adapters/skyrim/livetest -rA -x -p no:cacheprovider
