@@ -5,6 +5,7 @@
 
 ![status](https://img.shields.io/badge/status-v0.1%20done%2C%20v0.2%20bridge%20building-blue)
 ![python](https://img.shields.io/badge/python-3.12%2B-blue)
+[![docs site](https://img.shields.io/badge/docs-bytebard97.github.io%2FChronicle-8892c9)](https://bytebard97.github.io/Chronicle/)
 
 **A world that remembers.** Chronicle is an external social-simulation
 service for Skyrim SE/AE: it gives every named NPC beliefs with
@@ -20,6 +21,11 @@ that mutates as it travels to Riften, guard patrols that shift as a
 *consequence* of the simulation, not a scripted quest branch.
 
 ## How it works
+
+*(The diagrams below also live on the
+[GitHub Pages site](https://bytebard97.github.io/Chronicle/diagrams.html),
+rendered without GitHub's Mermaid-in-README quirks — same content, cleaner
+rendering.)*
 
 Chronicle is two things talking to each other over plain HTTP: a small
 C++ plugin living inside the Skyrim process, and a Python simulation

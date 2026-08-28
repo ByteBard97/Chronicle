@@ -1,5 +1,8 @@
 # docs
 
+See **[diagrams.html](diagrams.html)** for the architecture and NPC-behavior
+diagrams (system overview, gossip propagation, rumor/grudge state machines).
+
 Index of everything under `docs/`. Rebuilt 2026-08-24 — the previous
 version predated most of the project (no mention of the v2 visions,
 the constitution docs, the dashboard spec, or `work-packets/`).
