@@ -149,12 +149,13 @@ class RemoteWindowsTarget:
     name: str = "windows"
     devbench_url: str = "http://127.0.0.1:8920"
     launch_command: str = os.environ.get("CHRONICLE_WIN_LAUNCH", "schtasks /run /tn ChronicleLiveLaunch")
-    plugin_dir_win: str = os.environ.get("CHRONICLE_WIN_PLUGIN_DIR", "")  # e.g. C:\...\mods\ChronicleBridge\SKSE\Plugins
+    instance_win: str = os.environ.get("CHRONICLE_WIN_INSTANCE", r"C:\ChronicleDev")  # mirrored portable MO2 instance
+    plugin_dir_win: str = os.environ.get("CHRONICLE_WIN_PLUGIN_DIR", r"C:\ChronicleDev\mods\ChronicleBridge\SKSE\Plugins")
     skse_log_dir_win: str = os.environ.get(
         "CHRONICLE_WIN_SKSE_LOGS", r"C:\Users\geoff\Documents\My Games\Skyrim Special Edition\SKSE"
     )
-    skyrim_ini_win: str = os.environ.get("CHRONICLE_WIN_SKYRIM_INI", "")  # the MO2 profile's Skyrim.ini
-    linux_lan_ip: str = os.environ.get("CHRONICLE_LINUX_LAN_IP", "")
+    skyrim_ini_win: str = os.environ.get("CHRONICLE_WIN_SKYRIM_INI", r"C:\ChronicleDev\profiles\Default\skyrim.ini")
+    linux_lan_ip: str = os.environ.get("CHRONICLE_LINUX_LAN_IP", "")  # auto-detected in preflight when empty
     tunnel: subprocess.Popen | None = None
     _had_ini: bool | None = None
     _ini_win: str = field(default="", init=False)
@@ -162,20 +163,35 @@ class RemoteWindowsTarget:
     def ssh(self, command: str, timeout: float = 60) -> subprocess.CompletedProcess:
         return _run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", self.host, command], timeout=timeout)
 
+    def _detect_lan_ip(self) -> str:
+        """The source address this box uses to reach the Windows host (the bridge POSTs back to it)."""
+        host_only = self.host.split("@", 1)[-1]
+        out = _run(["ip", "-4", "route", "get", host_only]).stdout
+        parts = out.split()
+        return parts[parts.index("src") + 1] if "src" in parts else ""
+
     def preflight(self) -> list[str]:
         problems = []
-        if not self.plugin_dir_win:
-            problems.append("CHRONICLE_WIN_PLUGIN_DIR not set (where ChronicleBridge.dll lives on the Windows box)")
         if not self.linux_lan_ip:
-            problems.append("CHRONICLE_LINUX_LAN_IP not set (the bridge must POST to this box's listener over the LAN)")
+            self.linux_lan_ip = self._detect_lan_ip()
+        if not self.linux_lan_ip:
+            problems.append("could not detect this box's LAN IP; set CHRONICLE_LINUX_LAN_IP")
         probe = self.ssh("hostname")
         if probe.returncode != 0:
             problems.append(f"ssh {self.host} failed: {probe.stderr.strip()}")
             return problems
-        if self.plugin_dir_win:
-            check = self.ssh(f'Test-Path "{self.plugin_dir_win}\\ChronicleBridge.dll"')
-            if "True" not in check.stdout:
-                problems.append(f"ChronicleBridge.dll not at {self.plugin_dir_win} on {self.host}")
+        for label, path in (
+            ("ChronicleBridge.dll", f"{self.plugin_dir_win}\\ChronicleBridge.dll"),
+            ("ModOrganizer.exe", f"{self.instance_win}\\ModOrganizer.exe"),
+            ("Stock Game SkyrimSE.exe", f"{self.instance_win}\\Stock Game\\SkyrimSE.exe"),
+            ("devbench.dll", f"{self.instance_win}\\mods\\devbench\\SKSE\\Plugins\\devbench.dll"),
+            ("Skyrim.ini", self.skyrim_ini_win),
+        ):
+            if "True" not in self.ssh(f'Test-Path "{path}"').stdout:
+                problems.append(f"{label} not at {path} on {self.host}")
+        task = self.ssh("(Get-ScheduledTask -TaskName ChronicleLiveLaunch -ErrorAction SilentlyContinue).State")
+        if not task.stdout.strip():
+            problems.append("scheduled task ChronicleLiveLaunch missing on the Windows box (docs/design/live-test-harness.md §2.6)")
         if self.game_running():
             problems.append("SkyrimSE.exe already running on the Windows box")
         return problems

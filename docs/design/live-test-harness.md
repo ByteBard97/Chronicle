@@ -196,11 +196,22 @@ logs). `CHRONICLE_LIVE_TARGET=windows` is the default;
 `CHRONICLE_LIVE_LOCAL_OK=1` so it can't be picked by accident.
 
 `RemoteWindowsTarget`: game launched over SSH (`.claude/
-windows-build-machine.md` host). An SSH-spawned process lands in session
-0 with no desktop, so the launch command must hand off to the
-interactive session — the mechanism (scheduled task via `schtasks /run`,
-or equivalent) is settled by the machine inventory and configured via
-`CHRONICLE_WIN_LAUNCH`. DevBench is loopback-only by design, reached via
+windows-build-machine.md` host). Inventory of that box (2026-08-28):
+its Steam copy of Skyrim auto-updated to 1.7.104 with no 1.6.1170
+backup, no MO2 is installed, and none of Chronicle's plugins are there —
+so the runner is a **mirror of the Linux portable MO2 instance at
+`C:\ChronicleDev`** (correct 1.6.1170 Stock Game, immune to Steam
+updates, full mod set), with `ModOrganizer.ini`'s `Z:\home\…` paths
+rewritten to `C:\ChronicleDev\…`. An SSH-spawned process lands in
+session 0 with no desktop, so the launch is a **triggerless scheduled
+task `ChronicleLiveLaunch`** (interactive token, run-as the logged-in
+user; `AutoAdminLogon=1` keeps that session alive across reboots) that
+runs `C:\ChronicleDev\launch-live.ps1`: starts Steam silently if needed
+(Stock Game's `SkyrimSE.exe` is Steam-DRM'd — invisible under Proton,
+real on Windows), refuses if `SkyrimSE.exe` is already up (the task's
+`IgnoreNew` policy would otherwise fail silently), then runs MO2 with
+`moshortcut://SKSE`. Launch command is `schtasks /run /tn
+ChronicleLiveLaunch`, overridable via `CHRONICLE_WIN_LAUNCH`. DevBench is loopback-only by design, reached via
 `ssh -L 8920:127.0.0.1:8920` (transport already proven 2026-08-26). The
 listener stays on this box; the bridge ini's `Host` is this box's LAN IP
 (`CHRONICLE_LINUX_LAN_IP`) and the listener binds `0.0.0.0` already.
