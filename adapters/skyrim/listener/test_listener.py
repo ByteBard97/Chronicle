@@ -878,6 +878,89 @@ def test_vendor_markup_endpoint_surfaces_a_severe_grudge_between_named_cast(serv
     assert pairs == [{"holder_id": "nazeem", "target_id": "ysolda", "markup_multiplier": 1.4375}]
 
 
+def test_vendor_markup_endpoint_surfaces_a_grudge_a_named_cast_vendor_holds_against_the_player(
+    server_factory, tmp_path, monkeypatch
+):
+    """The ONLY pair the game side ever acts on.
+
+    `adapters/skyrim/ChronicleBridge/src/VendorMarkupCache.cpp` (line 24,
+    `kPlayerTargetId`) keeps only `target_id == "the_player"` rows out of
+    this endpoint's response -- an NPC-to-NPC markup pair has no
+    barter-menu meaning at all. So a player-directed pair must be served,
+    even though "the_player" is not (and must never be) in
+    NAMED_CAST_NPC_IDS. The holder still has to be named-cast: it is the
+    vendor whose in-game actor reference the price write resolves.
+    """
+    run_id = "listener-test-vendor-markup-player-run"
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=run_id,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(ScheduleBlock(npc_id="adrianne_avenicci", location_id="whiterun_market", start_tick=0, end_tick=1000),),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.run(0, 5)
+    relationship = driver.form_relationship(
+        id="r1", from_id="adrianne_avenicci", to_id="the_player",
+        basis="colocation", basis_id=None, strength=0.9, gamets=5.0,
+    )
+    driver.form_grudge(
+        id="g1", holder_id="adrianne_avenicci", victim_id="the_player", target_id="the_player",
+        grievance_type="theft", source_belief_id="belief-adrianne-player",
+        evidentiary_strength=0.9, relationship_to_victim=relationship, gamets=5.0,
+        forgiveness_threshold=0.2,
+    )
+    driver.run(5, 6)
+    driver.close()
+
+    post = server_factory(live_run=run_id)
+    status, body = post.get("/whiterun/vendor-markup")
+    assert status == 200
+    assert json.loads(body) == [
+        {"holder_id": "adrianne_avenicci", "target_id": "the_player", "markup_multiplier": 1.4375}
+    ]
+
+
+def test_vendor_markup_endpoint_still_drops_a_grudge_a_non_named_cast_holder_holds_against_the_player(
+    server_factory, tmp_path, monkeypatch
+):
+    """The player exemption widens the TARGET side only. A holder outside
+    NAMED_CAST_NPC_IDS has no resolvable in-game actor reference for the
+    price write, so its pairs stay filtered out exactly as before."""
+    run_id = "listener-test-vendor-markup-unnamed-holder-run"
+    monkeypatch.setenv("CHRONICLE_RUNS_DIR", str(tmp_path))
+    driver = Driver(
+        run_id=run_id,
+        seed_id=_SEED,
+        save_uuid=_SAVE_UUID,
+        generation=0,
+        schedule=(ScheduleBlock(npc_id="whiterun_guard_04", location_id="whiterun_market", start_tick=0, end_tick=1000),),
+        encounter_probability=0.0,
+        runs_dir=tmp_path,
+    )
+    driver.run(0, 5)
+    relationship = driver.form_relationship(
+        id="r1", from_id="whiterun_guard_04", to_id="the_player",
+        basis="colocation", basis_id=None, strength=0.9, gamets=5.0,
+    )
+    driver.form_grudge(
+        id="g1", holder_id="whiterun_guard_04", victim_id="the_player", target_id="the_player",
+        grievance_type="theft", source_belief_id="belief-guard-player",
+        evidentiary_strength=0.9, relationship_to_victim=relationship, gamets=5.0,
+        forgiveness_threshold=0.2,
+    )
+    driver.run(5, 6)
+    driver.close()
+
+    post = server_factory(live_run=run_id)
+    status, body = post.get("/whiterun/vendor-markup")
+    assert status == 200
+    assert json.loads(body) == []
+
+
 def test_vendor_markup_endpoint_is_idempotent_on_a_second_immediate_poll(server_factory, grudge_run):
     post = server_factory(live_run=_GRUDGE_RUN)
     first_status, first_body = post.get("/whiterun/vendor-markup")

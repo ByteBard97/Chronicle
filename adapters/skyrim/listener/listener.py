@@ -204,6 +204,17 @@ NAMED_CAST_NPC_IDS = frozenset(
     }
 )
 
+# The player-as-an-actor identity, this project's established convention
+# (chronicle/fixtures/north_star.py's KILLER = "the_player"). Deliberately
+# NOT a member of NAMED_CAST_NPC_IDS -- the player is not an NPC and has no
+# IdentityMap.cpp row -- but it IS a legitimate `target_id` on the
+# /whiterun/vendor-markup route specifically: adapters/skyrim/
+# ChronicleBridge/src/VendorMarkupCache.cpp (kPlayerTargetId, line 24)
+# keeps ONLY pairs with target_id == "the_player" out of that endpoint's
+# response, since a vendor's markup toward some other NPC has no
+# barter-menu meaning. See _vendor_markup_pairs.
+PLAYER_ID = "the_player"
+
 _write_lock = threading.Lock()
 
 # adapters/skyrim/listener/listener.py -> repo root, three parents up.
@@ -672,7 +683,8 @@ def _vendor_markup_pairs(
     live_run: str, pair_states: dict[tuple[str, str], _VendorMarkupPairState]
 ) -> list[dict[str, object]]:
     """Compute changed (holder, target, markup_multiplier) pairs for the
-    live run's named-cast grudges.
+    live run's grudges held BY a named-cast NPC (the vendor), against
+    either another named-cast NPC or the player (`PLAYER_ID`).
 
     Directed, mirroring `_hydration_pairs` exactly (one entry per grudge,
     keyed on (holder_id, target_id), never canonicalized) rather than
@@ -691,7 +703,17 @@ def _vendor_markup_pairs(
 
     changed: list[dict[str, object]] = []
     for grudge in state.social.grudges():
-        if grudge.holder_id not in NAMED_CAST_NPC_IDS or grudge.target_id not in NAMED_CAST_NPC_IDS:
+        # This route's filter is deliberately wider on the target side than
+        # hydration's/avoidance's: `PLAYER_ID` is an accepted `target_id`
+        # here and nowhere else. VendorMarkupCache.cpp keeps only
+        # target_id == "the_player" rows, so a named-cast-on-both-sides
+        # filter would leave the game side permanently unservable -- every
+        # pair it can act on would be dropped here first. The holder must
+        # still be named-cast: it is the vendor whose in-game actor
+        # reference the price write has to resolve.
+        if grudge.holder_id not in NAMED_CAST_NPC_IDS:
+            continue
+        if grudge.target_id not in NAMED_CAST_NPC_IDS and grudge.target_id != PLAYER_ID:
             continue
         multiplier = markup_multiplier_for(grudge, at_gamets=at_gamets)
         key = (grudge.holder_id, grudge.target_id)

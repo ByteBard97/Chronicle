@@ -103,6 +103,22 @@ NPC-to-NPC markup pairs, which have no barter-menu meaning at all) —
 name this filter explicitly when that spike is built, don't assume the
 whole response array is player-relevant.
 
+**Correction (2026-08-28) to the "only real gap" sentence above — it was
+incomplete, and the missing half was a live bug.** Fixtures were not the
+only thing standing between a player-directed grudge and the barter
+menu: `adapters/skyrim/listener/listener.py`'s `_vendor_markup_pairs`
+dropped any grudge whose `holder_id` **or** `target_id` was outside
+`NAMED_CAST_NPC_IDS`, copied verbatim from the hydration/avoidance
+routes. Since `VendorMarkupCache.cpp` keeps only `target_id ==
+"the_player"` rows, and `"the_player"` is not (and must not be) in that
+frozenset, the two filters had an empty intersection — the game side
+could never be served a single actionable pair, no matter what the
+fixtures seeded. Fixed on the vendor-markup route only: `target_id` may
+now be `"the_player"` (`listener.PLAYER_ID`) as well as a named-cast id.
+The holder-side requirement is unchanged and deliberate — the holder is
+the vendor whose in-game actor reference the price write must resolve.
+Hydration, avoidance, and evidence keep the strict both-sides filter.
+
 Original design proposal follows, unchanged except where noted above:
 design proposal for a Python-only first cut, mirroring
 `docs/design/chronicle-bridge-hydration-out.md`/`chronicle-bridge-
