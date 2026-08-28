@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chronicle — Architecture &amp; Behavior Diagrams</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #11161d;
+    --border: #2a3140;
+    --text: #e6edf3;
+    --muted: #9aa7b6;
+    --link: #7fb3ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 5rem;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 1rem;
+  }
+  header img {
+    height: 64px;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--muted);
+    margin-top: 0.25rem;
+    margin-bottom: 2.5rem;
+  }
+  .subtitle a { color: var(--link); }
+  h2 {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+    margin-top: 3rem;
+  }
+  p.caption {
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .diagram {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin: 1.25rem 0;
+    overflow-x: auto;
+  }
+  .diagram .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+  code {
+    background: #1b222c;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+  footer {
+    margin-top: 4rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  footer a { color: var(--link); }
+  .swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    vertical-align: middle;
+    margin: 0 0.3rem 0 0.9rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <img src="assets/chronicle-title-light.svg" alt="Chronicle">
+</header>
+<p class="subtitle">
+  Architecture &amp; behavior diagrams — a companion to the
+  <a href="https://github.com/ByteBard97/Chronicle">GitHub repo</a>'s README.
+  See also the <a href="./">docs index</a>.
+</p>
+
+<h2>System architecture</h2>
+<p class="caption">
+  What runs inside the Skyrim process (C++) vs. what runs outside it, natively, as a Python service.
+</p>
+<div class="diagram">
+  <pre class="mermaid">
+flowchart TB
+    ENGINE["Skyrim Engine (base game)"] <--> BRIDGE["ChronicleBridge -- SKSE C++ plugin"]
+    BRIDGE =="HTTP: events in / state out"==> LISTENER
+    BRIDGE --> POS
+
+    subgraph PYTHON["Outside Skyrim"]
+        LISTENER["listener.py (HTTP)"] --> CORE["chronicle/ engine"] --> LOG["Frame log (JSONL)"]
+    end
+    LOG --> DASH["dashboard (Vue) -- debug UI"]
+
+    subgraph MECH["Game-side mechanisms"]
+        direction TB
+        POS["Position Streamer -- live NPC coords"] ~~~ HYD["Hydration Poller -- writes grudge as rank"] ~~~ AVOID["Avoidance Poller -- flips AI-package flag"] ~~~ VEND["Vendor Price Hook -- marks up barter price"] ~~~ EVID["Evidence Poller -- spawns object from a belief"]
+    end
+    MECH -- "writes back into game state" --> ENGINE
+
+    classDef ingame fill:#fdf6d8,stroke:#c9b458,color:#4a3f1a;
+    classDef host fill:#e6e9f7,stroke:#8892c9,color:#22254a;
+    classDef debug fill:#f3e6f7,stroke:#a888c9,color:#3a2245;
+    class ENGINE,BRIDGE,POS,HYD,AVOID,VEND,EVID ingame
+    class LISTENER,CORE,LOG host
+    class DASH debug
+    style PYTHON stroke-dasharray: 6 4,fill:none,stroke:#8892c9
+    style MECH stroke-dasharray: 6 4,fill:none,stroke:#c9b458
+  </pre>
+</div>
+<p class="caption">
+  <span class="swatch" style="background:#fdf6d8;border:1px solid #c9b458;"></span>the mod: Skyrim engine + ChronicleBridge (C++)
+  <span class="swatch" style="background:#e6e9f7;border:1px solid #8892c9;"></span>the service: native Python, outside the game
+  <span class="swatch" style="background:#f3e6f7;border:1px solid #a888c9;"></span>the dashboard: Vue debugging UI
+</p>
+<p class="caption">
+  The mechanisms are all built and compiled, but none has been confirmed working against a live, running game yet.
+</p>
+
+<h2>How a rumor spreads and mutates</h2>
+<p class="caption">
+  Gossip travels only through sampled encounters (shared location + schedule overlap), never a broadcast.
+  Each retelling can mutate one detail and always loses some confidence.
+</p>
+<div class="diagram">
+  <pre class="mermaid">
+sequenceDiagram
+    participant World as Game event
+    participant A as NPC A (witness)
+    participant B as NPC B
+    participant C as NPC C
+    World->>A: crime witnessed / NPC death
+    Note right of A: forms a Claim + Belief (confidence + strength)
+    Note over A,B: encounter sampled: shared location, probability roll
+    A->>B: tells the claim (tell-probability gate)
+    Note right of B: hears it -- may mutate one slot
+    Note over B,C: later encounter, different location
+    B->>C: retells it -- confidence decays another hop
+    Note right of C: forms its own belief: weaker, possibly mutated
+  </pre>
+</div>
+
+<h2>How a rumor ages: heard, repeated, dormant, forgotten</h2>
+<p class="caption">
+  <code>Dormant</code> means ~45 game-days with no retelling. <code>Forgotten</code> fires independently,
+  whenever the underlying belief's gist strength decays past its floor, whichever stage it happens to be in.
+</p>
+<div class="diagram">
+  <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Heard: first exposure
+    Heard --> Repeated: retells it
+    Repeated --> Repeated: retold again
+    Heard --> Dormant: goes quiet
+    Repeated --> Dormant: goes quiet
+    Dormant --> Repeated: retold again
+    Heard --> Forgotten: gist decays out
+    Repeated --> Forgotten: gist decays out
+    Dormant --> Forgotten: gist decays out
+    Forgotten --> [*]
+  </pre>
+</div>
+
+<h2>How a grudge turns into visible avoidance</h2>
+<p class="caption">
+  Grudges decay continuously rather than clearing instantly, so a fresh harm and a genuinely-forgiven one
+  behave differently even at the same raw severity. <code>Avoiding</code> fires once decayed severity crosses
+  a threshold; <code>Cooled</code> fires once it decays below a separate, lower forgiveness floor.
+</p>
+<div class="diagram">
+  <pre class="mermaid">
+stateDiagram-v2
+    [*] --> NoGrudge
+    NoGrudge --> Grudge: harm occurs
+    Grudge --> Avoiding: crosses threshold
+    Avoiding --> Grudge: drops back down
+    Grudge --> Cooled: fully forgiven
+    Avoiding --> Cooled: fully forgiven
+    Cooled --> Grudge: new harm
+    Cooled --> [*]
+  </pre>
+</div>
+<p class="caption">
+  <code>Avoiding</code> is what a live game session would show as visible behavior — two NPCs breaking off
+  their usual routine to keep apart — driven purely by decayed grudge severity, no scripting involved.
+</p>
+
+<footer>
+  Chronicle is a work in progress. See the <a href="https://github.com/ByteBard97/Chronicle">repository</a>
+  for source, or the <a href="./">docs index</a> for the full design/decision record.
+</footer>
+
+</div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "dark",
+    securityLevel: "loose",
+    flowchart: { subGraphTitleMargin: { top: 12, bottom: 12 } }
+  });
+</script>
+</body>
+</html>
