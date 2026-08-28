@@ -53,25 +53,22 @@ theme:
   name: material
   icon:
     logo: material/book-open-page-variant
+  # Dark (slate) is the default for new visitors -- no `media` key on
+  # this first entry, so it applies unconditionally until the reader
+  # picks something else, rather than following OS preference.
   palette:
-    - media: "(prefers-color-scheme)"
+    - scheme: slate
+      primary: indigo
+      accent: indigo
       toggle:
-        icon: material/brightness-auto
+        icon: material/brightness-4
         name: Switch to light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
+    - scheme: default
       primary: indigo
       accent: indigo
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-4
-        name: Switch to system preference
   features:
     - navigation.instant
     - navigation.tracking
@@ -80,6 +77,7 @@ theme:
     - navigation.footer
     - content.code.copy
     - content.action.edit
+    - content.lightbox
     - toc.follow
     - search.suggest
     - search.highlight
@@ -112,6 +110,12 @@ markdown_extensions:
 plugins:
   - search
   - include-markdown
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mermaid-zoom.js
 
 extra:
   social:

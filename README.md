@@ -37,19 +37,20 @@ possible to test, replay, and inspect the whole simulation without ever
 launching Skyrim.
 
 ```mermaid
+%%{init: {'flowchart': {'subGraphTitleMargin': {'top': 18, 'bottom': 12}}}}%%
 flowchart TB
-    ENGINE["Skyrim Engine (base game)"] <--> BRIDGE["ChronicleBridge -- SKSE C++ plugin"]
+    ENGINE["<span style='color:#4a3f1a'>Skyrim Engine (base game)</span>"] <--> BRIDGE["<span style='color:#4a3f1a'>ChronicleBridge -- SKSE C++ plugin</span>"]
     BRIDGE =="HTTP: events in / state out"==> LISTENER
     BRIDGE --> POS
 
     subgraph PYTHON["Outside Skyrim"]
-        LISTENER["listener.py (HTTP)"] --> CORE["chronicle/ engine"] --> LOG["Frame log (JSONL)"]
+        LISTENER["<span style='color:#22254a'>listener.py (HTTP)</span>"] --> CORE["<span style='color:#22254a'>chronicle/ engine</span>"] --> LOG["<span style='color:#22254a'>Frame log (JSONL)</span>"]
     end
-    LOG --> DASH["dashboard (Vue) -- debug UI"]
+    LOG --> DASH["<span style='color:#3a2245'>dashboard (Vue) -- debug UI</span>"]
 
     subgraph MECH["Game-side mechanisms"]
         direction TB
-        POS["Position Streamer -- live NPC coords"] ~~~ HYD["Hydration Poller -- writes grudge as rank"] ~~~ AVOID["Avoidance Poller -- flips AI-package flag"] ~~~ VEND["Vendor Price Hook -- marks up barter price"] ~~~ EVID["Evidence Poller -- spawns object from a belief"]
+        POS["<span style='color:#4a3f1a'>Position Streamer -- live NPC coords</span>"] ~~~ HYD["<span style='color:#4a3f1a'>Hydration Poller -- writes grudge as rank</span>"] ~~~ AVOID["<span style='color:#4a3f1a'>Avoidance Poller -- flips AI-package flag</span>"] ~~~ VEND["<span style='color:#4a3f1a'>Vendor Price Hook -- marks up barter price</span>"] ~~~ EVID["<span style='color:#4a3f1a'>Evidence Poller -- spawns object from a belief</span>"]
     end
     MECH -- "writes back into game state" --> ENGINE
 
@@ -62,6 +63,13 @@ flowchart TB
     style PYTHON stroke-dasharray: 6 4,fill:none,stroke:#8892c9
     style MECH stroke-dasharray: 6 4,fill:none,stroke:#c9b458
 ```
+
+*Node label colors are set inline in the diagram source (not via
+`classDef`'s own `color:`, which modern Mermaid doesn't reliably apply to
+HTML-rendered labels) because Material renders each diagram inside a
+closed shadow root -- page-level CSS, `!important` or not, structurally
+cannot reach inside it. Verified by reading Material's own bundled JS
+(`attachShadow({mode:"closed"})`) rather than guessing after the fact.*
 
 The mechanisms are all built and compiled, but none has been confirmed
 working against a live, running game yet — see Project status below.

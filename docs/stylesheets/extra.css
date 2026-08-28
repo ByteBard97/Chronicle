@@ -1,0 +1,56 @@
+/* Mermaid node-label contrast: NOT fixed here.
+ *
+ * Material renders every Mermaid diagram inside a CLOSED shadow root
+ * (verified in Material's own bundled JS: `attachShadow({mode:
+ * "closed"})`). No page-level CSS -- `!important` or not, any selector
+ * -- can reach `.nodeLabel` inside it; a rule here attempting that is a
+ * silent no-op, not a weaker fix. The actual fix lives in the diagram
+ * source itself (README.md's "How it works" mermaid block uses inline
+ * `<span style="color:...">` on each node label instead of relying on
+ * classDef's `color:`, which modern Mermaid doesn't reliably apply to
+ * HTML-rendered labels either). Documented here so the next person
+ * doesn't try the CSS route again and wonder why it does nothing.
+ */
+
+/* Click-to-zoom for Mermaid diagrams (docs/javascripts/mermaid-zoom.js).
+ *
+ * Because the rendered SVG is sealed in that same closed shadow root,
+ * the script cannot read or style anything inside `.mermaid` directly
+ * -- every rule below targets `.mermaid.mermaid-zoomed` (the host
+ * element itself, never a descendant like "svg" or ".node") plus a
+ * separate `.mermaid-zoom-backdrop` element the script creates in the
+ * plain light DOM. The host's own transform still governs how its
+ * shadow content is painted, so scaling the HOST zooms the diagram
+ * without ever needing to reach its internals.
+ */
+.mermaid {
+  cursor: zoom-in;
+}
+
+.mermaid-zoom-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.75);
+  cursor: zoom-out;
+}
+
+body.mermaid-zoom-active {
+  overflow: hidden;
+}
+
+.mermaid.mermaid-zoomed {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 1000;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 1.5rem;
+  background: var(--md-default-bg-color);
+  border-radius: 0.2rem;
+  cursor: zoom-out;
+  transform: translate(-50%, -50%) scale(1.6);
+  transform-origin: center;
+}
