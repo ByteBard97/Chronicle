@@ -218,6 +218,43 @@ listener stays on this box; the bridge ini's `Host` is this box's LAN IP
 `ChronicleBridge.log` is `scp`'d to the scratch dir before every read
 (`BridgeLog(refresh=...)`).
 
+### 2.7 Windows first-run (2026-08-28): milestone + native CTD blocker
+
+First real run of ChronicleBridge in a live game, ever. Path taken:
+mirrored `~/Games/ChronicleDev` → `C:\ChronicleDev` (12.5 GB, correct
+1.6.1170 exe verified by hash), rewrote `ModOrganizer.ini` paths.
+
+**MO2 dead end:** MO2 2.5.2 fails to spawn `skse64_loader.exe` with
+`Error 5 ERROR_ACCESS_DENIED` (usvfs-hooked CreateProcess), while it
+spawns `SkyrimSE.exe` fine — loader-specific, not fixed by unblock /
+Defender exclusions / elevation. Pivoted to a **loose-files** deploy
+(each enabled mod's Data copied into `Stock Game\Data`) launched by the
+loader directly via a triggerless interactive scheduled task
+(`ChronicleLiveDirect`), no MO2/usvfs.
+
+**Milestone reached:** direct loader launches **SkyrimSE 1.6.1170**
+(`procPath` = Stock Game, `dll = skse64_1_6_1170.dll`), SKSE loads
+**ChronicleBridge.dll "loaded correctly"** alongside devbench/
+CrashLogger/PapyrusUtil/po3, and **DevBench `/api/health` answers from
+Linux over `ssh -L 8920`**. M3's "does the bridge run in a real game"
+is proven yes.
+
+**Blocker (open):** the base game CTDs deterministically ~4s into load,
+`EXCEPTION_ACCESS_VIOLATION` at `SkyrimSE.exe+01D74A0` in `InitTESThread`
+(`PLUGINS: 0`), **with ChronicleBridge removed too** — so it's the
+native base-game load, not our code. The instance's `Data` is
+byte-equivalent (BSA/esm sizes) to the Linux instance that runs fine
+under Proton to Whiterun, so the difference is the native runtime/launch
+context (Steam DRM handshake outside Steam's own launch, or an ini/
+dependency Proton supplies). Not yet root-caused. Fixes on the table:
+(a) debug the native launch (unknown depth); (b) downgrade the box's
+Steam copy to 1.6.1170 and launch through Steam proper (full DRM/runtime
+context) with auto-update disabled; (c) run on the Linux instance —
+which already reaches Whiterun end-to-end — behind a second headless X
+display (`:2`) so it never touches the desktop. (c) is lowest-risk to a
+green run; owner's call, since it trades the desktop GPU vs. Windows
+debugging time.
+
 ### 2.5 AE upsell popup suppression
 
 Research (2026-08-28, four agents + source inspection) found **no mod
