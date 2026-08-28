@@ -1,4 +1,7 @@
-# Chronicle
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/chronicle-title-light.svg">
+  <img src="docs/assets/chronicle-title-dark.svg" alt="Chronicle" height="80">
+</picture>
 
 ![status](https://img.shields.io/badge/status-v0.1%20done%2C%20v0.2%20bridge%20building-blue)
 ![python](https://img.shields.io/badge/python-3.12%2B-blue)
