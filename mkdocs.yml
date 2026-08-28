@@ -1,0 +1,119 @@
+site_name: Chronicle
+site_description: A world that remembers -- reactive social simulation for Skyrim SE/AE.
+site_url: https://bytebard97.github.io/Chronicle/
+repo_url: https://github.com/ByteBard97/Chronicle
+repo_name: ByteBard97/Chronicle
+edit_uri: edit/master/docs/
+
+docs_dir: docs
+strict: true
+
+# Deliberately excluded from the published site (not deleted, still in the
+# repo): work-packets/ is internal multi-agent lane-coordination process log
+# (commit hashes, coordinator rulings), not documentation; loop-playbook.md
+# is the same category for autonomous-loop sessions. README.md is the
+# pre-site file index, superseded by nav below. vision.md/vision-v2.1.md
+# are explicitly superseded historical drafts (see vision-v2.2.md) -- kept
+# in the repo for history, not worth publishing/indexing as current.
+exclude_docs: |
+  work-packets/
+  loop-playbook.md
+  README.md
+  vision.md
+  vision-v2.1.md
+
+nav:
+  - Home: index.md
+  - Architecture:
+      - Overview: architecture.md
+      - Vision & north star: vision-v2.2.md
+      - Scenario ladder: scenario-ladder.md
+      - v0.1 spec: v0.1-spec.md
+  - Skyrim bridge:
+      - Overview: skyrim-bridge.md
+      - Verification runbook: design/chronicle-bridge-verification-runbook.md
+      - Next phases (working plan): design/next-phases-2026-08.md
+  - Decisions (ADRs):
+      - Index & open questions: decisions/open-questions.md
+      - "0001 Service architecture": decisions/0001-external-service-architecture.md
+      - "0002 Event sourcing": decisions/0002-event-sourcing.md
+      - "0003 Substrate choice": decisions/0003-substrate-choice.md
+      - "0004 Timeline branching": decisions/0004-timeline-branching.md
+      - "0005 Sync handshake": decisions/0005-sync-handshake.md
+      - "0006 Data ownership layers": decisions/0006-data-ownership-layers.md
+      - "0007 Inspectability": decisions/0007-inspectability.md
+      - "0008 Game version pin": decisions/0008-game-version-pin.md
+      - "0009 Keyed randomness": decisions/0009-keyed-randomness.md
+      - "0010 Tick quantum": decisions/0010-tick-quantum.md
+  - Research archive:
+      - Index (66 reports): research/00-index.md
+  - Dashboard: dashboard-build-plan.md
+
+theme:
+  name: material
+  icon:
+    logo: material/book-open-page-variant
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+  - include-markdown
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ByteBard97/Chronicle

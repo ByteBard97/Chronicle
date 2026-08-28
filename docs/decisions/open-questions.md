@@ -58,7 +58,7 @@ to one beta/API version**, rated **LOW-MEDIUM RISK**, stronger than the
 MEDIUM RISK rating with SkyrimNet as primary. See
 [ADR-0003](0003-substrate-choice.md)'s amendment for the full evidence and
 concrete promotion/drop thresholds. Action item tracked in
-[`notes/ideas.md`](../../notes/ideas.md): ask SkyrimNet's maintainer
+`notes/ideas.md` (repo-local working memory, not part of this site): ask SkyrimNet's maintainer
 directly for a license and continuity statement.
 
 Reports 07 and 09 also independently re-derived the save/reload sync
