@@ -32,22 +32,30 @@ launching Skyrim.
 
 ```mermaid
 flowchart TB
-    GAME["Skyrim game state<br/>NPCs, relationships, cells, inventory"] <--> BRIDGE["ChronicleBridge -- SKSE plugin (C++)<br/>CommonLibSSE-NG"]
-    BRIDGE <=="events in (deaths, crimes, positions)<br/>derived state out (ranks, avoidance, price, evidence)"==> LISTENER["listener.py<br/>HTTP receiver + poll/ack responder"]
-    LISTENER --> CORE["chronicle/ engine<br/>EventLog -&gt; ClaimStore -&gt; SocialStateStore -&gt; Rules -&gt; Driver"] --> LOG["Frame log: runs/RUN_ID/*.jsonl<br/>append-only, replayable"] --> DASH["dashboard/ (Vue)<br/>belief graph, timelines, drill-down"]
-    BRIDGE --> POS["Position streamer"]
-    BRIDGE --> HYD["Hydration poller"]
-    BRIDGE --> AVOID["Avoidance poller"]
-    BRIDGE --> VEND["Vendor price hook"]
-    BRIDGE --> EVID["Evidence poller"]
+    ENGINE["Skyrim Engine (base game)"] <--> BRIDGE["ChronicleBridge -- SKSE C++ plugin"]
+    BRIDGE --> POS["Position Streamer"]
+    BRIDGE --> HYD["Hydration Poller"]
+    BRIDGE --> AVOID["Avoidance Poller"]
+    BRIDGE --> VEND["Vendor Price Hook"]
+    BRIDGE --> EVID["Evidence Poller"]
+
+    BRIDGE =="HTTP: events in / state out"==> LISTENER
+
+    subgraph PYTHON["Outside Skyrim"]
+        LISTENER["listener.py (HTTP)"] --> CORE["chronicle/ engine"] --> LOG["Frame log (JSONL)"]
+    end
+    LOG --> DASH["dashboard (Vue) -- debug UI"]
 
     classDef ingame fill:#fdf6d8,stroke:#c9b458,color:#4a3f1a;
     classDef host fill:#e6e9f7,stroke:#8892c9,color:#22254a;
-    class GAME,BRIDGE,POS,HYD,AVOID,VEND,EVID ingame
-    class LISTENER,CORE,LOG,DASH host
+    classDef debug fill:#f3e6f7,stroke:#a888c9,color:#3a2245;
+    class ENGINE,BRIDGE,POS,HYD,AVOID,VEND,EVID ingame
+    class LISTENER,CORE,LOG host
+    class DASH debug
+    style PYTHON stroke-dasharray: 6 4,fill:none,stroke:#8892c9
 ```
 
-🟨 runs inside the Skyrim process (C++) &nbsp;&nbsp; 🟦 runs natively outside the game (Python)
+🟨 the mod: Skyrim engine + the ChronicleBridge SKSE plugin (C++) &nbsp;&nbsp; 🟦 the service: native Python, outside the game &nbsp;&nbsp; 🟪 the dashboard: Vue debugging UI, reads the service's logs
 
 Everything under `chronicle/` never imports anything Skyrim-specific —
 it would run the exact same way against a different game entirely. The
@@ -66,28 +74,32 @@ sequenceDiagram
     participant B as NPC B
     participant C as NPC C
     World->>A: crime witnessed / NPC death
-    A->>A: forms a Claim + Belief<br/>(confidence, verbatim/gist strength)
+    Note right of A: forms a Claim + Belief (confidence + strength)
     Note over A,B: encounter sampled: shared location, probability roll
     A->>B: tells the claim (tell-probability gate)
-    B->>B: hears it -- may mutate one slot
+    Note right of B: hears it -- may mutate one slot
     Note over B,C: later encounter, different location
     B->>C: retells it -- confidence decays another hop
-    C->>C: forms its own belief:<br/>weaker, possibly a mutated variant
+    Note right of C: forms its own belief: weaker, possibly mutated
 ```
 
 ### How a rumor ages: heard, repeated, dormant, forgotten
 
+`Dormant` means ~45 game-days with no retelling; `Forgotten` fires
+independently, whenever the underlying belief's gist strength decays
+past its floor, whichever stage it happens to be in:
+
 ```mermaid
 stateDiagram-v2
-    [*] --> Heard: witnessed or told for the first time
-    Heard --> Repeated: NPC retells it to someone else
-    Repeated --> Repeated: retold again (variant may drift further)
-    Heard --> Dormant: ~45 game-days with no activity
-    Repeated --> Dormant: ~45 game-days with no activity
-    Dormant --> Repeated: someone retells it, reactivating the story
-    Heard --> Forgotten: underlying belief's gist decays past the floor
-    Repeated --> Forgotten: underlying belief's gist decays past the floor
-    Dormant --> Forgotten: underlying belief's gist decays past the floor
+    [*] --> Heard: first exposure
+    Heard --> Repeated: retells it
+    Repeated --> Repeated: retold again
+    Heard --> Dormant: goes quiet
+    Repeated --> Dormant: goes quiet
+    Dormant --> Repeated: retold again
+    Heard --> Forgotten: gist decays out
+    Repeated --> Forgotten: gist decays out
+    Dormant --> Forgotten: gist decays out
     Forgotten --> [*]
 ```
 
@@ -95,17 +107,19 @@ stateDiagram-v2
 
 Grudges decay continuously rather than clearing instantly, so a fresh
 harm and a genuinely-forgiven one behave differently even at the same
-raw severity:
+raw severity. `Avoiding` fires once decayed severity crosses a
+threshold; `Cooled` fires once it decays below a separate, lower
+forgiveness floor:
 
 ```mermaid
 stateDiagram-v2
     [*] --> NoGrudge
-    NoGrudge --> Grudge: harm suffered/witnessed by someone with a relationship to the victim
-    Grudge --> Avoiding: decayed severity crosses the avoidance threshold
-    Avoiding --> Grudge: decayed severity falls back below threshold (still unforgiven)
-    Grudge --> Cooled: decayed severity drops below the forgiveness floor
-    Avoiding --> Cooled: decayed severity drops below the forgiveness floor
-    Cooled --> Grudge: a new harm re-forms the grudge from scratch
+    NoGrudge --> Grudge: harm occurs
+    Grudge --> Avoiding: crosses threshold
+    Avoiding --> Grudge: drops back down
+    Grudge --> Cooled: fully forgiven
+    Avoiding --> Cooled: fully forgiven
+    Cooled --> Grudge: new harm
     Cooled --> [*]
 ```
 
