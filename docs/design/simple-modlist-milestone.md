@@ -58,41 +58,92 @@ real extra usage ~0), then stripped and repointed. Own Proton prefix:
 `compatdata/4190904831` (`~/Games/launch-simpleskyrim-skse.sh`, same
 `moshortcut://SKSE` pattern as the other instances).
 
-**Known issue, not yet resolved:** launching through MO2's
-`moshortcut://SKSE` was unreliable this session — sometimes the whole
-MO2 process silently died before spawning anything, for reasons not
-diagnosed (possibly related to the first-run prefix creation race also
-seen with ChronicleDev's own MO2 launch). All verification in this doc
-was done via a **direct `skse64_loader.exe` launch** (bypassing MO2/
-usvfs entirely — `/tmp/direct-launch-simple.sh`, not yet promoted into
-the repo) with mods deployed as **loose files** into `Stock Game/Data`
-rather than through MO2's virtual filesystem. This proves the mod set
-itself is sound; it does not prove MO2 will reliably launch it. Next
-person to pick this up should either (a) debug MO2's launch reliability
-directly (compare against NGVO's/ChronicleDev's working `moshortcut`
-launches, check for a first-run vs warm-run difference), or (b)
-promote the direct-loader + loose-deploy pattern into a proper repo
-script if MO2 turns out not to be worth fighting for a debug-only
-instance.
+**Resolved (2026-08-29):** launching through MO2's `moshortcut://SKSE`
+was unreliable during initial bring-up — sometimes the whole MO2
+process silently died before spawning anything, for reasons never
+diagnosed. Rather than fight MO2 for a debug-only instance, the
+direct-loader + loose-deploy pattern was promoted into the repo as
+this instance's real management method:
 
-## What's still loose-deployed vs MO2-managed
+- **`tools/launch-simpleskyrim-direct.sh`** — invokes
+  `skse64_loader.exe` directly through Proton, bypassing MO2/usvfs
+  entirely. Promoted from the session's throwaway
+  `/tmp/direct-launch-simple.sh`.
+- **`tools/deploy-simpleskyrim-loose.sh`** — reads
+  `profiles/Default/modlist.txt`'s `+`/`-` lines (MO2's own enabled-mod
+  bookkeeping) and rsyncs each enabled mod folder's content into
+  `Stock Game/Data`, honoring MO2 priority order (top wins) and its
+  `Root/` convention (deploys to the game root, not `Data/`, for SKSE's
+  loader/DLL). Idempotent and re-runnable.
 
-Everything currently in `Stock Game/Data` was copied there by hand
-during this session's testing (see the loose-deploy commands in this
-session's transcript) to work around the MO2 launch issue above. The
-MO2 mod folders under `~/Games/SimpleSkyrim/mods/` and `profiles/
-Default/modlist.txt`/`plugins.txt` were kept roughly in sync but are
-**not the source of truth right now** — the loose `Data/` files are.
-Before trusting MO2 again for this instance, reconcile: either clear
-`Data/` back to vanilla and prove MO2 deploys the same set correctly,
-or accept the loose-file approach as the instance's actual management
-method and update `modlist.txt` to match reality (or drop it/document
-it as unused).
+Running the deploy script for the first time caught real drift:
+`modlist.txt` still marked ChronicleBridge, ChroniclePatcherOutput,
+SkyUI, PapyrusUtil, po3, and USSEP as **disabled**, even though all six
+were part of the proven 140s stable run. `modlist.txt` has been
+corrected to `+` all six (EngineFixes and the CC-AE-Content quarantine
+folder stay `-`), so it is now the **single source of truth** for what
+this instance runs — the "loose Data files vs MO2 bookkeeping" split
+described below is resolved.
+
+## Mod state: reconciled
+
+`profiles/Default/modlist.txt` is authoritative. `Stock Game/Data` is
+a *build artifact* of `tools/deploy-simpleskyrim-loose.sh`, not
+hand-maintained state — re-run the script after enabling/disabling a
+mod there (it does not remove files for mods you disable; clear
+`Data/` or re-clone `Stock Game` from a clean baseline first if you
+need a disabled mod's files gone, not just inactive).
+
+## Live-test harness, pointed at this instance
+
+`adapters/skyrim/livetest/targets.py` now has a `SimpleLocalTarget`
+(`CHRONICLE_LIVE_TARGET=simple`), alongside the existing `local`
+(ChronicleDev/MO2) and `windows` targets. It targets the loose
+`Stock Game/Data` layout directly and asserts the unattended-launch
+ini keys into the Proton prefix's real `Skyrim.INI` (under
+`Documents/My Games/Skyrim Special Edition/`, not MO2's
+`profiles/Default/skyrim.ini` — that file is irrelevant to a
+direct-loader launch) — confirmed by diff to differ from the MO2
+profile copy and to be missing the unattended keys before the harness
+asserts them:
+
+```
+CHRONICLE_LIVE=1 CHRONICLE_LIVE_TARGET=simple CHRONICLE_LIVE_LOCAL_OK=1 \
+  uv run --with pydantic --with pytest pytest adapters/skyrim/livetest -rA -x
+```
+
+Run against a real launch on 2026-08-29 — the harness's 16 tests had
+never once executed against a live game before this. Result: **7/16
+passed** before stopping on the first failure (`-x`):
+
+- Slice 00 (load/startup, 4 tests) and slice 10 (spatial streamer
+  positions, 3 tests, including named-cast identity + engine-position
+  match for `nazeem`) all passed clean.
+- Slice 20 (`test_console_kill_produces_npc_died`) **failed**: killing
+  `brenuin` (`prid 0002C90F` + `kill`) via DevBench's fire-and-forget
+  console never produced a matching `npc_died` event within 20s.
+  Notably, an *unrelated* actor (`Skyrim.esm:0c97d2` — not in the named
+  cast, likely wildlife/an ambient NPC near the Whiterun exterior spawn)
+  **did** die and post correctly at tick 8, right after `coc whiterun`
+  — twice, back-to-back at the same tick (`seq=0` and `seq=1`, ~45ms
+  apart, same `npc_id`), suggesting `DeathEventSink` may double-fire
+  for a single death. So `DeathEventSink`/the HTTP path clearly work;
+  the console-driven `kill` on `brenuin` specifically didn't land.
+  Leading hypothesis, not yet confirmed: `console()` is "fire-and-forget"
+  (`devbench.py`'s own docstring warns the console hasn't necessarily
+  drained when `exec` returns) and the test's `prid` → `sleep(0.5)` →
+  `kill` sequence may be racing DevBench's internal command queue even
+  outside the documented capture-marker race. Next step: rerun slice 20
+  alone with `console_capture()` on both commands to see the game's own
+  console echo and confirm whether `prid` actually selected brenuin
+  before `kill` fired, rather than guessing further.
+
+Not chased further this session to avoid burning additional live-game
+launch cycles without a concrete lead — this is the next real,
+reproducible bug for whoever continues live-suite work.
 
 ## Next mods to add (per the original ask: "quality of life... anything
 that could help us debug it")
 
 Not yet added, candidates for the next pass: a save-cleaning/testing
-QoL mod, a console command enhancer (if any beyond vanilla), and
-whatever the live-test harness (`docs/design/live-test-harness.md`)
-needs once it's pointed at this instance instead of ChronicleDev.
+QoL mod and a console command enhancer (if any beyond vanilla).

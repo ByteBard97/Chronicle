@@ -131,6 +131,121 @@ class LocalProtonTarget:
         pass
 
 
+# --- local direct-loader instance (SimpleSkyrim) ----------------------------
+
+
+@dataclass
+class SimpleLocalTarget:
+    """SimpleSkyrim: skse64_loader.exe launched directly, bypassing MO2/usvfs.
+
+    Unlike ``LocalProtonTarget`` (an MO2 ``moshortcut://`` launch against
+    ChronicleDev), this instance's mods are deployed as loose files into
+    ``Stock Game/Data`` by ``tools/deploy-simpleskyrim-loose.sh`` -- MO2's own
+    virtual filesystem and ``profiles/Default/skyrim.ini`` are not part of the
+    runtime path, so the config the game actually reads lives in the Proton
+    prefix's real Documents folder. See docs/design/simple-modlist-milestone.md.
+    """
+
+    name: str = "simple"
+    devbench_url: str = "http://127.0.0.1:8920"
+    instance: Path = Path.home() / "Games" / "SimpleSkyrim"
+    launch_script: Path = REPO_ROOT / "tools" / "launch-simpleskyrim-direct.sh"
+    deploy_script: Path = REPO_ROOT / "tools" / "deploy-simpleskyrim-loose.sh"
+    prefix_docs: Path = (
+        Path.home()
+        / ".local/share/Steam/steamapps/compatdata/4190904831/pfx/drive_c/users/steamuser/Documents/My Games"
+    )
+    proc: subprocess.Popen | None = None
+    _ini_backup: Path | None = None
+
+    @property
+    def data_dir(self) -> Path:
+        return self.instance / "Stock Game" / "Data"
+
+    @property
+    def plugin_dir(self) -> Path:
+        return self.data_dir / "SKSE" / "Plugins"
+
+    @property
+    def ini_path(self) -> Path:
+        return self.plugin_dir / "ChronicleBridge.ini"
+
+    @property
+    def skyrim_ini_path(self) -> Path:
+        # Real game config the direct loader reads -- NOT profiles/Default/skyrim.ini,
+        # which only applies under an MO2-mediated launch.
+        return self.prefix_docs / "Skyrim Special Edition" / "Skyrim.INI"
+
+    def preflight(self) -> list[str]:
+        problems = []
+        if os.environ.get("CHRONICLE_LIVE_LOCAL_OK") != "1":
+            problems.append("local target needs CHRONICLE_LIVE_LOCAL_OK=1 -- the owner said not to launch Skyrim on this box (memory 2026-08-28)")
+        for label, path in (
+            ("launch script", self.launch_script),
+            ("deploy script", self.deploy_script),
+            ("ChronicleBridge.dll", self.plugin_dir / "ChronicleBridge.dll"),
+            ("ChroniclePatcher.esp", self.data_dir / "ChroniclePatcher.esp"),
+            ("devbench.dll", self.plugin_dir / "devbench.dll"),
+            ("skse64_loader.exe", self.instance / "Stock Game" / "skse64_loader.exe"),
+        ):
+            if not path.exists():
+                problems.append(f"{label} missing: {path}")
+        modlist = self.instance / "profiles" / "Default" / "modlist.txt"
+        if modlist.exists() and any(line.strip() == "+EngineFixes" for line in modlist.read_text().splitlines()):
+            problems.append("EngineFixes enabled in modlist.txt -- hangs SKSE plugin load without its preloader")
+        if self.game_running():
+            problems.append("SkyrimSE.exe already running")
+        return problems
+
+    def listener_host(self) -> str:
+        return "127.0.0.1"
+
+    def write_bridge_ini(self, text: str) -> None:
+        if self.ini_path.exists():
+            self._ini_backup = self.ini_path.with_suffix(".ini.livetest-backup")
+            shutil.copy2(self.ini_path, self._ini_backup)
+        self.ini_path.write_text(text)
+
+    def restore_bridge_ini(self) -> None:
+        if self._ini_backup and self._ini_backup.exists():
+            shutil.move(self._ini_backup, self.ini_path)
+        elif self.ini_path.exists():
+            self.ini_path.unlink()
+
+    def launch(self, log: Path) -> None:
+        changes = assert_keys_in_file(self.skyrim_ini_path)
+        log.open("ab").write(f"[livetest] skyrim.ini: {changes or 'no changes'}\n".encode())
+        self.proc = subprocess.Popen([str(self.launch_script)], cwd=REPO_ROOT, stdout=log.open("ab"), stderr=subprocess.STDOUT)
+
+    def game_running(self) -> bool:
+        return _run(["pgrep", "-f", r"SkyrimSE\.exe"]).returncode == 0
+
+    def kill_game(self) -> None:
+        for pattern in (r"SkyrimSE\.exe", r"skse64_loader\.exe"):
+            _run(["pkill", "-9", "-f", pattern])
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+
+    def sync_logs(self, dest: Path) -> None:
+        dest.mkdir(parents=True, exist_ok=True)
+        # Wine quirk (confirmed 2026-08-28): SKSE logs land under a literally
+        # named "Skyrim.INI" folder, not "Skyrim Special Edition".
+        skse = self.prefix_docs / "Skyrim.INI" / "SKSE"
+        if skse.exists():
+            for src in skse.iterdir():
+                if src.is_file():
+                    shutil.copy2(src, dest / src.name)
+
+    def bridge_log_path(self, dest: Path) -> Path:
+        return dest / "ChronicleBridge.log"
+
+    def close(self) -> None:
+        pass
+
+
 # --- remote Windows machine over SSH ---------------------------------------
 
 
@@ -262,6 +377,8 @@ def select_target() -> Target:
     which = os.environ.get("CHRONICLE_LIVE_TARGET", "windows")
     if which == "local":
         return LocalProtonTarget()
+    if which == "simple":
+        return SimpleLocalTarget()
     if which == "windows":
         return RemoteWindowsTarget()
-    raise ValueError(f"unknown CHRONICLE_LIVE_TARGET={which!r} (local|windows)")
+    raise ValueError(f"unknown CHRONICLE_LIVE_TARGET={which!r} (local|simple|windows)")
