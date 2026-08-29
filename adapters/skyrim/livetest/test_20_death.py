@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 
 import pytest
 
@@ -25,16 +24,19 @@ def _npc_died_events(session) -> list[dict]:
 def test_console_kill_produces_npc_died(live_session):
     db = live_session.db
     before = len(_npc_died_events(live_session))
-    prid_out = db.console_capture(f"prid {REFS[VICTIM]}")
-    live_session.note(f"prid echo: {prid_out}")
-    kill_out = db.console_capture("kill")
+    ref = REFS[VICTIM].removeprefix("0x")
+    # Dot-syntax (<ref>.kill) targets the actor directly in one console
+    # command, instead of a `prid <ref>` + `kill` pair -- the two-step form
+    # depends on DevBench's fire-and-forget console() having drained `prid`
+    # before `kill` fires (devbench.py's own docstring flags this queue
+    # race), and a prior live run's `npc_died` timeout after that exact
+    # two-step sequence is the reason this was rewritten (2026-08-29).
+    kill_out = db.console_capture(f"{ref}.kill")
     live_session.note(f"kill echo: {kill_out}")
     try:
         db.wait_until(lambda: len(_npc_died_events(live_session)) > before, timeout_s=20, what="npc_died in events.jsonl")
     finally:
-        db.console(f"prid {REFS[VICTIM]}")
-        time.sleep(0.5)
-        db.console("resurrect")
+        db.console(f"{ref}.resurrect")
     event = _npc_died_events(live_session)[-1]
     live_session.note(f"death: {event}")
     assert event["npc_id"] == VICTIM

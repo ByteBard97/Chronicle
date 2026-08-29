@@ -157,14 +157,63 @@ change in `test_20_death.py` is a real improvement (better failure
 signal) and was kept; the original queue-race hypothesis for the
 `npc_died` timeout is still unconfirmed.
 
-Not chased further this session to avoid burning additional live-game
-launch cycles chasing an intermittent crash blind. Two open threads
-for whoever continues live-suite work: (1) confirm/refute the
-console-queue-race hypothesis for the `npc_died` timeout with a clean
-`console_capture()` run, and (2) if the "Whiterun Guard" bootstrap
-crash recurs, treat it as its own bug (possibly a guard AI/pathing
-crash near the `WhiterunOrigin` coc point, unrelated to facegen) rather
-than assuming it's the same root cause as slice 20's failure.
+Research pass (web search + EngineFixesSkyrim64 GitHub issues, r/skyrimmods,
+STEP/Wabbajack wikis) found **no matching documented issue** for the
+bootstrap crash's exact offset/instruction/stack shape -- genuinely
+unconfirmed, not a known community bug with a standard fix. The closest
+adjacent thing is SSE Engine Fixes (`aers/EngineFixesSkyrim64`), which
+patches a broad class of similar vanilla null-pointer crashes in
+general, but nothing there names this specific case. (Note: `EngineFixes`
+is already in this instance's `mods/` folder but deliberately disabled
+in `modlist.txt` -- an earlier preflight check
+(`adapters/skyrim/livetest/targets.py`) flags it as hanging SKSE plugin
+load without its own preloader, so enabling it isn't a free trial.)
+
+Separately: `test_20_death.py` was rewritten to target the victim with
+Skyrim's console dot-syntax (`0002C90F.kill` / `0002C90F.resurrect`)
+instead of the two-step `prid <ref>` + `kill` pair the original design
+doc specified -- the two-step form is exactly what DevBench's own
+`console()` docstring warns is fire-and-forget and may not have drained
+before the next command fires, and is the only place in this harness
+using that pattern (every other slice's console command takes its
+target as an argument directly). This is a real fix, not just a
+diagnostic, and is the more likely explanation for the original
+`npc_died` timeout than the bootstrap crash below (which happened on a
+separate rerun, before either version of the death test's own commands
+ran).
+
+**Immediate rerun to confirm the dot-syntax fix hit a third, different
+failure**: the game process never came up within DevBench's 30s health
+check at all -- no crash log, no error in the launch log, nothing left
+running once it timed out. This attempt launched immediately after the
+bootstrap-crash rerun above. `CrashLoggerSSE`'s own log shows it
+"auto-opened" the prior crash log with the OS's default handler right
+at the moment of that crash -- plausibly spawning a Wine `notepad.exe`
+(matching a stuck-notepad/MO2-"Unlock" issue seen earlier this session
+with a different launch path) that could have held a lock or delayed
+the very next launch past the 30s window. Unconfirmed -- no stuck
+process was still present by the time this was investigated, since the
+harness's own teardown had already run.
+
+**Stopped live-game cycling for this session at this point.** Three
+consecutive rapid relaunches went clean -> crash -> total launch
+failure -- a degrading pattern consistent with insufficient cooldown
+between back-to-back Proton/Wine launches (prefix locks, GPU driver
+state, a lingering crash-log viewer) rather than a regression in the
+mod set itself, which was proven stable for 140s+ and passed 7/16 live
+tests clean earlier in this same session. Hammering more launches
+back-to-back risks corrupting the diagnosis further, not clarifying it.
+
+Three open threads for whoever continues live-suite work, in priority
+order: (1) relaunch once, cold (after a real gap, not immediately after
+a prior attempt), to get a clean read on whether the dot-syntax fix
+resolves the original `npc_died` timeout -- this is still the most
+likely real fix and wasn't actually exercised yet; (2) if the
+"Whiterun Guard" bootstrap crash recurs on a *cold* launch, treat it as
+its own bug, unconfirmed by research; (3) if a launch fails to come up
+within 30s again, check for a stuck Wine `notepad.exe` or similar
+crash-log-viewer process before assuming it's the same root cause as
+either of the above.
 
 ## Next mods to add (per the original ask: "quality of life... anything
 that could help us debug it")
