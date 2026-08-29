@@ -215,6 +215,42 @@ within 30s again, check for a stuck Wine `notepad.exe` or similar
 crash-log-viewer process before assuming it's the same root cause as
 either of the above.
 
+**Update (2026-08-29, later same session):** thread (1) resolved on a
+cold relaunch, but the console `<ref>.kill` dot-syntax still didn't
+produce `npc_died`. Diagnosed further with Papyrus (`Actor.Kill()`/
+`IsDead()`/`GetActorValue`) instead of console commands entirely --
+confirmed `IsDead()` never even went true after 3 console-based
+attempts, ruling out ChronicleBridge-side identity resolution as the
+cause. Switching the test to call `Actor.Kill()` via Papyrus directly
+(the harness's own documented "reliable assertion primitive," no
+marker/queue race) fixed it: **confirmed passing on two separate live
+runs**, `npc_died` landing with the correct `npc_id`, `gamets`, and
+listener POST every time. `test_20_death.py` now uses this approach
+permanently. Root cause of the original console-only failures was never
+fully pinned down (essential-flag research was inconclusive; DevBench's
+console exec is confirmed to route through the real engine
+`ExecuteCommand`) -- worth another look if console-driven test actions
+are needed elsewhere, but not blocking any further work now.
+
+**New finding, same session:** with the death slice fixed, a full
+live-suite run got to **9/16 passing** (slices 00, 10, 20, and 30's
+first test) before hitting a new, distinct bug:
+`test_30_hydration.py::test_rank_survives_save_and_load` -- DevBench's
+`game action=save` logs that it received the command
+(`devbench: game save 'chronicle-live-hydration'` in its own log) but
+**no `.ess` file is ever written anywhere** (checked the real
+Documents/My Games Saves folder, the MO2-remnant `__MO_Saves` folder,
+and a broad disk search), and the harness's `waitFor: saveGame` scenario
+step times out at 60s. Leading hypothesis: this instance launches by
+invoking `skse64_loader.exe` directly, bypassing MO2 and its virtual
+filesystem entirely (see "Resolved" section above) -- MO2 may normally
+provide some save-path plumbing (a registry override, a redirected
+Documents folder) that a direct launch lacks, silently breaking the
+native save call. A research agent was dispatched to check DevBench's
+actual save-action source for confirmation; result pending as of this
+write-up. See `GOALS.md`'s "Current state" section for the live status
+of this thread.
+
 ## Next mods to add (per the original ask: "quality of life... anything
 that could help us debug it")
 
