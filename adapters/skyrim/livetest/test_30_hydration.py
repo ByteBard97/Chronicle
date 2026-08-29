@@ -17,6 +17,7 @@ pytestmark = pytest.mark.live
 APPLIED = "ChronicleBridge hydration: set relationship("
 SKIPPED = "ChronicleBridge hydration: no existing BGSRelationship for ("
 EXPECTED_RANK = -2  # severity 1.0 -> RANK_SEVERE -> kFoe -> Papyrus rank -2
+SAVE_NAME = "chronicle-live-hydration"
 
 
 def _rank(db, holder: str, target: str) -> int:
@@ -50,12 +51,31 @@ def test_rank_written_in_game(live_session, applied_pair):
 def test_rank_survives_save_and_load(live_session, applied_pair):
     holder, target, _ = applied_pair
     db = live_session.db
+    # First live attempt: game action=save's own queue-log line isn't
+    # evidence of a completed save (research confirmed it fires before the
+    # engine's real BGSSaveLoadManager::Save call even runs) -- ruled that
+    # out live: no open menu, no blocking state, save+waitFor(saveGame)
+    # both succeeded, and the .ess file appeared on disk with the exact
+    # right name immediately after. The very next scenario step (load)
+    # still failed with a 404 "not found" -- a genuine race between the
+    # saveGame lifecycle event firing and the file actually being visible/
+    # flushed on disk (plausibly slower under Wine/Proton I/O). Fixed by
+    # splitting into two scenario calls and polling list_saves() (pure
+    # file I/O per its own docstring) until the file is actually visible
+    # before ever asking to load it (2026-08-29).
     db.scenario([
-        {"tool": "game", "args": {"action": "save", "name": "chronicle-live-hydration"}},
+        {"tool": "game", "args": {"action": "save", "name": SAVE_NAME}},
         {"waitFor": "saveGame", "timeoutMs": 60000},
-        {"tool": "game", "args": {"action": "load", "name": "chronicle-live-hydration"}},
+    ], timeout_s=90)
+    db.wait_until(
+        lambda: any(SAVE_NAME in str(s) for s in (db.list_saves().get("saves") or [])),
+        timeout_s=30,
+        what=f"save '{SAVE_NAME}' visible in list_saves()",
+    )
+    db.scenario([
+        {"tool": "game", "args": {"action": "load", "name": SAVE_NAME}},
         {"waitFor": "postLoadGame", "timeoutMs": 120000},
         {"waitUntil": "playerLoaded", "timeoutMs": 60000},
-    ], timeout_s=300)
+    ], timeout_s=200)
     after = _rank(db, holder, target)
     assert after == EXPECTED_RANK, f"rank reverted to {after} after reload -- AddChange() was not sufficient to persist"
