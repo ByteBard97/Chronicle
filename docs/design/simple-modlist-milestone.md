@@ -257,29 +257,47 @@ running game. Two real test bugs were found and fixed along the way
   by radius. Confirmed live: evidence really does survive a cell
   detach/reattach.
 
-**The only bug left in the whole harness, the `load` no-op:** DevBench's
+**The only bug left in the whole harness, the `load` no-op -- fully
+investigated this session, still unresolved:** DevBench's
 `game action=save` logs that it received the command
 (`devbench: game save '<name>'`) before the engine's real
 `BGSSaveLoadManager::Save` call even runs -- confirmed by reading
 DevBench's source -- so that log line was never evidence of a completed
 save. The save does actually complete (the `.ess` file appears, the
-`saveGame` event fires), but three separate fixes for what happens
-next all failed identically live: (1) a save/load race where `load` ran
-before the file was visible on disk (fixed, confirmed -- the 404 it
-produced is gone), (2) `load action=load name=X` afterward still
-silently no-ops (issued without error, but `postLoadGame` never fires
-and the listener keeps receiving live position POSTs straight through
-teardown, meaning the original session just keeps running -- the native
-load call never actually executes), (3) `loadLast` (suggested by
-research into a DevBench-fixed bug in the same family, a stale
-save-list cache) failed identically. This affects exactly two tests
-(`test_30_hydration.py::test_rank_survives_save_and_load`,
-`test_60_evidence.py::test_evidence_survives_save_and_load`), both via
-the identical code path, and is the single remaining open item -- see
-`GOALS.md`'s "Next up" for the next angle to try (a fresh-process load
-of a save from a *previous* session, or testing whether MO2's own
-launch path can load saves correctly, to isolate whether this is
-specific to the direct-loader/no-MO2 launch method).
+`saveGame` event fires). What happens next never works, across four
+separate live experiments:
+
+1. Named `load` right after save -- **404, file not yet visible** (a
+   real race, fixed by polling `list_saves()` before calling load).
+2. Named `load` again, race fixed -- **silent no-op**: issued without
+   error, but `postLoadGame` never fires and the listener keeps
+   receiving live position POSTs straight through teardown, meaning the
+   original session just keeps running. The native load call never
+   actually executes.
+3. `loadLast` instead of named `load` (research hypothesis: a stale
+   save-list-by-name cache, the same bug class DevBench itself
+   previously fixed for quicksave slots) -- **identical silent no-op.**
+4. **The decisive experiment**: launch fresh, and as the very first
+   action, `load` a save file written by a *completely separate, earlier
+   process* (not one from the current run at all) -- **identical
+   silent no-op.** This rules out every same-session/stale-cache theory
+   cleanly; the failure has nothing to do with save freshness or
+   in-process state.
+
+Two research passes (DevBench's actual source, CommonLibSSE-NG's
+`BGSSaveLoadManager`) found no documented cause for this. This affects
+exactly two tests (`test_30_hydration.py::
+test_rank_survives_save_and_load`, `test_60_evidence.py::
+test_evidence_survives_save_and_load`), both via the identical code
+path, and is the single remaining open item in the entire 16-test
+harness. **Not chased further this session** -- the next experiment
+(test whether `load` works via MO2's own launch path instead of the
+direct `skse64_loader.exe` bypass, to isolate whether this is specific
+to that launch method) was deliberately not run, since MO2's launch
+reliability is itself a separate, already-documented open problem (see
+"Resolved" above) -- running it now would confound two unknowns
+instead of isolating one. This needs either the owner's input or a
+session with full attention on just this one bug.
 
 ## Next mods to add (per the original ask: "quality of life... anything
 that could help us debug it")
