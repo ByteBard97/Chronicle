@@ -16,7 +16,20 @@ from adapters.skyrim.livetest import seeding
 pytestmark = pytest.mark.live
 
 VENDOR = "adrianne_avenicci"
+# A distinct vendor for test_bridge_caches_multiplier -- the listener's
+# vendor-markup delivery is single-consumer (a "changed since last
+# delivered" dedupe, per _vendor_markup_pairs in listener.py), with a
+# 60s awaiting-ack timeout before an unacked pair is re-offered.
+# test_listener_serves_player_directed_pair's own direct GET consumes
+# VENDOR's delivery; ChronicleBridge's C++ poller (which never acks
+# vendor-markup by design -- see VendorMarkupCache.cpp's header comment)
+# would then see no change for that same pair until that 60s timeout
+# expires, well past this test's budget. Using a different holder NPC
+# gives each test its own uncontested delivery instead of racing for
+# one (2026-08-29).
+VENDOR_FOR_BRIDGE_CACHE = "nazeem"
 CACHED = f"vendor-markup: cached 1.50x for vendor '{VENDOR}'"
+CACHED_FOR_BRIDGE = f"vendor-markup: cached 1.50x for vendor '{VENDOR_FOR_BRIDGE_CACHE}'"
 
 
 def test_listener_serves_player_directed_pair(live_session):
@@ -30,6 +43,7 @@ def test_listener_serves_player_directed_pair(live_session):
 
 
 def test_bridge_caches_multiplier(live_session):
-    line = live_session.bridge_log.wait_for(CACHED, timeout_s=30)
+    seeding.seed_grudge(run_id=live_session.run_id, runs_dir=live_session.runs_dir, holder=VENDOR_FOR_BRIDGE_CACHE, target=seeding.PLAYER_ID, gamets=live_session.next_gamets(), crime_type="theft")
+    line = live_session.bridge_log.wait_for(CACHED_FOR_BRIDGE, timeout_s=30)
     live_session.note(f"vendor markup: {line.message}")
-    live_session.note("MANUAL: talk to Adrianne Avenicci, open barter, compare displayed price vs gold charged (1.5x expected)")
+    live_session.note(f"MANUAL: talk to {VENDOR_FOR_BRIDGE_CACHE}, open barter, compare displayed price vs gold charged (1.5x expected)")
