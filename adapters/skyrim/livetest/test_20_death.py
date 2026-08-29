@@ -25,9 +25,10 @@ def _npc_died_events(session) -> list[dict]:
 def test_console_kill_produces_npc_died(live_session):
     db = live_session.db
     before = len(_npc_died_events(live_session))
-    db.console(f"prid {REFS[VICTIM]}")
-    time.sleep(0.5)
-    db.console("kill")
+    prid_out = db.console_capture(f"prid {REFS[VICTIM]}")
+    live_session.note(f"prid echo: {prid_out}")
+    kill_out = db.console_capture("kill")
+    live_session.note(f"kill echo: {kill_out}")
     try:
         db.wait_until(lambda: len(_npc_died_events(live_session)) > before, timeout_s=20, what="npc_died in events.jsonl")
     finally:

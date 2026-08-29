@@ -138,9 +138,33 @@ passed** before stopping on the first failure (`-x`):
   console echo and confirm whether `prid` actually selected brenuin
   before `kill` fired, rather than guessing further.
 
+**Rerun attempt (2026-08-29, same session):** rewrote the test to use
+`console_capture()` (echoes the game's own console output) instead of
+fire-and-forget `console()`, to confirm or rule out the queue-race
+hypothesis above. The rerun never reached that code: the game crashed
+during the bootstrap `coc WhiterunOrigin` load itself, ~2 minutes in,
+before the test's own console commands ran at all --
+`EXCEPTION_ACCESS_VIOLATION` writing to `0xF4` (null-pointer field
+clear) with `RSI` a `TESObjectLAND*` and a `Character* "Whiterun Guard"`
+on the stack, no ChronicleBridge/DevBench frames anywhere in the call
+stack -- a vanilla-engine crash, not related to the death slice or to
+ChronicleBridge. **This did not happen on the first full-suite run**
+(bootstrap + slices 00/10 completed clean, twice, including a 140s
+stable Whiterun session earlier this session) -- so this looks
+intermittent, not deterministic, and is a different failure mode from
+the original `npc_died` timeout. The `console_capture()` diagnostic
+change in `test_20_death.py` is a real improvement (better failure
+signal) and was kept; the original queue-race hypothesis for the
+`npc_died` timeout is still unconfirmed.
+
 Not chased further this session to avoid burning additional live-game
-launch cycles without a concrete lead — this is the next real,
-reproducible bug for whoever continues live-suite work.
+launch cycles chasing an intermittent crash blind. Two open threads
+for whoever continues live-suite work: (1) confirm/refute the
+console-queue-race hypothesis for the `npc_died` timeout with a clean
+`console_capture()` run, and (2) if the "Whiterun Guard" bootstrap
+crash recurs, treat it as its own bug (possibly a guard AI/pathing
+crash near the `WhiterunOrigin` coc point, unrelated to facegen) rather
+than assuming it's the same root cause as slice 20's failure.
 
 ## Next mods to add (per the original ask: "quality of life... anything
 that could help us debug it")
