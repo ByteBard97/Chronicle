@@ -72,8 +72,18 @@ def test_rank_survives_save_and_load(live_session, applied_pair):
         timeout_s=30,
         what=f"save '{SAVE_NAME}' visible in list_saves()",
     )
+    # `load action=load name=X` silently no-ops (no error, but no reload
+    # either) when X isn't yet reflected in BGSSaveLoadManager's own
+    # internal save-list cache -- a raw filesystem listing (list_saves())
+    # being non-stale doesn't mean that cache is. Research tied this to a
+    # DevBench-fixed bug in the same family (github issue #42, quicksave
+    # names going stale against that cache) -- `loadLast` is documented to
+    # work reliably regardless of session/cache freshness, and the save
+    # just written above is definitionally the most recent one, so this
+    # sidesteps the by-name lookup entirely instead of guessing at a delay
+    # (2026-08-29).
     db.scenario([
-        {"tool": "game", "args": {"action": "load", "name": SAVE_NAME}},
+        {"tool": "game", "args": {"action": "loadLast"}},
         {"waitFor": "postLoadGame", "timeoutMs": 120000},
         {"waitUntil": "playerLoaded", "timeoutMs": 60000},
     ], timeout_s=200)
