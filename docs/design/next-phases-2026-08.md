@@ -20,6 +20,63 @@ added 2026-08-27**: don't cite "exactly one entry" as current status —
 it describes a state that existed for about two minutes. 19/28 is
 current as of `edd6989`.
 
+## 0p. Landed: the actual live-game verification (2026-08-28/29) -- the one thing §0o said only the owner's own hands could do
+
+§0o's own closing line: "What's left is either gated on the owner's
+sign-off (rule 11 hysteresis) or requires the owner's own hands (an
+actual live-game session -- the one thing no amount of further
+research/dispatching can substitute for)." This is that session. It
+did not happen on ChronicleDev -- that instance's MO2 launch proved
+unreliable mid-session (never root-caused) -- so a new lightweight
+instance, `~/Games/SimpleSkyrim`, was built and launched via a direct
+`skse64_loader.exe` invocation instead (`tools/
+launch-simpleskyrim-direct.sh` + `tools/deploy-simpleskyrim-loose.sh`,
+promoted into the repo; `docs/design/simple-modlist-milestone.md` has
+the full build/crash-fix history). `adapters/skyrim/livetest/` (the
+pytest suite over DevBench, built the same evening this doc's own §0o
+entry was written but never actually run against a live game before
+now) was pointed at it via a new `SimpleLocalTarget`
+(`CHRONICLE_LIVE_TARGET=simple`).
+
+**Result: every one of ChronicleBridge's 7 slices has now been
+exercised against a real, running game, and 14 of the harness's 16
+tests pass.** The spatial streamer, death extraction, hydration-out,
+avoidance-out, vendor-markup-out, and diegetic-evidence-out all
+confirmed working live -- named-cast identity resolution, engine-
+position matching, a real death event landing in `events.jsonl` with
+the correct `npc_id`/`gamets`, a grudge becoming a real vanilla
+relationship rank, an avoidance AI-package flag actually flipping, a
+vendor markup multiplier actually caching from a real barter-directed
+grudge, and an evidence object actually spawning and surviving a cell
+detach/reattach. This is the first time any of this has been observed
+working end-to-end against a real game, closing the distance this
+doc's own course-correction note (top of file) named as the actual
+goal -- a Skyrim world that visibly reacts to the player -- rather
+than more headless plumbing.
+
+Three real test-harness bugs were found and fixed along the way (none
+were ChronicleBridge bugs): a fragile console-command kill sequence
+(fixed with a direct Papyrus `Actor.Kill()` call instead), a listener
+delivery race between two tests competing for one single-delivery
+endpoint (fixed by decoupling them onto separate NPCs), and a
+persistence-check false negative from searching by radius around a
+wandering NPC instead of the fixed evidence object's own position
+(fixed by tracking its exact FormID).
+
+**One real bug remains, open:** `game action=load` (DevBench's save/
+load tool) silently no-ops under the direct-launch method -- four
+separate live experiments and two rounds of source-level research
+(DevBench's own code, CommonLibSSE-NG) found no cause and ruled out
+every same-session/stale-cache theory. Affects exactly the two
+save/load-persistence checks (`test_30_hydration.py`,
+`test_60_evidence.py`); every other check passes. Needs either the
+owner's input or a session's full attention -- see `GOALS.md`'s
+"Next up" for the specific next angle to try.
+
+`GOALS.md` (new this session, project root) is now the standing
+re-orientation doc for continuing this specific thread across
+short-burst sessions -- read it before picking this back up.
+
 ## 0o. Landed: full 171-pair avoidance table, verified DevBench runbook automation with a real seeding recipe (`48d827c`, `c32e307`, `7d13012`)
 
 Closed the last two gaps in the live-testing prep. (1) `AvoidanceGlobals.
