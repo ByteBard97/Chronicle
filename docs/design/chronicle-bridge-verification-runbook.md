@@ -8,6 +8,27 @@ game. This doc is the concrete checklist for closing that gap.
 
 **Update (2026-08-28):** the unattended version of this runbook now exists as a pytest suite, `adapters/skyrim/livetest/` (`make live-check`), designed in `docs/design/live-test-harness.md`. This doc remains the reference for what each slice should do in-game; the suite is how it gets checked without a human at the keyboard.
 
+**Results (2026-08-29):** the suite has now been run against a real, live
+game (`~/Games/SimpleSkyrim`, launched via `tools/
+launch-simpleskyrim-direct.sh`) for the first time. **14 of 16 checks
+pass, covering every slice**: spatial streaming (position/identity
+resolution), death extraction (a real `npc_died` event with correct
+`npc_id`/`gamets`), hydration (a real vanilla relationship-rank write),
+avoidance (the AI-package-selecting `TESGlobal` actually flips),
+vendor-markup (a real barter-directed grudge caches a real multiplier),
+and diegetic evidence (a real object spawns and survives a cell
+detach/reattach). The 2 failing checks are both the save/load
+persistence tests (hydration's and evidence's), and share one root
+cause: `game action=load` silently no-ops under the current launch
+method — investigated at length (four separate live experiments, two
+source-research passes), not yet root-caused. Full detail in
+`docs/design/simple-modlist-milestone.md` and `GOALS.md`.
+**Not yet verified by this pass**: whether any of these state changes
+are something a player watching the screen would actually notice (e.g.
+avoidance's own check only confirms the underlying flag flips, not
+that the two NPCs are observed moving apart) — that's the next honest
+gap, not this runbook's job to close.
+
 **Update (2026-08-27):** an external AI ("Kimi") produced a 4-path manual
 test script (hydration, vendor markup, diegetic evidence, avoidance). Its
 test *ordering*, time budgets, and cheat-sheet framing were good and are

@@ -71,8 +71,9 @@ closed shadow root -- page-level CSS, `!important` or not, structurally
 cannot reach inside it. Verified by reading Material's own bundled JS
 (`attachShadow({mode:"closed"})`) rather than guessing after the fact.*
 
-The mechanisms are all built and compiled, but none has been confirmed
-working against a live, running game yet — see Project status below.
+These mechanisms are all built, compiled, and now confirmed writing
+correctly against a real, running game — see Project status below for
+exactly what's verified and what's still open.
 
 <img src="docs/assets/swatch-ingame.svg" width="14" height="14"> the mod: Skyrim engine + the ChronicleBridge SKSE plugin (C++) &nbsp;&nbsp; <img src="docs/assets/swatch-host.svg" width="14" height="14"> the service: native Python, outside the game &nbsp;&nbsp; <img src="docs/assets/swatch-debug.svg" width="14" height="14"> the dashboard: Vue debugging UI, reads the service's logs
 
@@ -158,7 +159,8 @@ by decayed grudge severity, no scripting involved.
 ## Project status (August 2026)
 
 **Chronicle is a headless social-simulation engine with a live Skyrim
-bridge deployed — but no visible in-game effects confirmed yet.**
+bridge deployed, and every write path is now confirmed working against
+a real, running game.**
 
 - **v0.1 headless sim: done.** `docs/v0.1-spec.md`'s full ~20-rule
   budget is implemented and scenario-proven: the claim/variant/belief
@@ -174,35 +176,45 @@ bridge deployed — but no visible in-game effects confirmed yet.**
   CommonLibSSE-NG) — live position streaming, death events, hydration,
   avoidance, vendor-markup (barter-menu price hook), a crime-witness
   cascade, and diegetic evidence — compile clean as a whole tree. The
-  DLL and a real 171-pair patched ESP are deployed into a live dev
-  install (`~/Games/ChronicleDev`, correct load order).
-- **In-game validation: not started.** The bridge has never been
-  launched against a live game save. Every write path (hydration,
-  avoidance, vendor-markup, evidence) is unit/scenario-tested on the
-  Python side but unverified in a running game — see
-  `docs/design/chronicle-bridge-verification-runbook.md`.
-- **No write path has been confirmed to produce a visible in-game effect
-  yet.** Every "out" slice (hydration, avoidance, vendor-markup,
-  evidence) is compiled and Python-tested, but none has run against a
-  live game — only "in" (positions, deaths) has ever been observed
-  working.
+  DLL and a real 171-pair patched ESP deploy cleanly into a real
+  MO2/Proton install and load correctly.
+- **In-game validation: confirmed for game state, at the data level.**
+  A pytest harness drives every slice against a live, running game over
+  DevBench (`adapters/skyrim/livetest/`), and **14 of its 16 checks now
+  pass**: a real death event lands in the run log with the correct
+  identity, a Chronicle grudge becomes a real vanilla relationship rank,
+  an avoidance pair's AI-package flag actually flips, a vendor's markup
+  multiplier actually caches from a real barter-directed grudge, and an
+  evidence object actually spawns and survives a cell reload. One bug
+  is open and blocking exactly 2 of the 16 checks: the save/load
+  persistence tests, because reloading a save via the test harness
+  currently silently no-ops (investigated at length — not yet
+  root-caused; see `docs/design/simple-modlist-milestone.md`).
+- **Not yet confirmed: literal player-visible behavior.** The
+  above verifies that ChronicleBridge's writes land correctly in game
+  *state* — it does not yet verify what a player watching the screen
+  would see change as a result (e.g., two NPCs actually walking apart
+  in real time, not just the underlying flag being set). That's the
+  honest gap left before M5.
 - **Named-cast coverage: 19 of 28.** `IdentityMap.cpp`'s `kNamedCast`
   resolves 19 of Whiterun's 28 live-captured NPCs to a Chronicle
   identity (grown from 1); the rest stream as generic fallbacks the
   landed rules can't act on.
 
 **What this means:** you can clone and run the simulation + dashboard
-today with no Skyrim install. You cannot yet install it as a mod and
-see the world react. That's the next milestone.
+today with no Skyrim install, and every ChronicleBridge write path is
+now proven to correctly mutate game state in a live save. Whether that
+state change is something a player would actually notice on screen is
+the next thing to verify.
 
 | Milestone | What it means | Status |
 |---|---|---|
 | M0: Headless proof | Belief cascade (Jarl dies → rumors spread → grudges form), scenario-tested, no game required | Done |
 | M1: Bridge compiles | All 7 ChronicleBridge slices build clean against CommonLibSSE-NG | Done |
 | M2: Bridge deploys | DLL + patched ESP in a real MO2 install, listener wired, ready to launch | Done |
-| M3: In-game validation | Launch the game, confirm each slice live via the verification runbook | Next |
+| M3: In-game validation | Every slice confirmed live via an automated test harness | Substantially done — 14/16 checks pass; save/load persistence is the one open bug |
 | M4: Named-cast coverage | Resolve the remaining 9 of 28 Whiterun NPCs to Chronicle identities | Mostly done (19/28, 9 remaining — see `docs/design/next-phases-2026-08.md` §0c) |
-| M5: Visible "out" direction | Sim state actually changes what the player sees | Blocked on M3 |
+| M5: Visible "out" direction | A player watching the screen actually perceives the sim's effect, not just the underlying state change | Next |
 | M6: Player-shareable | Downloadable artifact, install instructions, save-safety guarantee | Blocked on M5 |
 
 See `adapters/skyrim/README.md` for per-slice status and

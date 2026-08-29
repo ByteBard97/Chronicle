@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  engine:
+    name: Python engine (test + lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Test (make test)
+        run: make test
+
+      - name: Lint (make lint)
+        run: make lint
+
+  dashboard:
+    name: Dashboard (build + test + range check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build + test + range check (make check-dashboard)
+        run: make check-dashboard
+
+  # ChronicleBridge (the C++ SKSE plugin) is not built in CI yet -- a naive
+  # vcpkg bootstrap makes it a ~40-minute job with no caching. See the
+  # tracked issue for wiring a windows-latest runner with vcpkg binary
+  # caching before adding a third job here.
