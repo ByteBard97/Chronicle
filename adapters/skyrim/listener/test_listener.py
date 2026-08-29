@@ -26,17 +26,19 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from listener import NAMED_CAST_NPC_IDS, _make_handler  # noqa: E402
+from listener import NAMED_CAST_NPC_IDS, _make_handler
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
-from chronicle.claims import CONFIDENCE_DECAY_HALF_LIFE, EventKey  # noqa: E402
-from chronicle.driver import Driver  # noqa: E402
-from chronicle.events import NPCDied  # noqa: E402
-from chronicle.framelog import FrameLogReader  # noqa: E402
-from chronicle.schedule import ScheduleBlock  # noqa: E402
-from chronicle.tests.test_fixtures import NAMED_CAST_NPC_IDS as _CHRONICLE_NAMED_CAST_NPC_IDS  # noqa: E402
+from http.server import ThreadingHTTPServer
 
-from http.server import ThreadingHTTPServer  # noqa: E402
+from chronicle.claims import CONFIDENCE_DECAY_HALF_LIFE, EventKey
+from chronicle.driver import Driver
+from chronicle.events import NPCDied
+from chronicle.framelog import FrameLogReader
+from chronicle.schedule import ScheduleBlock
+from chronicle.tests.test_fixtures import (
+    NAMED_CAST_NPC_IDS as _CHRONICLE_NAMED_CAST_NPC_IDS,
+)
 
 _SEED = "listener-test-seed"
 _RUN = "listener-test-run"
@@ -452,7 +454,7 @@ def test_hydration_ack_no_relationship_is_reoffered_once_the_rank_changes(server
     rank, the pair must be offered again (a different rank maps to a
     different in-game RELATIONSHIP_LEVEL; the old skip says nothing about
     whether THAT relationship exists)."""
-    driver, _tmp_path = grudge_run
+    _driver, _tmp_path = grudge_run
     post = server_factory(live_run=_GRUDGE_RUN)
     status, body = post.get("/whiterun/hydration")
     assert json.loads(body) == [{"holder_id": "nazeem", "target_id": "ysolda", "relationship_rank": -2}]

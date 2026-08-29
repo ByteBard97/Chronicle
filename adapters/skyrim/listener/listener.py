@@ -268,6 +268,7 @@ def _inject_death_event(event: GameEvent, *, live_run: str) -> tuple[bool, str]:
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         return False, result.stderr.strip()
