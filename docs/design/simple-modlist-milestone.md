@@ -232,24 +232,54 @@ console exec is confirmed to route through the real engine
 `ExecuteCommand`) -- worth another look if console-driven test actions
 are needed elsewhere, but not blocking any further work now.
 
-**New finding, same session:** with the death slice fixed, a full
-live-suite run got to **9/16 passing** (slices 00, 10, 20, and 30's
-first test) before hitting a new, distinct bug:
-`test_30_hydration.py::test_rank_survives_save_and_load` -- DevBench's
+**Full live-suite results, this session (2026-08-29): 14/16 passing.**
+Every slice ran live at least once; every kind of game-state mutation
+ChronicleBridge performs is now confirmed working against a real,
+running game. Two real test bugs were found and fixed along the way
+(not ChronicleBridge bugs):
+
+- **Vendor-markup delivery race** (`test_50_vendor_markup.py`): the
+  listener's `/whiterun/vendor-markup` route is a single-delivery,
+  "changed since last delivered" feed with a 60s ack-timeout.
+  `test_listener_serves_player_directed_pair`'s own direct GET consumed
+  the same delivery ChronicleBridge's independent C++ poller (which
+  never acks vendor-markup by design) needed, starving
+  `test_bridge_caches_multiplier`. Fixed by giving the two tests
+  distinct vendor NPCs so neither consumes the other's delivery slot.
+- **Evidence-persistence false negative** (`test_60_evidence.py`):
+  `test_evidence_survives_cell_detach` searched for the evidence object
+  by radius around the *holder NPC's current position*, but the
+  evidence object is fixed in place while the holder (nazeem, a living
+  NPC) keeps wandering per his normal AI routine -- a false negative
+  once he'd walked away during the test's multi-minute cell round-trip.
+  Fixed by capturing the evidence ref's exact FormID right after spawn
+  and checking that directly (`db.ref(formId)`) instead of re-searching
+  by radius. Confirmed live: evidence really does survive a cell
+  detach/reattach.
+
+**The only bug left in the whole harness, the `load` no-op:** DevBench's
 `game action=save` logs that it received the command
-(`devbench: game save 'chronicle-live-hydration'` in its own log) but
-**no `.ess` file is ever written anywhere** (checked the real
-Documents/My Games Saves folder, the MO2-remnant `__MO_Saves` folder,
-and a broad disk search), and the harness's `waitFor: saveGame` scenario
-step times out at 60s. Leading hypothesis: this instance launches by
-invoking `skse64_loader.exe` directly, bypassing MO2 and its virtual
-filesystem entirely (see "Resolved" section above) -- MO2 may normally
-provide some save-path plumbing (a registry override, a redirected
-Documents folder) that a direct launch lacks, silently breaking the
-native save call. A research agent was dispatched to check DevBench's
-actual save-action source for confirmation; result pending as of this
-write-up. See `GOALS.md`'s "Current state" section for the live status
-of this thread.
+(`devbench: game save '<name>'`) before the engine's real
+`BGSSaveLoadManager::Save` call even runs -- confirmed by reading
+DevBench's source -- so that log line was never evidence of a completed
+save. The save does actually complete (the `.ess` file appears, the
+`saveGame` event fires), but three separate fixes for what happens
+next all failed identically live: (1) a save/load race where `load` ran
+before the file was visible on disk (fixed, confirmed -- the 404 it
+produced is gone), (2) `load action=load name=X` afterward still
+silently no-ops (issued without error, but `postLoadGame` never fires
+and the listener keeps receiving live position POSTs straight through
+teardown, meaning the original session just keeps running -- the native
+load call never actually executes), (3) `loadLast` (suggested by
+research into a DevBench-fixed bug in the same family, a stale
+save-list cache) failed identically. This affects exactly two tests
+(`test_30_hydration.py::test_rank_survives_save_and_load`,
+`test_60_evidence.py::test_evidence_survives_save_and_load`), both via
+the identical code path, and is the single remaining open item -- see
+`GOALS.md`'s "Next up" for the next angle to try (a fresh-process load
+of a save from a *previous* session, or testing whether MO2's own
+launch path can load saves correctly, to isolate whether this is
+specific to the direct-loader/no-MO2 launch method).
 
 ## Next mods to add (per the original ask: "quality of life... anything
 that could help us debug it")
