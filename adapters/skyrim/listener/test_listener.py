@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import struct
 import sys
 import threading
 from pathlib import Path
@@ -1462,6 +1463,71 @@ def test_sync_hello_golden_fixture_boundary_conversion():
         gamets=123.5,
         wall_ts=1735689600.123,  # ms -> s
     )
+
+
+def test_sync_hello_golden_fixture_over_real_http_matches_cpp_bytes(server_factory):
+    """Closes the one gap neither existing golden-fixture test does on its own: the C++ side
+    (test_sync_handshake_core.cpp's Test_GoldenFixtureRoundTrip) proves bytes<->struct; this
+    file's own test_sync_hello_golden_fixture_boundary_conversion proves JSON<->Manifest but via
+    a direct call to _manifest_from_hello_body, bypassing the real HTTP handler. This test starts
+    from the *same* 68-byte hex string the C++ test hardcodes, decodes it in Python, and posts it
+    through the real /whiterun/sync/hello handler -- proving a byte string the C++ side treats as
+    ground truth produces the correct RESOLVE outcome through the actual production code path.
+    """
+    golden_hex = (
+        "435248430123456789abcdef0123456789abcdef000000000000000000000000000000002a0000"
+        "00000000000000000000e05e407b7c291f94010000bebafecaefbeadde"
+    )
+    magic, uuid_bytes, generation, parent_generation, head_seq, gamets, wall_ts_ms, char_name_hash = (
+        struct.unpack("<I16sQQQdqQ", bytes.fromhex(golden_hex))
+    )
+    assert magic == 0x43485243, "the shared golden-fixture literal itself has drifted"
+
+    body = _hello_body(
+        format_version=1,
+        save_uuid=uuid_bytes.hex(),
+        generation=generation,
+        parent_generation=parent_generation,
+        head_seq=head_seq,
+        gamets=gamets,
+        wall_ts=wall_ts_ms,  # wire units: ms, as decoded -- the listener does the ms->s conversion
+        char_name_hash=char_name_hash,
+        manifest_present=True,
+        hello_seq=1,
+    )
+    post = server_factory()
+
+    status, first_body = post.post_json("/whiterun/sync/hello", body)
+    assert status == 200
+    first_decoded = json.loads(first_body)
+    assert first_decoded["decision"] == "NEW_TIMELINE"
+    # NEW_TIMELINE never blindly trusts the manifest's claimed head_seq (resolve() resets a fresh
+    # branch to head_seq=0, per design doc §4.4 -- an unbacked claim isn't durable history yet).
+    # Legitimately advance the branch to head_seq=42/gamets=123.5 the only way the protocol allows:
+    # a real, epoch-fenced mutation, using the exact head_seq/gamets the golden fixture claims.
+    epoch_id = first_decoded["epoch_id"]
+    status, _ = post.post_json(
+        "/whiterun/sync/mutation",
+        _mutation_body(
+            epoch_id=epoch_id,
+            save_uuid=body["save_uuid"],
+            generation=generation,
+            seq=head_seq,
+            event={"event_type": "npc_died", "gamets": gamets, "npc_id": "nazeem", "cause": "unknown"},
+        ),
+    )
+    assert status == 204
+
+    # The same golden-fixture HELLO, sent again: only resolves to CONTINUE (not ADOPT, not another
+    # NEW_TIMELINE) if generation/head_seq/gamets were genuinely parsed, boundary-converted, and
+    # durably persisted -- exercising the real byte string through the real production code path,
+    # the one thing neither existing golden-fixture test (C++ bytes-only, Python JSON-only-via-
+    # private-function) proves on its own.
+    status, second_body = post.post_json("/whiterun/sync/hello", body | {"hello_seq": 2})
+    assert status == 200
+    decoded = json.loads(second_body)
+    assert decoded["decision"] == "CONTINUE"
+    assert decoded["replay_from_seq"] is None
 
 
 def test_sync_hello_is_not_gated_behind_live_run(server_factory):
