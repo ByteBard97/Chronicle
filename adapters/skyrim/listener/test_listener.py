@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from listener import NAMED_CAST_NPC_IDS, _make_handler
+from listener import NAMED_CAST_NPC_IDS, _make_handler, _manifest_from_hello_body
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from http.server import ThreadingHTTPServer
@@ -36,6 +36,7 @@ from chronicle.driver import Driver
 from chronicle.events import NPCDied
 from chronicle.framelog import FrameLogReader
 from chronicle.schedule import ScheduleBlock
+from chronicle.sync import Manifest
 from chronicle.tests.test_fixtures import (
     NAMED_CAST_NPC_IDS as _CHRONICLE_NAMED_CAST_NPC_IDS,
 )
@@ -71,8 +72,13 @@ def server_factory(tmp_path):
     """Starts a real listener server on an ephemeral port; yields a (post, run_dir) helper."""
     servers = []
 
-    def start(*, snapshot_path=None, shared_secret=None, live_run=None):
-        handler_cls = _make_handler(snapshot_path or (tmp_path / "snap.json"), shared_secret, live_run)
+    def start(*, snapshot_path=None, shared_secret=None, live_run=None, sync_state_dir=None):
+        handler_cls = _make_handler(
+            snapshot_path or (tmp_path / "snap.json"),
+            shared_secret,
+            live_run,
+            sync_state_dir if sync_state_dir is not None else (tmp_path / "sync-state"),
+        )
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -100,7 +106,22 @@ def server_factory(tmp_path):
             conn.close()
             return resp.status, data
 
+        def post_json(path: str, body: dict, *, token: str | None = None) -> tuple[int, bytes]:
+            """Like `post`, but returns (status, body) -- `post` itself drains and discards the
+            response body (fine for every existing route, which replies with no body), but the
+            sync/hello route replies 200 with a JSON decision body callers need to inspect."""
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            headers = {"Content-Type": "application/json"}
+            if token is not None:
+                headers["X-Chronicle-Bridge-Token"] = token
+            conn.request("POST", path, body=json.dumps(body), headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+            conn.close()
+            return resp.status, data
+
         post.get = get
+        post.post_json = post_json
         return post
 
     yield start
@@ -1378,3 +1399,338 @@ def test_unknown_path_is_404(server_factory):
     post = server_factory()
     resp = post("/not/a/real/path", {})
     assert resp.status == 404
+
+
+# --- Save/reload sync handshake (docs/design/chronicle-bridge-sync-handshake-out.md) -------------
+
+
+def _hello_body(**overrides):
+    body = {
+        "format_version": 1,
+        "save_uuid": "save-sync-test-1",
+        "generation": 0,
+        "parent_generation": 0,
+        "head_seq": 0,
+        "gamets": 0.0,
+        "wall_ts": 0,
+        "char_name_hash": 0,
+        "manifest_present": True,
+        "hello_seq": 1,
+    }
+    body.update(overrides)
+    return body
+
+
+def _mutation_body(**overrides):
+    body = {
+        "epoch_id": 0,
+        "save_uuid": "save-sync-test-1",
+        "generation": 0,
+        "seq": 0,
+        "event": {"event_type": "npc_died", "gamets": 5.0, "npc_id": "nazeem", "cause": "unknown"},
+    }
+    body.update(overrides)
+    return body
+
+
+def test_sync_hello_golden_fixture_boundary_conversion():
+    """Design doc §3's golden fixture: given these exact field values (the same ones the 68-byte
+    binary struct encodes, verified separately on the C++ side against the identical fixture --
+    out of scope here), `_manifest_from_hello_body`'s ms->s and 0->None boundary conversions must
+    produce exactly this `chronicle.sync.Manifest`. Proves the JSON parsing/conversion side, not
+    raw bytes -- no HTTP round trip needed.
+    """
+    body = {
+        "format_version": 1,
+        "save_uuid": "0123456789abcdef0123456789abcdef",
+        "generation": 0,
+        "parent_generation": 0,  # co-save's 0-sentinel for the root generation
+        "head_seq": 42,
+        "gamets": 123.5,
+        "wall_ts": 1735689600123,  # int64 ms
+        "char_name_hash": 0xDEADBEEFCAFEBABE,
+    }
+
+    manifest = _manifest_from_hello_body(body)
+
+    assert manifest == Manifest(
+        format_version=1,
+        save_uuid="0123456789abcdef0123456789abcdef",
+        generation=0,
+        parent_generation=None,  # 0-sentinel -> None
+        head_seq=42,
+        gamets=123.5,
+        wall_ts=1735689600.123,  # ms -> s
+    )
+
+
+def test_sync_hello_is_not_gated_behind_live_run(server_factory):
+    """Design doc §8b item 3: sync state is keyed by save_uuid, orthogonal to demo runs -- unlike
+    every other write route in this file, no --live-run means no 503 here."""
+    post = server_factory(live_run=None)
+    status, body = post.post_json("/whiterun/sync/hello", _hello_body())
+    assert status == 200
+    assert json.loads(body)["decision"] == "NEW_TIMELINE"
+
+
+def test_sync_hello_enforces_the_shared_secret(server_factory):
+    post = server_factory(shared_secret="s3cret")
+    unauth = post("/whiterun/sync/hello", _hello_body())
+    assert unauth.status == 401
+    status, _ = post.post_json("/whiterun/sync/hello", _hello_body(), token="s3cret")
+    assert status == 200
+
+
+def test_sync_hello_first_ever_hello_is_new_timeline_and_actionable(server_factory):
+    post = server_factory()
+    status, body = post.post_json("/whiterun/sync/hello", _hello_body(hello_seq=1, head_seq=0, gamets=10.0))
+    assert status == 200
+    decoded = json.loads(body)
+    assert decoded["decision"] == "NEW_TIMELINE"
+    assert decoded["actionable"] is True
+    assert decoded["epoch_id"] == 0
+    assert decoded["replay_from_seq"] is None
+    assert decoded["confirm_required"] is False
+    assert decoded["hello_seq"] == 1
+
+
+def test_sync_hello_second_load_of_the_same_branch_continues(server_factory):
+    post = server_factory()
+    status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-continue-1", hello_seq=1, head_seq=0, gamets=10.0)
+    )
+    assert json.loads(body)["decision"] == "NEW_TIMELINE"
+
+    status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-continue-1", hello_seq=2, head_seq=0, gamets=10.0)
+    )
+    decoded = json.loads(body)
+    assert status == 200
+    assert decoded["decision"] == "CONTINUE"
+    assert decoded["actionable"] is True
+    assert decoded["epoch_id"] == 1  # a new load bumped the epoch
+
+
+def test_sync_hello_retried_hello_seq_does_not_mint_a_second_epoch(server_factory):
+    """Design doc §4.2: a lost-response retry of the SAME load (same hello_seq) must not bump the
+    epoch a second time -- see `_SyncSessionState`'s docstring."""
+    post = server_factory()
+    status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-retry-1", hello_seq=1, head_seq=0, gamets=10.0)
+    )
+    first_epoch = json.loads(body)["epoch_id"]
+
+    status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-retry-1", hello_seq=1, head_seq=0, gamets=10.0)
+    )
+    assert status == 200
+    assert json.loads(body)["epoch_id"] == first_epoch
+
+
+def test_sync_hello_tolerates_a_shim_counter_reset(server_factory):
+    """hello_seq lives in SyncHandshake's in-memory C++ state (spec §5), NOT in the co-save
+    manifest (§3's field table has seven fields, none of them hello_seq) -- so it resets to a low
+    value whenever the GAME PROCESS itself restarts, even though this service's own durable
+    sidecar does not. A LOWER hello_seq than the one last seen for this save_uuid must therefore
+    still be treated as a genuinely new load (bump the epoch) -- not rejected as "stale", which
+    would wedge the session with no self-correction path once the shim's own counter can never
+    climb back above whatever this service last recorded."""
+    post = server_factory()
+    status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-counter-reset-1", hello_seq=5, head_seq=0, gamets=10.0)
+    )
+    epoch_after_5 = json.loads(body)["epoch_id"]
+
+    # The game process restarted -- ChronicleBridge's own hello_seq
+    # counter starts over from 1, well below the 5 this session last saw.
+    status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-counter-reset-1", hello_seq=1, head_seq=0, gamets=10.0)
+    )
+    decoded = json.loads(body)
+    assert status == 200
+    assert decoded["epoch_id"] == epoch_after_5 + 1  # still a new load -- epoch bumps
+    assert decoded["hello_seq"] == 1  # echoes the request's own value regardless
+
+
+def test_sync_hello_fork_past_the_gamets_threshold_sets_confirm_required(server_factory):
+    """Design doc §8b item 1's large-jump threshold: a FORK (reload to an earlier point) whose
+    gamets delta exceeds `_CONFIRM_REQUIRED_GAMETS_HOURS` (24 game-hours) must set
+    confirm_required=True; one just under the threshold must not. Pins both the rule (computed for
+    any known branch, not just when both legs trip) and the constant's value."""
+    post = server_factory()
+    _status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-confirm-1", hello_seq=1, head_seq=0, gamets=100.0)
+    )
+    assert json.loads(body)["decision"] == "NEW_TIMELINE"  # branch head is now at gamets=100.0
+
+    # A reload to gamets=10.0 is a 90-game-hour jump backward -- over the
+    # 24-hour threshold.
+    _status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-confirm-1", hello_seq=2, head_seq=0, gamets=10.0)
+    )
+    decoded = json.loads(body)
+    assert decoded["decision"] == "FORK"
+    assert decoded["confirm_required"] is True
+
+    # A reload to gamets=99.0 is only a 1-game-hour jump -- under
+    # threshold, still a FORK, but not flagged.
+    _status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-confirm-1", hello_seq=3, head_seq=0, gamets=99.0)
+    )
+    decoded = json.loads(body)
+    assert decoded["decision"] == "FORK"
+    assert decoded["confirm_required"] is False
+
+
+def test_sync_hello_missing_manifest_is_legacy_import_and_not_actionable(server_factory):
+    post = server_factory()
+    status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-legacy-1", manifest_present=False, hello_seq=1)
+    )
+    decoded = json.loads(body)
+    assert status == 200
+    assert decoded["decision"] == "LEGACY_IMPORT"
+    assert decoded["actionable"] is False
+
+
+def test_sync_hello_rejects_a_malformed_body(server_factory):
+    post = server_factory()
+    status, _ = post.post_json("/whiterun/sync/hello", {"save_uuid": "s1"})  # missing hello_seq/manifest_present
+    assert status == 400
+
+
+def test_sync_hello_survives_a_listener_restart(server_factory):
+    """Design doc §4.3's required test: the durable per-save_uuid sidecar must survive the
+    listener process restarting. Same "fresh handler-state closure simulates a restart" precedent
+    as test_hydration_pair_is_reoffered_after_a_listener_restart -- except here, unlike every
+    other per-slice state in this file, the restart must NOT lose anything.
+
+    Commits real mutations (advancing the durably-tracked head_seq to 2) between the two hellos,
+    then sends the second hello claiming head_seq=2 too -- this is the specific failure mode §4.3
+    names: a naive in-memory-only sidecar would have "forgotten" this save_uuid entirely on
+    restart (BranchState(known=False)), so a manifest claiming generation 0/head_seq=2 would
+    resolve NEW_TIMELINE (a fresh branch, wrongly discarding everything the service already knew),
+    not CONTINUE -- or, if the sidecar partially survived but head_seq alone regressed to 0,
+    ADOPT (head_seq ahead of what the service ever ACKed). Either way, wrong. Asserting CONTINUE
+    with head_seq=0 on both sides (as a weaker version of this test would) can't tell amnesia apart
+    from correct behavior -- both would say CONTINUE.
+    """
+    post = server_factory()
+    status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-restart-1", hello_seq=1, head_seq=0, gamets=10.0)
+    )
+    decoded = json.loads(body)
+    assert decoded["decision"] == "NEW_TIMELINE"
+    epoch_id = decoded["epoch_id"]
+
+    for seq in (0, 1, 2):
+        resp = post(
+            "/whiterun/sync/mutation",
+            _mutation_body(epoch_id=epoch_id, save_uuid="save-restart-1", generation=0, seq=seq, event={"event_type": "npc_died", "gamets": 10.0 + seq, "npc_id": "nazeem", "cause": "unknown"}),
+        )
+        assert resp.status == 204
+
+    # Simulate the listener restarting: a brand-new server, same tmp_path
+    # (server_factory's own default sync_state_dir), so the durable
+    # sidecar on disk is unaffected -- only the in-memory closure state
+    # (including the mutation endpoint's own EventLog) is fresh, exactly
+    # like a real process restart.
+    fresh_post = server_factory()
+    status, body = fresh_post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-restart-1", hello_seq=2, head_seq=2, gamets=12.0)
+    )
+    decoded = json.loads(body)
+    assert status == 200
+    assert decoded["decision"] == "CONTINUE"
+
+
+def test_sync_mutation_is_accepted_and_appends_to_the_event_log(server_factory):
+    post = server_factory()
+    _status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-mutation-1", hello_seq=1, head_seq=0, gamets=0.0)
+    )
+    epoch_id = json.loads(body)["epoch_id"]
+
+    resp = post(
+        "/whiterun/sync/mutation",
+        _mutation_body(epoch_id=epoch_id, save_uuid="save-mutation-1", generation=0, seq=0),
+    )
+    assert resp.status == 204
+
+
+def test_sync_mutation_rejects_a_stale_epoch_with_409_not_500(server_factory):
+    """Design doc §4.4: epoch-fencing rejection must be 409, never a 500."""
+    post = server_factory()
+    _status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-stale-epoch-1", hello_seq=1, head_seq=0, gamets=0.0)
+    )
+    current_epoch = json.loads(body)["epoch_id"]
+
+    resp = post(
+        "/whiterun/sync/mutation",
+        _mutation_body(epoch_id=current_epoch - 1 if current_epoch > 0 else -1, save_uuid="save-stale-epoch-1", seq=0),
+    )
+    assert resp.status == 409
+
+
+def test_sync_mutation_before_any_hello_is_rejected_with_409(server_factory):
+    """No session at all for this save_uuid -- no epoch was ever legitimately issued, so any
+    mutation is treated the same as a stale one (see `_process_mutation`)."""
+    post = server_factory()
+    resp = post("/whiterun/sync/mutation", _mutation_body(save_uuid="save-never-said-hello", epoch_id=0, seq=0))
+    assert resp.status == 409
+
+
+def test_sync_mutation_dedups_a_replayed_seq_via_event_log_append(server_factory, tmp_path):
+    """Design doc §4.1: dedup on (save_uuid, generation, seq) is EventLog.append()'s own
+    idempotent-no-op behavior (chronicle/events.py:206) -- reused, not re-implemented. Replaying
+    the exact same mutation twice must not double-apply it.
+
+    A bare "both replies were 204" assertion can't distinguish real dedup from no dedup at all (a
+    handler with none would also reply 204 twice) -- so this reads the durable sidecar's own
+    head_gamets after each call: the first mutation (gamets=5.0) must advance it to 5.0, and a
+    REPLAY of that same (save_uuid, generation, seq) carrying a very different gamets (999.0) must
+    be a true no-op -- EventLog.append() returns False for the duplicate seq, so
+    `_process_mutation` never re-runs `_save_sync_state`, and head_gamets must still read 5.0, not
+    999.0.
+    """
+    post = server_factory()
+    _status, body = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-dedup-1", hello_seq=1, head_seq=0, gamets=0.0)
+    )
+    epoch_id = json.loads(body)["epoch_id"]
+
+    sidecar_path = tmp_path / "sync-state" / "save-dedup-1.json"
+
+    first = post(
+        "/whiterun/sync/mutation",
+        _mutation_body(
+            epoch_id=epoch_id, save_uuid="save-dedup-1", generation=0, seq=0,
+            event={"event_type": "npc_died", "gamets": 5.0, "npc_id": "nazeem", "cause": "unknown"},
+        ),
+    )
+    assert first.status == 204
+    assert json.loads(sidecar_path.read_text())["head_gamets"] == 5.0
+
+    second = post(
+        "/whiterun/sync/mutation",
+        _mutation_body(
+            epoch_id=epoch_id, save_uuid="save-dedup-1", generation=0, seq=0,  # same seq -- a replay
+            event={"event_type": "npc_died", "gamets": 999.0, "npc_id": "nazeem", "cause": "unknown"},
+        ),
+    )
+    assert second.status == 204
+    # Dedup means this replay's very different gamets must NOT have been
+    # applied -- head_gamets is unchanged from the first call, proving
+    # EventLog.append() actually rejected the duplicate seq rather than
+    # silently re-appending (and re-advancing state) a second time.
+    assert json.loads(sidecar_path.read_text())["head_gamets"] == 5.0
+
+
+def test_sync_mutation_rejects_a_malformed_body(server_factory):
+    post = server_factory()
+    _status, _ = post.post_json(
+        "/whiterun/sync/hello", _hello_body(save_uuid="save-malformed-mut-1", hello_seq=1, head_seq=0, gamets=0.0)
+    )
+    resp = post("/whiterun/sync/mutation", {"save_uuid": "save-malformed-mut-1"})  # missing epoch_id/generation/seq/event
+    assert resp.status == 400

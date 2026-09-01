@@ -127,6 +127,32 @@ these state machines) even though this cut's own within-process contract
 says `applied` is otherwise permanent -- a real, named limitation of the
 in-memory-only state, not a new one specific to evidence.
 
+POST /whiterun/sync/hello and POST /whiterun/sync/mutation (docs/design/
+chronicle-bridge-sync-handshake-out.md): the save/reload sync handshake's
+service half. Calls straight into `chronicle.sync.resolve()`/
+`mutation_admissible()` (never re-implements the six-way RESOLVE decision
+table) and `chronicle.framelog.event_from_record()` (never re-implements
+per-event-type reconstruction) -- see `_process_hello`/`_process_mutation`.
+Unlike every write path above, these two import `chronicle.events`/
+`chronicle.sync` directly rather than shelling out to `python -m chronicle
+inject`: the design doc's §4.4 explains why -- `EventLog.append()` IS the
+mutation endpoint's commit point, so it must happen synchronously,
+in-process, in the same request that replies to the shim, and there is no
+run/framelog concept involved at all (sync state is a durable per-
+save_uuid sidecar, not a run directory). Bearer-token auth only, NOT
+gated behind `--live-run` (design doc §8b item 3 -- sync state is keyed
+by `save_uuid`, orthogonal to demo runs). Unlike every per-slice state
+dict above (`hydration_pair_states` and friends), the sync handshake's
+own session state (active epoch, hello_seq, the single tracked
+generation/head_seq/head_gamets triple) is durable -- one JSON file per
+save_uuid under `--sync-state-dir`, written synchronously on every change
+-- because, per the design doc's §4.3, this is the one slice where a
+listener restart would be silent timeline corruption if left in-memory
+like everything else here. The mutation endpoint's own `EventLog`
+instance (`mutation_event_log`, used only for its `.append()` idempotency)
+is, deliberately, NOT part of that durability story and does not survive
+a restart -- see `_SyncSessionState`'s docstring.
+
 Read-only exception, /whiterun/hydration (docs/design/chronicle-bridge-
 hydration-out.md §3b): this one route DOES import chronicle/ directly
 (`chronicle.framelog.FrameLogReader`/`state_at`, `chronicle.social`,
@@ -153,6 +179,7 @@ not be used as precedent for adding new write paths that skip the CLI.
 import argparse
 import dataclasses
 import json
+import re
 import secrets
 import subprocess
 import sys
@@ -169,8 +196,17 @@ from models import EventType, GameEvent, PositionSnapshot
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from chronicle.avoidance import is_avoiding
 from chronicle.diegetic_evidence import should_reveal_evidence
-from chronicle.framelog import FrameLogReader, default_runs_dir
+from chronicle.events import EventLog
+from chronicle.framelog import FrameLogReader, default_runs_dir, event_from_record
 from chronicle.hydration import RANK_NO_GRUDGE, relationship_rank_for
+from chronicle.sync import (
+    BranchState,
+    Manifest,
+    ResolveDecision,
+    legacy_import_resolution,
+    mutation_admissible,
+    resolve,
+)
 from chronicle.vendor_markup import MARKUP_NO_MARKUP, markup_multiplier_for
 
 # Mirrors adapters/skyrim/ChronicleBridge/src/IdentityMap.cpp's kNamedCast
@@ -900,7 +936,296 @@ def _apply_evidence_ack(entry_states: dict[tuple[str, str], _EvidenceEntryState]
         del entry_states[(holder_id, belief_id)]
 
 
-def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str | None) -> type[BaseHTTPRequestHandler]:
+# --- Save/reload sync handshake (docs/design/chronicle-bridge-sync-handshake-out.md) ---
+
+# save_uuid arrives as attacker/game-controlled JSON and is used as a
+# sync-state filename component -- reject anything outside a safe
+# filesystem charset before it ever reaches a path, rather than trying to
+# escape/sanitize it. The co-save's own save_uuid is 32 lowercase hex
+# chars (spec §3); existing chronicle runs use human-readable ids like
+# "save-listener-1" (spec §8b item 4) -- both fit this charset.
+_SYNC_SAVE_UUID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+# spec §8b item 1: the confirm_required "large jump" threshold. Both legs
+# are named constants specifically so they're easy to tune later against
+# real play data, per the spec's own framing -- the *shape* of the rule
+# (an OR of a gamets leg and a seq leg) is decided, these two numbers are
+# not. gamets is in game-hours (ADR-0010: 1 tick = 1 gamets = 1
+# game-hour, chronicle/cli.py), so the gamets leg is compared directly
+# against branch_state.head_gamets - manifest.gamets with no unit
+# conversion.
+_CONFIRM_REQUIRED_GAMETS_HOURS = 24.0
+_CONFIRM_REQUIRED_SEQ_DELTA = 50
+
+# Where the durable per-save_uuid sync sidecar lives by default -- a
+# sibling of this listener script, following the same "listener-owned
+# artifact lives next to listener.py, not under chronicle/runs/"
+# convention --snapshot-path's own default already establishes (this
+# directory is deliberately not part of chronicle/, see module docstring).
+_DEFAULT_SYNC_STATE_DIR = Path(__file__).parent / "sync-state"
+
+# Guards both the durable sidecar (read-modify-write) and the in-memory
+# mutation_event_log for the sync routes -- one lock, not a per-save_uuid
+# lock table, the same "one lock is enough for v1" simplification
+# _write_lock already makes for /whiterun/positions.
+_sync_lock = threading.Lock()
+
+
+@dataclasses.dataclass
+class _SyncSessionState:
+    """Durable per-save_uuid sync session state (spec §4.3).
+
+    Unlike every other per-slice state in this file (`_HydrationPairState`
+    and its siblings, all safe to lose on restart because their state is
+    recomputable from a run's frame log), this MUST survive a listener
+    restart: branch/epoch/commit state is not recomputable from anything
+    else the listener reads, so losing it silently resets head_seq to 0
+    while the co-save manifest still says N, producing spurious
+    ADOPT/amnesia on the very next HELLO -- timeline corruption, not a
+    soft retry (spec §4.3). One JSON file per save_uuid under
+    --sync-state-dir, written synchronously (atomic temp-file + rename,
+    the same discipline `_handle_positions` already uses for the
+    positions snapshot) on every change -- see `_save_sync_state`.
+
+    `active_epoch`/`hello_seq` bump together, once per genuinely NEW load
+    -- see `_process_hello`. `hello_seq` is tracked specifically so a
+    RETRIED, identical HELLO (the same load, resent because its first
+    response never arrived -- a real possibility given ChronicleBridge's
+    fire-and-forget-by-default HTTP client, spec §2) is recognized and
+    does NOT mint a second epoch for what is, from the game's own
+    perspective, still the same load: `chronicle.sync`'s own caller-
+    discipline comment describes "a new epoch per load/new-game", and
+    hello_seq (incremented on every kPostLoadGame, spec §4.2) is exactly
+    that granularity.
+
+    `generation`/`head_seq`/`head_gamets` are the v1 single-generation
+    `BranchState` simplification the spec's §4.1 names explicitly: since
+    FORK/ADOPT aren't actionable yet (no fork-on-disk support exists),
+    this service never creates a second generation, so there is only ever
+    one generation to track per save_uuid. `generation is None` means "no
+    branch known yet for this save_uuid" -- `BranchState(known=False)`,
+    the NEW_TIMELINE/LEGACY_IMPORT territory.
+    """
+
+    active_epoch: int
+    hello_seq: int
+    generation: int | None
+    head_seq: int
+    head_gamets: float
+
+
+def _sync_state_path(sync_state_dir: Path, save_uuid: str) -> Path:
+    return sync_state_dir / f"{save_uuid}.json"
+
+
+def _load_sync_state(sync_state_dir: Path, save_uuid: str) -> _SyncSessionState | None:
+    """None means this save_uuid has never had a durable sidecar entry written -- the caller
+    treats that the same way chronicle.sync.BranchState(known=False) does."""
+    path = _sync_state_path(sync_state_dir, save_uuid)
+    if not path.exists():
+        return None
+    return _SyncSessionState(**json.loads(path.read_text()))
+
+
+def _save_sync_state(sync_state_dir: Path, save_uuid: str, state: _SyncSessionState) -> None:
+    """Synchronous atomic write (temp file + rename) -- spec §4.3 requires every state change
+    that must survive a restart to be durable before the caller replies to the shim."""
+    sync_state_dir.mkdir(parents=True, exist_ok=True)
+    path = _sync_state_path(sync_state_dir, save_uuid)
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(dataclasses.asdict(state)))
+    tmp_path.replace(path)
+
+
+def _manifest_from_hello_body(body: dict) -> Manifest:
+    """The HTTP-boundary conversions spec §3/§4.1 require, done here, once: `parent_generation`'s
+    `0` co-save sentinel -> Python `None` (chronicle.sync.Manifest treats `None` as the meaningful
+    "no ancestor" value, not `0`), and `wall_ts`'s Unix milliseconds (the co-save's `int64_t`) ->
+    Unix seconds (chronicle.events.Event.wall_ts's float unit). Split out from `_process_hello` so
+    it can be exercised directly by the golden-fixture round-trip test (spec §3) without a live
+    HTTP round trip.
+    """
+    parent_generation_raw = int(body["parent_generation"])
+    return Manifest(
+        format_version=int(body["format_version"]),
+        save_uuid=body["save_uuid"],
+        generation=int(body["generation"]),
+        parent_generation=None if parent_generation_raw == 0 else parent_generation_raw,
+        head_seq=int(body["head_seq"]),
+        gamets=float(body["gamets"]),
+        wall_ts=float(body["wall_ts"]) / 1000.0,
+    )
+
+
+def _process_hello(sync_state_dir: Path, body: dict) -> dict[str, object]:
+    """The core of POST /whiterun/sync/hello (spec §4.1/§4.2/§4.3/§4.6), split out from the HTTP
+    handler for testability. Caller holds `_sync_lock` and has already validated `body`'s shape.
+
+    Loads (or initializes) this save_uuid's durable session state, builds the v1 single-generation
+    `chronicle.sync.BranchState` (spec §4.1) from it, calls `chronicle.sync.resolve()` (or
+    `legacy_import_resolution()` directly when `manifest_present` is False, matching resolve()'s
+    own docstring: a missing manifest is decided by the caller before resolve() is ever invoked),
+    computes `actionable`/`confirm_required`, persists any session-state change durably, and
+    returns the JSON-serializable response body (spec §4.1's exact shape, `hello_seq` echoed).
+    """
+    save_uuid = body["save_uuid"]
+    hello_seq = int(body["hello_seq"])
+    manifest_present = bool(body["manifest_present"])
+
+    state = _load_sync_state(sync_state_dir, save_uuid)
+
+    # hello_seq lives in SyncHandshake's in-memory C++ state (spec §5),
+    # NOT in the co-save manifest (§3's field table has seven fields, none
+    # of them hello_seq) -- so it resets to 1 whenever the GAME PROCESS
+    # restarts, even though this service's own durable sidecar does not.
+    # A monotonicity check (hello_seq > state.hello_seq) would treat that
+    # entirely legitimate reset as "stale" and wedge the session with no
+    # self-correction path (every subsequent hello would keep losing to a
+    # stored value that can never come back down). Equality is therefore
+    # the ONLY signal this service can safely use for "same load, retried
+    # response" (spec §4.2/§2) -- anything else, lower or higher, is
+    # treated as a new load and bumps the epoch. A spuriously-bumped epoch
+    # self-heals via the shim's own 409-threshold-triggers-re-HELLO loop
+    # (spec §4.1's "Shim-side 409 handling"); a wedged session would not.
+    is_new_load = state is None or hello_seq != state.hello_seq
+
+    confirm_required = False
+    if not manifest_present:
+        # No manifest to interpret at all -- resolve() is never called
+        # (its own docstring: this is decided by the caller beforehand).
+        resolution = legacy_import_resolution(save_uuid_hint=save_uuid)
+    else:
+        manifest = _manifest_from_hello_body(body)
+        if state is None or state.generation is None:
+            branch_state = BranchState(known=False)
+        else:
+            branch_state = BranchState(
+                known=True,
+                head_generation=state.generation,
+                head_seq=state.head_seq,
+                head_gamets=state.head_gamets,
+                known_generations=frozenset({state.generation}),
+            )
+        resolution = resolve(manifest, branch_state)
+        # confirm_required (spec §4.6/§8b item 1) is a pure threshold on
+        # the service's tracked branch head vs. the manifest -- computed
+        # whenever there IS a known branch to compare against, not just on
+        # FORK specifically (§8b item 1 states it with no decision
+        # predicate; scoping it to FORK-only would silently drop the audit
+        # record §4.6 wants for e.g. ADOPT's own head_seq-ahead row).
+        if branch_state.known:
+            confirm_required = (
+                branch_state.head_gamets - manifest.gamets > _CONFIRM_REQUIRED_GAMETS_HOURS
+                or branch_state.head_seq - manifest.head_seq > _CONFIRM_REQUIRED_SEQ_DELTA
+            )
+
+    new_epoch = (0 if state is None else state.active_epoch + 1) if is_new_load else state.active_epoch
+
+    # Default: leave the tracked branch exactly as it was (or "unknown" if
+    # there was never one) -- CONTINUE needs no change (resolve()'s own
+    # precondition means the service's tracked head_seq/head_gamets are
+    # already >= the manifest's), and FORK/ADOPT/LEGACY_IMPORT must never
+    # silently adopt unverified history this service can't act on yet
+    # (spec §4).
+    new_generation = state.generation if state is not None else None
+    new_head_seq = state.head_seq if state is not None else 0
+    new_head_gamets = state.head_gamets if state is not None else 0.0
+    if manifest_present and resolution.decision is ResolveDecision.NEW_TIMELINE:
+        # A genuinely new (or amnesia'd-back-to-new) branch: start tracking
+        # it at the manifest's own gamets (a legitimate clock reading, not
+        # unverified committed history) but head_seq=0 -- nothing has
+        # actually been committed via EventLog.append() yet for this
+        # now-known branch (spec §4.4: head_seq means exactly what the
+        # service has durably appended, never an un-ACKed claim).
+        new_generation = resolution.branch_generation
+        new_head_seq = 0
+        new_head_gamets = manifest.gamets
+
+    _save_sync_state(
+        sync_state_dir,
+        save_uuid,
+        _SyncSessionState(
+            active_epoch=new_epoch,
+            hello_seq=hello_seq,
+            generation=new_generation,
+            head_seq=new_head_seq,
+            head_gamets=new_head_gamets,
+        ),
+    )
+
+    actionable = resolution.decision in (ResolveDecision.CONTINUE, ResolveDecision.NEW_TIMELINE, ResolveDecision.DEGRADED)
+    return {
+        "decision": resolution.decision.value,
+        "actionable": actionable,
+        "epoch_id": new_epoch,
+        "replay_from_seq": resolution.replay_from_seq,
+        "confirm_required": confirm_required,
+        "hello_seq": hello_seq,  # echoes the request's own value (spec §4.1/§4.2).
+    }
+
+
+def _process_mutation(sync_state_dir: Path, event_log: EventLog, body: dict) -> tuple[int, str | None]:
+    """The core of POST /whiterun/sync/mutation (spec §4.1/§4.4), split out from the HTTP handler
+    for testability. Caller holds `_sync_lock` and has already validated `body`'s shape. Returns
+    (http_status, error_message_or_None) -- the caller logs the message (if any) and replies with
+    the status, never a 500 for a stale epoch (spec §4.4: 409).
+
+    Epoch-fencing via `chronicle.sync.mutation_admissible()`. On acceptance: `EventLog.append()`
+    is the commit point (spec §4.4) -- it happens synchronously here, and the durable session
+    state's `head_seq`/`head_gamets` only advance, durably, AFTER a successful append, all before
+    this function returns and the caller replies 2xx. There is no gap in which a mutation can be
+    "ACKed but not really there."
+    """
+    save_uuid = body["save_uuid"]
+    generation = int(body["generation"])
+    seq = int(body["seq"])
+    epoch_id = int(body["epoch_id"])
+    event_json = body["event"]
+    if not isinstance(event_json, dict):
+        return 400, "event must be a JSON object"
+
+    state = _load_sync_state(sync_state_dir, save_uuid)
+    if state is None:
+        # No session for this save_uuid at all -- no HELLO ever
+        # established an epoch, so no epoch_id the shim could carry here
+        # was ever legitimately issued. Treat exactly like a stale epoch.
+        return 409, f"no active sync session for save_uuid {save_uuid!r} -- mutation before hello"
+    if not mutation_admissible(epoch_id, state.active_epoch):
+        return 409, f"stale epoch: mutation epoch {epoch_id} not admissible against current epoch {state.active_epoch}"
+
+    # tick/gamets/wall_ts defaulting mirrors chronicle/cli.py's own
+    # _inject_write discipline exactly (ADR-0010: 1 tick = 1 gamets = 1
+    # game-hour; wall_ts, transaction time, defaults to now if the caller
+    # doesn't supply one) -- not re-derived independently here.
+    if "tick" not in event_json and "gamets" not in event_json:
+        return 400, "event must carry a tick or gamets (1 tick = 1 gamets = 1 game-hour, ADR-0010)"
+    tick = int(event_json["tick"]) if "tick" in event_json else int(event_json["gamets"])
+    gamets = float(event_json["gamets"]) if "gamets" in event_json else float(tick)
+    wall_ts = float(event_json.get("wall_ts", time.time()))
+    payload = {**event_json, "gamets": gamets, "wall_ts": wall_ts}
+    record = {"tick": tick, "save_uuid": save_uuid, "generation": generation, "seq": seq, "payload": payload}
+    try:
+        # chronicle.framelog.event_from_record() is the existing "rebuild
+        # the typed Event from a JSON payload" dispatcher -- reused here
+        # rather than re-implementing per-event-type construction.
+        event = event_from_record(record)
+    except (KeyError, TypeError) as exc:
+        return 400, f"malformed event: {exc}"
+
+    # EventLog.append()'s own (save_uuid, generation, seq) dedup is the
+    # only dedup mechanism here (chronicle/events.py:206) -- a replayed
+    # mutation is a safe no-op, its head_seq/head_gamets already reflect
+    # the first, successful append.
+    if event_log.append(event):
+        _save_sync_state(
+            sync_state_dir,
+            save_uuid,
+            dataclasses.replace(state, head_seq=max(state.head_seq, seq), head_gamets=max(state.head_gamets, gamets)),
+        )
+    return 204, None
+
+
+def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str | None, sync_state_dir: Path | None = None) -> type[BaseHTTPRequestHandler]:
     # Per-pair hydration state machine (design doc §3b + the ack protocol
     # that closes fad0d79's "delivered before confirmed" gap) -- see
     # _HydrationPairState's docstring for the full state machine. In-memory
@@ -933,6 +1258,20 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
     # in-memory-only, does-not-survive-a-restart shape as the three state
     # dicts above -- see _EvidenceEntryState's docstring.
     evidence_entry_states: dict[tuple[str, str], _EvidenceEntryState] = {}
+
+    # Where the sync handshake's durable per-save_uuid sidecar lives
+    # (_SyncSessionState's docstring) -- unlike every dict above, this
+    # state is NOT closure-scoped/in-memory-only; it's read from and
+    # written back to disk on every hello/mutation.
+    resolved_sync_state_dir = sync_state_dir if sync_state_dir is not None else _DEFAULT_SYNC_STATE_DIR
+
+    # The mutation endpoint's own EventLog, used only for its
+    # (save_uuid, generation, seq) append() dedup (chronicle/events.py:206)
+    # -- deliberately in-memory-only/closure-scoped like the pair-state
+    # dicts above, NOT part of the sync durability story (module docstring
+    # explains why: only the session bookkeeping needs to survive a
+    # restart in this v1, not the mutation events' own content).
+    mutation_event_log: EventLog = EventLog()
 
     class Handler(BaseHTTPRequestHandler):
         def _check_auth(self) -> bool:
@@ -972,6 +1311,10 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
                 self._handle_vendor_markup_ack()
             elif self.path == "/whiterun/evidence/ack":
                 self._handle_evidence_ack()
+            elif self.path == "/whiterun/sync/hello":
+                self._handle_sync_hello()
+            elif self.path == "/whiterun/sync/mutation":
+                self._handle_sync_mutation()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -1352,6 +1695,104 @@ def _make_handler(snapshot_path: Path, shared_secret: str | None, live_run: str 
             self.send_response(204)
             self.end_headers()
 
+        def _handle_sync_hello(self) -> None:
+            """POST /whiterun/sync/hello (design doc §4.1/§4.2/§4.3/§4.6). Bearer-token auth
+            only -- deliberately NOT gated behind --live-run (design doc §8b item 3: sync state is
+            keyed by save_uuid, orthogonal to demo runs). Not part of the OpenAPI contract, same
+            hand-rolled-JSON precedent as every ack/GET pair in this file (no pydantic model).
+
+            Body: the manifest fields as JSON (format_version, save_uuid, generation,
+            parent_generation, head_seq, gamets, wall_ts, char_name_hash -- char_name_hash is
+            display/debug only, ignored here, same as chronicle.sync.Manifest's own omission of
+            it) plus manifest_present: bool and hello_seq: uint64. Any malformed/missing field
+            rejects the whole request with 400, same reject-the-whole-request style as every other
+            POST route in this file -- see `_process_hello` for the actual RESOLVE call.
+            """
+            if not self._check_auth():
+                return
+            raw = self._read_body()
+            if raw is None:
+                return
+
+            try:
+                body = json.loads(raw)
+                if not isinstance(body, dict):
+                    raise TypeError("expected a JSON object")
+                save_uuid = body.get("save_uuid")
+                if not isinstance(save_uuid, str) or not _SYNC_SAVE_UUID_RE.match(save_uuid):
+                    raise ValueError(f"invalid or missing save_uuid: {save_uuid!r}")
+                int(body["hello_seq"])
+                manifest_present = body["manifest_present"]
+                if not isinstance(manifest_present, bool):
+                    raise TypeError("manifest_present must be a bool")
+                if manifest_present:
+                    for field in ("format_version", "generation", "parent_generation", "head_seq", "gamets", "wall_ts"):
+                        if field not in body:
+                            raise KeyError(field)
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                print(f"rejected malformed sync hello: {exc}", file=sys.stderr)
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            with _sync_lock:
+                try:
+                    response = _process_hello(resolved_sync_state_dir, body)
+                except (ValueError, KeyError, TypeError) as exc:
+                    print(f"rejected malformed sync hello: {exc}", file=sys.stderr)
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+
+            body_bytes = json.dumps(response).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body_bytes)))
+            self.end_headers()
+            self.wfile.write(body_bytes)
+
+        def _handle_sync_mutation(self) -> None:
+            """POST /whiterun/sync/mutation (design doc §4.1/§4.4). Same auth/contract posture as
+            /whiterun/sync/hello above. Body: {"epoch_id", "save_uuid", "generation", "seq",
+            "event": {...}}. Epoch-fencing rejection is 409, not 500 (design doc §4.4) -- see
+            `_process_mutation` for the commit-point ordering this exists to get right.
+            """
+            if not self._check_auth():
+                return
+            raw = self._read_body()
+            if raw is None:
+                return
+
+            try:
+                body = json.loads(raw)
+                if not isinstance(body, dict):
+                    raise TypeError("expected a JSON object")
+                save_uuid = body.get("save_uuid")
+                if not isinstance(save_uuid, str) or not _SYNC_SAVE_UUID_RE.match(save_uuid):
+                    raise ValueError(f"invalid or missing save_uuid: {save_uuid!r}")
+                for field in ("epoch_id", "generation", "seq", "event"):
+                    if field not in body:
+                        raise KeyError(field)
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                print(f"rejected malformed sync mutation: {exc}", file=sys.stderr)
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            with _sync_lock:
+                try:
+                    status, message = _process_mutation(resolved_sync_state_dir, mutation_event_log, body)
+                except (ValueError, KeyError, TypeError) as exc:
+                    print(f"rejected malformed sync mutation: {exc}", file=sys.stderr)
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+
+            if message is not None:
+                print(f"sync mutation rejected ({status}): {message}", file=sys.stderr)
+            self.send_response(status)
+            self.end_headers()
+
         def log_message(self, format: str, *args: object) -> None:
             print(f"[listener] {self.address_string()} {format % args}", file=sys.stderr)
 
@@ -1386,6 +1827,16 @@ def main() -> None:
         "scenario tests depend on (e.g. runs/north-star-01); always a dedicated "
         "live-play run.",
     )
+    parser.add_argument(
+        "--sync-state-dir",
+        type=Path,
+        default=_DEFAULT_SYNC_STATE_DIR,
+        help="Where the save/reload sync handshake's durable per-save_uuid session state lives "
+        "(one JSON file per save_uuid, docs/design/chronicle-bridge-sync-handshake-out.md §4.3). "
+        "NOT gated behind --live-run -- /whiterun/sync/hello and /whiterun/sync/mutation are "
+        "always active (bearer-token auth only), since sync state is keyed by save_uuid, "
+        "orthogonal to demo runs.",
+    )
     args = parser.parse_args()
 
     if args.shared_secret is None:
@@ -1402,7 +1853,10 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), _make_handler(args.snapshot_path, args.shared_secret, args.live_run))
+    server = ThreadingHTTPServer(
+        ("0.0.0.0", args.port),
+        _make_handler(args.snapshot_path, args.shared_secret, args.live_run, args.sync_state_dir),
+    )
     print(f"ChronicleBridge listener on :{args.port}, writing {args.snapshot_path}", file=sys.stderr)
     server.serve_forever()
 
