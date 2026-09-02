@@ -169,6 +169,36 @@ if so, on what trigger (event count? wall-clock? explicit checkpoint
 saves only?). Deferred, not scheduled — revisit once a real long-session
 run's log size is actually measured, rather than budgeted from a guess.
 
+## Conversation tier: six open questions from the 2026-08-30 design session
+
+`docs/design/conversation-tier-design-notes-2026-08-30.md` extends ADR-0011
+(player persona/voice, itself still `status: proposed`) with a concrete
+serving-side design — engine-authored option menus with the LLM reduced to
+rendering one grounded line per tap, a Chronicle-owned TTS annotation schema,
+and KV-cache prompt-segment ordering. It raises six questions, none decided:
+
+1. **Confirm-vs-autoplay** — auto-speaking the rendered line removes ADR-0011
+   §3's "confirm the actual words" step (its named fix for Fallout 4's
+   paraphrase-wheel failure), and here the words become a propagating claim,
+   raising the cost of an unwanted line above cosmetic dialogue. Candidate
+   answers: subtitle-preview-with-cancel-window, or auto-speak as an opt-in
+   setting with confirm-first as default.
+2. **Menu staleness across the render hop** — state can tick between menu
+   construction and the render call (e.g. the target NPC dies mid-approach);
+   needs revalidation before voicing, and a decision on whether that lives in
+   the service layer or as an engine query.
+3. **Menu ranking rule** when more parameterized intents are eligible than
+   the 5–10 slots — needs to be deterministic and testable, per ADR-0009.
+4. **Annotation set contents** (emphasis/pause/laugh/tone enum) — a proposal,
+   not frozen; needs freezing before the first TTS adapter is written.
+5. **Streaming audio delivery into Skyrim** — file-handoff vs.
+   ChronicleBridge playing from an HTTP-filled ring buffer; the lip-sync
+   constraint (Skyrim lip files are pregenerated per audio file) needs a
+   spike before either path is committed to.
+6. **Free-form advanced path** (carried over from ADR-0011, now higher-stakes
+   per the design note's §1: with no player STT, it's the *only* escape from
+   fully engine-mediated claims) — needs a deliberate decision, not a default.
+
 ## Deferred: economic simulation
 
 None of the four research prompts covered economic simulation (prices,

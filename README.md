@@ -220,6 +220,36 @@ the next thing to verify.
 See `adapters/skyrim/README.md` for per-slice status and
 `docs/design/next-phases-2026-08.md` for the current plan.
 
+## Future directions
+
+The headless engine and bridge are the foundation, not the goal. Where this is
+going, in dependency order — each of these is a designed, claimable problem,
+not a vibe (see `docs/decisions/` and the open issues):
+
+- **A voice for the simulation.** The vision's tier 3 is a local LLM rendering
+  NPC belief state as dialogue — the model never *decides* anything, it
+  verbalizes what the deterministic engine already computed, and player
+  statements are ingested back as evidence. The sim stays reproducible; the
+  LLM is a replaceable component behind a seam, targeted at consumer hardware
+  on your LAN (a 27B-class open-weights model on ~64GB unified memory), not a
+  cloud API.
+- **Player persona (ADR-0011, proposed).** Author your character's personality
+  at character creation the way you author their face — trait profile,
+  mannerisms, voice. Dialogue becomes intent-driven: pick *what* you're trying
+  to do (negotiate, deceive, intimidate), and the engine generates the line in
+  *your* character's voice, grounded in what this NPC actually believes about
+  you. The committed line enters the rumor engine as a claim — a boast you
+  make in Whiterun can reach Riften, mutated. What you say has consequences
+  because what you say becomes evidence.
+- **Dynamic speech.** Committed dialogue rendered as audio by a small local
+  voice model, with per-NPC original synthetic voices. Hard line: **no cloning
+  of Skyrim's voice actors** — or anyone's voice — without documented consent.
+  Every voice Chronicle ships is original or properly licensed.
+- **The hard open problems** (the ones we'd love collaborators for): co-save
+  sync across save/reload (ADR-0005's C++ half), runtime package injection to
+  replace NPC-record overrides, and in-game validation of the write paths.
+  Each is an open issue with acceptance criteria.
+
 ## Development
 
 Requires [uv](https://docs.astral.sh/uv/) — it installs the right Python
