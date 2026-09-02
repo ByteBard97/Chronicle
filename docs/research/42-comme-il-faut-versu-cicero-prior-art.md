@@ -1,0 +1,175 @@
+# Architectures of Emergent Social Simulation and Procedural Dialogue: From Symbolic Social Physics to Generative Agent Frameworks
+
+**Date:** 2026-08-31
+**Method:** 1 external research pass (Gemini), commissioned as a narrow gap-check against
+this project's existing comparative-systems research (`docs/research/comparative-systems/
+ai-directors-and-drama-management.md` v1-v4, `02-social-simulation-literature.md`,
+`docs/research/papers/`) — specifically CICERO's actual mechanism (previously absent from
+the repo) and any updates to already-known systems (Talk of the Town, Comme il Faut/Prom
+Week, Versu, Façade). See `notes/deep-research-prompts-2026-08-31.md`, Prompt 42R. A second,
+independent Kimi pass focused specifically on CICERO was also commissioned and may be filed
+separately once it returns.
+
+**Filing note:** this report substantially exceeded its narrow brief and surfaced genuinely
+new prior art not previously on file in this repo — see "What's new here" below before
+reading the full report. **A far more rigorous independent pass on the identical brief (Kimi)
+has since been filed as report 43** — primary-source citations throughout, real numbers from
+CICERO's own supplementary material, and the single biggest find of the whole research batch
+(*Slice of Life*, FDG 2025 — a shipped academic game whose architecture nearly matches
+Chronicle's own). **Read report 43 as primary; treat this report as a useful first pass that
+correctly flagged CIF-CK but is shallower everywhere else.**
+
+---
+
+## What's new here (not previously in this repo's research)
+
+- **CIF-CK ("Prom Week meets Skyrim")** — Comme il Faut, the social-physics engine behind
+  *Prom Week*, was already adapted to run **inside Bethesda's Creation Engine, for Skyrim
+  specifically**, mapping abstract social "volitions" directly to execution-level NPC AI
+  Packages. This is the single closest known academic precedent to Chronicle's own
+  architecture — the same engine, a comparable belief/social-state-to-behavior mapping goal —
+  and was not previously on file anywhere in this project's research. Worth a dedicated
+  follow-up read of the source paper (NC State Digital Games Initiative, cited below).
+- **CICERO's actual decoupling mechanism**, formalized: a dialogue-free strategic planning
+  module outputs an explicit intent variable, and a *separate* conditional language model is
+  constrained to render that intent into natural language — the language model cannot emit
+  tactical promises unconditioned by the planner. This is real, primary-source-grounded
+  detail that was entirely absent from the repo before this report (see the Prompt 42R gap
+  this filled).
+- **ID-RAG / DeepMind Concordia (2025)** — a named, recent architectural fix for exactly the
+  failure mode LLM-generative-agent systems (Park et al.-style) exhibit: persona drift from
+  monolithic memory streams, and hallucination propagation between agents. ID-RAG decouples a
+  structured, explicit identity knowledge graph from transient episodic memory, and every
+  action is conditioned on a retrieved slice of that graph. Directly relevant to Chronicle's
+  own persona/belief-provenance design.
+- **Dialogue Action Tokens (DAT)** — a generalization of CICERO's plan-then-render pattern
+  into ordinary multi-turn dialogue systems (a frozen base LLM + a lightweight trained planner
+  predicting a continuous "action" vector), i.e. evidence the pattern isn't Diplomacy-specific.
+- **"Curationism"** (James Ryan's dissertation framing, plus the *Bad News* wizard-of-oz
+  system) — names the aesthetic gap between raw simulation traces and a structured dramatic
+  experience, and treats story generation as *recounting*, not invention. Relevant to
+  Chronicle's own GM/director-layer research (already on file) as a companion framing.
+
+---
+
+## The Emergent Narrative Paradigm and Aesthetic Curationism
+
+Interactive digital storytelling has historically wrestled with the fundamental tension between authorial agency and player affordance. Traditional narrative structures in video games rely on hand-authored branching trees or fixed "beads-on-a-string" designs, where player choices collapse into predefined narrative nodes, fundamentally constraining the long-term impact of agency. To transcend these linear constraints, computational media researchers have focused on emergent narrative, an architectural paradigm in which a storyworld is computationally simulated via autonomous, rule-driven agents, allowing stories to emerge dynamically from the happenstance of agent interactions.
+
+A persistent aesthetic challenge in emergent narrative is the operational gap between raw simulation traces and structured dramatic experiences. An uncurated log of engine execution frequently lacks thematic coherence, pacing, and dramatic tension, leading to player dissatisfaction. This problem is addressed through *curationism*, an aesthetic framework where the raw material generated by underlying simulation systems is curated, contextualized, and restructured to construct a true narrative artifact. Systems utilizing curationism shift the paradigm of story generation from direct invention to an act of recounting. Whether implemented through procedural filter layers or human-in-the-loop performances—such as the hybrid wizard-of-oz setup in *Bad News*—curationism acts as the structural bridge between underlying multi-agent simulation engines and readable human media experiences.
+
+| Paradigm | Authorial Control Mechanism | Primary Narrative Failure Mode | Aesthetic Modality | Key System Exemplars |
+| :---- | :---- | :---- | :---- | :---- |
+| **Branching / Scripted** | Pre-authored decision graphs & static plot nodes | Combinatorial explosion of state branches | Fixed Dramaturgy | Traditional Choice-Based IF |
+| **Pure Simulationist** | Autonomous agent rules & environmental variables | Absence of dramatic structure & plot pacing | Uncurated Emergence | Classical Agent Simulations |
+| **Curationist Emergent** | Dynamic state filtering, recounting, & wizardry | High operational complexity & interface friction | Retrospective Recounting | *Bad News*, *Talk of the Town* |
+
+## Symbolic Social Physics Engines: Comme il Faut and Its Successors
+
+The conceptualization of social interactions as physical laws—governed by computational constraints, forces, and state changes—led to the development of social physics engines. Prominent among these is *Comme il Faut* (CiF), an AI architecture designed to model rich, nuanced interpersonal dynamics among autonomous characters without requiring hand-scripted decision trees for every context.
+
+Comme il Faut represents the social state as a densely annotated, weighted graph where nodes correspond to characters and edges define multi-tiered social relationships alongside dynamic network attributes. The historical substrate of the simulation is stored within a Social Facts Database (SFDB), which logs past actions, occurrences, and micro-historical events. Character behavior in CiF is governed by *volition formation*, a process executed continuously over discrete interaction rounds. Volition formation relies on a large corpus of declarative social rules, termed *microtheories*, which codify societal norms, psychological tendencies, and cultural expectations. At every decision step, the engine evaluates all applicable microtheories against the current social state and SFDB history to calculate a numerical volition score for every potential social exchange between pairs of agents.
+
+Formally, the volition score for an initiating agent attempting a social exchange targeting another agent is a weighted sum over applicable microtheory rules, each a boolean predicate evaluated against the global social-network state and the complete historical record up to the current time step (original report includes the full formal notation as embedded images, omitted here — see the ProQuest/ResearchGate sources below for the primary formalization).
+
+Once an initiating character selects a social exchange based on peak volition, the target character evaluates their own rule set to determine whether to accept or reject the exchange. Following acceptance or rejection, the engine queries its library of instantiations—authored natural language text templates annotated with broad context constraints—to generate natural dialogue that reflects the internal motivations of the exchange. Finally, trigger rules process the structural outcome, updating relationship metrics and logging the event back into the SFDB to inform future volition cycles.
+
+This social physics framework powered the flagship title *Prom Week*, demonstrating that complex social interactions could serve as core gameplay loops where players manipulate social states to solve non-linear story goals. However, the primary bottleneck of early CiF implementations was authorial burden, as authoring hundreds of specific microtheories and instantiations for single narrative domains proved creative and computationally difficult to scale.
+
+To address authorial intractability, subsequent architectural iterations evolved. *Ensemble* emerged as a domain-agnostic refinement of CiF, streamlining predicate logic representations to allow content authors to reuse cultural rule sets across varied story domains. *Mismanor* extended CiF to explore dynamic rejection feedback and social status visibility. **Furthering this line of work, *CIF-CK* adapted Comme il Faut for integration with 3D commercial engines such as Bethesda's Creation Engine for *The Elder Scrolls V: Skyrim*. CIF-CK maps abstract social volitions directly to execution-level non-player character AI Packages, enabling embodied agents to execute multi-turn relationship goals, express emotional states, and react to persistent social context within an open-world action environment.**
+
+## Normative Pragmatism and Social Practice Frameworks: The Versu Engine
+
+Whereas Comme il Faut treats social state primarily as a network of weighted status markers and rule pools, the *Versu* engine—conceived by Richard Evans, Emily Short, and Graham Nelson—adopts a foundation grounded in normative pragmatism. Versu operates on the foundational premise that human speech and interpersonal behavior derive meaning from the shared social situations—or *social practices*—in which agents participate. A social practice defines a culture-specific interaction context, such as a formal dinner party, an interrogation, or a romantic flirtation, and specifies the active roles within that context.
+
+Crucially, social practices in Versu are role-agnostic. Any participating entity, whether controlled by an autonomous AI agent or a human player, can occupy any role within a practice. The system relies on social norms to define appropriate behaviors for each role, allowing human interactors to step into the role of any character seamlessly while maintaining systemic coherence across the storyworld.
+
+At the architectural core of Versu is *Praxis*, a declarative domain-specific language built on exclusion logic. Praxis represents the storyworld as a logical database of modal assertions, using exclusion logic to restrict invalid state transitions by determining which actions are structurally excluded by current social contexts, rather than exhaustively generating permissible options. To make Praxis authorable for narrative designers, Graham Nelson created *Prompter*, a higher-level authoring language. Prompter compiles high-level narrative descriptions into underlying Praxis logic statements, abstracting low-level rule management into reusable modules of social behavior, character traits, and baseline emotional responses.
+
+Versu agents possess internal cognitive models that continuously evaluate how effectively target characters fulfill their assigned role expectations. For instance, if a character acting in the role of guest slurps their soup, another character in the host role evaluates this action through the lens of their personal traits, such as their valuation of discipline or breeding. These evaluations generate fine-grained, dynamic interpersonal attitudes. Rather than updating a simple objective friendship score, attitudes in Versu are deeply subjective. Characters retain these judgments in memory and propagate them to third parties via social gossip, creating emergent social ripples that shift political alignment, romantic interest, or hostility throughout titles such as *Blood & Laurels* and *A Family Supper*.
+
+## Epistemic Dynamics, Gossip Propagation, and Simulated World-States
+
+A core dimension of social believability in multi-agent environments is the management of partial information and epistemic asymmetry. Autonomous characters must not possess omniscient awareness of the world state; instead, knowledge must be acquired through local perception or non-omnipresent communication networks.
+
+*Talk of the Town*, developed by James Ryan et al., implements an explicit model of subjective knowledge acquisition and propagation across a simulated American small town operating on day/night timesteps. Characters observe events occurring in their immediate spatial vicinity and log these as subjective memory units. When two characters share a physical location, the system initiates a conversation driven by a specialized dialogue management module known as *Productionist*. Productionist bypasses standard linear natural language generation pipelines, combining human domain expertise with algorithmic generativity using probabilistic context-free grammars (pCFGs).
+
+The dialogue manager structures conversation by allocating turns and enforcing obligations, such as an unresolved greeting or question. In the absence of direct obligations, characters select conversational goals based on personal desires or fill lulls by introducing addressing topics, such as local events or mutual acquaintances. Dialogue lines generated by Productionist contain both surface text and symbolic markup, including speech acts and topic anchors. When a speaker utters a line containing subjective knowledge markup, the recipient ingests the underlying fact into their own subjective memory database. This allows rumors, secrets, and biased accounts to propagate organically across the town's social graph over successive timesteps.
+
+While *Talk of the Town* focuses on agent-to-agent micro-gossip within a local town, Tarn and Zach Adams' *Dwarf Fortress* scales epistemic propagation to macro-historical world states. *Dwarf Fortress* begins by simulating hundreds of years of pre-game history, populating a world map with historical figures, artifacts, sites, and evolving entity allegiances viewable through Legends Mode.
+
+In active gameplay, news and rumors do not instantly warp across the map. Information is physically carried by moving entities, such as trade caravans, wandering bards, diplomatic envoys, and covert agents. For example, a player fortress accumulating immense wealth or crafting a legendary artifact does not instantly trigger high-level enemy sieges. The rumor of wealth must first be perceived by visiting trade caravans. These caravans must physically travel across the world map grid to return to their parent civilization or neighboring sites. Only when the rumor reaches foreign site governments does it alter entity relations, triggering targeted military invasions, monster raids, or artifact theft plots. Non-player characters retain historical records of family deaths, heroic feats, and site conquests, enabling delayed personal vengeance plots or systemic entity wars based on accurate or mutated historical news.
+
+## Decoupled Strategic Planning and Controlled Dialogue Generation: CICERO
+
+As narrative systems transitioned toward integrating statistical Large Language Models (LLMs), a key architectural challenge emerged: pure LLMs struggle with multi-turn strategic coherence, long-horizon goal alignment, and logical consistency. Meta AI's *CICERO* system solved this challenge in the complex multi-agent negotiation game *Diplomacy* by introducing an architecture that explicitly decouples game-theoretic strategic planning from natural language dialogue generation.
+
+CICERO does not allow an LLM to directly output tactical promises or game moves in free-form text. Instead, the system splits cognition into two separate modules. The **Strategic Planning Module** acts as a dialogue-free, game-theoretic planning engine combining reinforcement learning with human-regularized search. This module analyzes the board state, predicts opponent behaviors, and outputs explicit tactical intents — such as proposing a joint attack on a specific territory while maintaining a defensive alliance elsewhere. The **Language Model Realization Module** is a conditional language model responsible purely for expressing the planner's strategic intent in natural language.
+
+By conditioning generation on the explicit intent variable, the language model is constrained from hallucinating false military promises or making game-theoretically irrational commitments.
+
+This architectural principle is formalized in general dialogue systems through paradigms such as **Dialogue Action Tokens (DAT)**. DAT treats individual dialogue turns as discrete action tokens within a multi-turn planner framework. By freezing the core pretrained language model and training a lightweight planner model to predict a continuous action vector, systems steer the generative model toward long-term conversational goals without altering the base model's language fluency or triggering language degradation during reward optimization.
+
+## Generative Agents, LLM Substrates, and Identity Grounding
+
+The introduction of LLM-based Generative Agents—pioneered by Park et al. and expanded in environments like DeepMind's *Concordia*—shifted social simulation from hand-authored declarative rules to open-ended statistical reasoning. Agents in these frameworks store experiences in open-ended natural language, using LLM inference to synthesize memories, generate plans, and output natural behaviors.
+
+Despite their behavioral expressiveness, standard generative agent architectures rely on monolithic long-term memory streams where episodic observations, semantic knowledge, and core persona traits reside in the same flat vector space. Extended simulation runs reveal two primary systemic failure modes. First, **context dilution and persona drift** occur as long-term memory streams accumulate thousands of mundane episodic interactions, diluting core persona traits, values, and foundational preferences during associative retrieval. As a result, agents become overly impressionable, abandoning assigned personalities to mirror recent conversational partners. Second, **hallucination propagation** occurs when a single agent's memory hallucination or misinterpretation is communicated to peers. Peer agents absorb the hallucinated statement as grounded truth, propagating false information across the agent population and corrupting overall simulation stability.
+
+To mitigate context dilution and hallucination cascades, modern frameworks employ **Identity Retrieval-Augmented Generation (ID-RAG)**. Deployed within substrates such as Concordia, ID-RAG decouples core identity representations from transient episodic memories by maintaining an explicit, dynamic identity model structured as a knowledge graph.
+
+In an ID-RAG-augmented agent decision loop, the system executes a structured pipeline:
+
+> 1. **Working Memory Construction**: At the current timestep, the agent receives its observation and retrieves relevant episodic records from long-term memory to construct a working memory prompt.
+> 2. **Identity Knowledge Graph Querying**: Prior to action selection, the system executes a focused query against the agent's identity knowledge graph, retrieving core beliefs, values, dynamic status indicators, and behavioral constraints.
+> 3. **Action Validation and Realization**: The retrieved identity sub-graph is merged into the working memory prompt. The policy model generates its action conditioned explicitly on both transient context and immutable core self-knowledge.
+
+By grounding agent self-perception within a structured knowledge graph, ID-RAG maintains long-horizon persona stability, prevents behavioral drift, and provides an auditable symbolic mechanism to filter hallucinated social facts before they propagate to other agents.
+
+## Technical Comparative Analysis of Emergent Systems
+
+Evaluating emergent social simulation and procedural dialogue architectures reveals distinct trade-offs across formal logic, computational tractability, authorial burden, and expressive flexibility.
+
+| System / Framework | Paradigm & Core Engine | Knowledge Representation | Dialogue Selection / Generation Method | Epistemic Propagation Topology | Primary System Bottleneck |
+| :---- | :---- | :---- | :---- | :---- | :---- |
+| **Comme il Faut (CiF)** | Symbolic Social Physics; Declarative Microtheories | Weighted Relationship Graph & SFDB | Hand-authored Instantiation Templates | Global state updates via trigger rules | Authorial burden of writing microtheories & text templates |
+| **Versu** | Normative Pragmatism; Exclusion Logic (*Praxis*) | Modal Logic DB & Practice Roles | Dynamic selection based on practice norms | Subjective role evaluations & local gossip | High logic authoring overhead; UI state visibility issues |
+| **Talk of the Town** | Agent-Based Epistemic Simulation | Subjective Fact Database per Agent | *Productionist* pCFG + Speech-Act Markup | Local physical proximity turn-taking gossip | Spatial/temporal scale constraints during full worldgen |
+| **Dwarf Fortress** | Macro-World Historical Simulation | Global Historical Figures & Site Index | Minimal abstract text logs & legends entries | Map traversal by physical entities (caravans, bards) | Computational load of tracking high-count world entities |
+| **CICERO** | Decoupled Game-Theoretic Planning + LLM | Board State Graph & Strategy Vectors | Conditional LLM Realization | Open multi-agent message routing | High inference latency; restricted to closed domain rules |
+| **Generative Agents (ID-RAG)** | Probabilistic LLM Substrate + Graph Grounding | Monolithic Vector Stream + Identity Graph | Open-Ended LLM Prompting & Validation | Open-ended text dialogue & memory ingestion | LLM token costs, context limits, & hallucination risks |
+
+## Synthesis and Future Outlook
+
+The evolution of interactive storytelling systems highlights a clear trajectory away from static, hand-authored decision trees toward dynamic social architectures. Early symbolic social physics engines like *Comme il Faut* and *Versu* established the necessity of formalizing social norms, volitions, and interpersonal role evaluations to drive believable character choices. Epistemic simulation frameworks, such as *Talk of the Town* and *Dwarf Fortress*, demonstrated that information asymmetry, local perception, and delayed rumor propagation are essential for generating dynamic dramatic tension across both local encounters and macro-historical world states.
+
+Recent advances in neural language models solve the traditional content authoring bottleneck by enabling open-ended dialogue generation. However, pure statistical generation introduces challenges regarding long-horizon persona coherence, strategic drift, and hallucination propagation. Hybrid architectures address these limitations by synthesizing structural formalisms with generative capabilities. Systems like *CICERO* demonstrate that separating game-theoretic planning from text realization ensures strategic alignment while maintaining natural dialogue generation. Similarly, paradigms such as *ID-RAG* within frameworks like *Concordia* prove that anchoring statistical agents to symbolic identity knowledge graphs prevents context dilution and maintains persona stability across extended simulations. Finally, aesthetic curationism mechanisms bridge the gap between underlying raw simulation logs and coherent, human-readable narrative experiences.
+
+The synthesis of symbolic social physics, epistemic network tracking, decoupled strategic planning, and structural identity grounding forms the foundation for next-generation emergent narrative systems. These hybrid architectures enable scalable, highly reactive storyworlds that maintain behavioral fidelity, dramatic integrity, and authorial alignment across long-horizon interactive experiences.
+
+## Works cited (as reported)
+
+- Ben Samuel, "Social Story Worlds With Comme il Faut" — http://www.ben-samuel.com/wp-content/uploads/2015/09/TCIAIG-social-story-worlds-with-comme-il-faut.pdf
+- "Responsiveness in Narrative Systems" — https://escholarship.org/uc/item/9gq229h4
+- James Ryan, "Curating Simulated Storyworlds" (PhD dissertation) — https://search.proquest.com/openview/2b7cb13a72dc4f402a4ebf2f81d815d5/1 (already linked, not yet converted, in `docs/research/papers/README.md`)
+- DeKerlegand, "Pedagogical Challenges in Social Physics Authoring" — http://www.ben-samuel.com/wp-content/uploads/2024/01/DeKerlegand_Pedagogical_Challenges_in_Social_Physics_Authoring.pdf
+- Max Kreminski, "Toward Better Gossip Simulation in Emergent Narrative Systems" — already on file at `docs/research/papers/kreminski-2023-gossamer.md`
+- Ben Samuel et al., "Comme il Faut: A System for Authoring Playable Social Models" — https://www.researchgate.net/publication/220978529
+- "Prom Week: social physics as gameplay" — https://www.researchgate.net/publication/254007784_Prom_Week_social_physics_as_gameplay
+- **"Prom Week meets Skyrim" (CIF-CK), NC State Digital Games Initiative** — https://www.games.ncsu.edu/wp-content/uploads/sites/13/2017/05/prom-week-meets.pdf — **not previously on file; flagged above as the highest-value follow-up read**
+- Kreminski, "Praxish: A Rational Reconstruction of a Logic-Based DSL" — https://mkremins.github.io/publications/Praxish_AIIDE2023.pdf
+- Ben Samuel, "Crafting Stories Through Play" — http://www.ben-samuel.com/wp-content/uploads/2017/05/CraftingStoriesThroughPlay.pdf
+- "Versu—A Simulationist Storytelling System" — https://www.researchgate.net/publication/263050997
+- James Ryan dissertation (UC Santa Cruz eScholarship mirror) — https://escholarship.org/content/qt1340j5h2/qt1340j5h2.pdf
+- "Video games where people matter? The strange future of emotional AI" (Guardian) — https://www.theguardian.com/technology/2016/oct/12/video-game-characters-emotional-ai-developers
+- Dwarf Fortress devlog (2022-05-20) — https://www.reddit.com/r/dwarffortress/comments/uu7sdp/
+- "Can AI Create an Interactive Digital Narrative? A Benchmarking Framework..." — https://www.researchgate.net/publication/387221684
+- "Dialogue Action Tokens: Steering Language Models in Goal-Directed Dialogue with a Multi-Turn Planner" — https://www.researchgate.net/publication/381517681
+- "Human-level play in the game of Diplomacy by combining language [models with strategic reasoning]" (CICERO paper) — https://hughbzhang.com/data/diplomacy.pdf
+- "ID-RAG: Identity Retrieval-Augmented Generation for Long-Horizon Persona Coherence in Generative Agents" — https://arxiv.org/html/2509.25299v1
+
+## Caveats
+
+- The original report includes formal mathematical notation (volition-score formula, CICERO's generation-probability formula, the ID-RAG pipeline diagram) as embedded base64 raster images, which are omitted from this filing as non-searchable/non-diffable content inconsistent with this repo's plain-Markdown convention (per `docs/research/papers/README.md`'s own stated rationale for text-only conversion). If the exact formalizations are needed later, re-fetch the primary sources listed above.
+- Several citations resolve to ResearchGate/ProQuest listing pages rather than open-access full text — treat as pointers requiring manual retrieval, consistent with this project's existing papers/README caveat about paywalled/bot-blocked sources (Ryan's dissertation and the Game AI Pro chapter are already flagged there for the same reason).
+- CIF-CK/"Prom Week meets Skyrim" is the standout new finding and has not yet been read in full by this project — treat everything said about it here as a one-paragraph secondhand characterization pending that follow-up read.
