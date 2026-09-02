@@ -175,6 +175,16 @@ namespace ChronicleBridge::SyncHandshake {
         // delete/rotate the spill file"). Alongside ChronicleBridge.log,
         // not a second config-driven path -- there's nothing here for an
         // ini to usefully override.
+        //
+        // NAMED GAP, not fixed here: nothing in this file ever reads this
+        // file back and replays it (SyncHandshakeCore.h's own
+        // SpillMutationToFile comment: "file replay is the glue layer's own
+        // job -- this pure core never reads its own spill file back").
+        // Unreachable today -- SubmitMutation has no current caller (see
+        // this file's own header comment / SyncHandshake.h), so nothing
+        // ever actually spills in practice -- but a real future mutation
+        // producer will need this replay path built before spilling can be
+        // trusted as anything more than a ring-overflow safety valve.
         std::filesystem::path SpillFilePath() {
             auto logsFolder = SKSE::log::log_directory();
             if (!logsFolder) {
