@@ -45,9 +45,18 @@ struct Message {
 ```
 
 `kPostLoadGame` fires unconditionally when SKSE's load sequence completes; there is no
-false-flavored variant to distinguish. **Fix**: drop `(success=true)` from ADR-0005's text;
-the handshake's own DEGRADED-mode / manifest-absent paths (§4 below) are what already cover
-"load didn't go the way we expected," not a message-level success flag.
+`Message`-level success field to distinguish a failed load.
+
+**Correction (2026-09-02):** the above is accurate that there's no *named* field, but it
+originally continued "no signal at all," which is wrong — Kimi's plan review caught this against
+skse64's actual engine source. `kPostLoadGame`'s dispatch passes the load's `bool` result through
+the untyped payload: `data` points at the bool and `dataLen == 1`
+(`Hooks_SaveLoad.cpp`, `ianpatt/skse64`). The glue **must** check
+`message->dataLen == 1 && *static_cast<bool*>(message->data)` and skip firing HELLO on a failed
+load — otherwise the handshake would run against a world that never actually loaded, exactly the
+wrong-branch case it exists to prevent. **Fix**: drop `(success=true)` from ADR-0005's text since
+there's no named field to cite, but wire the plugin to read the payload bool directly rather than
+treating `kPostLoadGame` as an unconditional "load happened" signal.
 
 ## 1. Verified SKSE API surface
 
@@ -376,6 +385,16 @@ wraps does not have to be.
 `plugin.cpp`'s `OnSkseMessage` gains `case` branches for `kPreLoadGame`, `kPostLoadGame`,
 `kSaveGame`, `kDeleteGame`, `kNewGame`, forwarding into `SyncHandshake::On*()`. Its load routine
 gains:
+
+**Correction (2026-09-02), confirmed against skse64's engine source
+(`Hooks_SaveLoad.cpp`):** `kSaveGame` fires from the messaging dispatch *before* the actual save
+begins — at that point there is no open co-save stream, so `WriteRecord` cannot be called from
+that handler (it would silently no-op). The `kSaveGame` case must run the pure `OnSaveGame`
+transition and only *stash* the resulting manifest; the real `WriteRecord` call happens inside
+the registered `SetSaveCallback` below (`SyncHandshake::OnGameSave`), which is the only context
+with an open record target — the pattern every real shipped precedent (JContainers, Soulsy)
+follows. `kPostLoadGame`'s case must also check the load-success bool the message payload
+carries (see §0's correction) before treating a load as real.
 
 ```cpp
 if (auto* serialization = SKSE::GetSerializationInterface()) {
