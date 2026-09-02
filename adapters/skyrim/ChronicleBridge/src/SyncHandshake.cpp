@@ -255,6 +255,16 @@ namespace ChronicleBridge::SyncHandshake {
                         // generic transient failure.
                         if (result.httpStatus == 401 || result.httpStatus == 403) {
                             skipRetryBackoff = true;
+                            // SyncHandshakeCore's OnHelloTimeout unconditionally sets
+                            // helloRetryScheduled=true regardless of why it fired, and we cannot
+                            // edit that file (it's the tested, frozen pure core). Left uncorrected,
+                            // this would desync the *state's belief* that a retry is armed from
+                            // reality (we're about to strip the effect that would have armed it
+                            // below) -- and OnMutationSendFailed checks !helloRetryScheduled before
+                            // scheduling its own retry, so a later mutation failure in the same
+                            // session would silently decline to ever retry. Correct the flag here,
+                            // in the glue, while still holding the lock.
+                            transition.state.helloRetryScheduled = false;
                         }
                         break;
                 }
@@ -270,14 +280,9 @@ namespace ChronicleBridge::SyncHandshake {
             }
 
             if (skipRetryBackoff) {
-                // OnHelloTimeout's own state already set
-                // helloRetryScheduled=true regardless of why it fired --
-                // dropping ONLY the ScheduleHelloRetryBackoff effect (never
-                // actually arming the sender thread's backoff timer) is
-                // what keeps 401/403 from retrying. helloRetryScheduled
-                // simply sits inert until the next kPreLoadGame/Revert,
-                // whose CancelScheduledHelloRetry effect is a harmless no-op
-                // on this thread since nothing was actually scheduled here.
+                // helloRetryScheduled was already corrected back to false above (still under the
+                // lock); this just drops the effect that would otherwise arm the sender thread's
+                // backoff timer, so 401/403 truly never retries rather than merely not-yet-firing.
                 effects.erase(std::remove_if(effects.begin(), effects.end(),
                                               [](const ChronicleBridge::SyncSideEffect& e) {
                                                   return std::holds_alternative<ChronicleBridge::ScheduleHelloRetryBackoff>(e);
@@ -401,8 +406,14 @@ namespace ChronicleBridge::SyncHandshake {
                 std::lock_guard lock(g_syncStateMutex);
                 if (g_pendingSaveManifest) {
                     hadStash = true;
+                    // WriteRecord takes (type, version, const void* buf, uint32_t length) --
+                    // go through the manifest's own wire serializer rather than handing it
+                    // the struct directly, since wire layout is deliberately not assumed to
+                    // equal struct layout (see SyncHandshakeCore.h's kManifestWireSize /
+                    // ManifestToBytes comments -- the golden-fixture test pins these bytes).
+                    auto bytes = ChronicleBridge::ManifestToBytes(*g_pendingSaveManifest);
                     wrote = intfc->WriteRecord(kSyncManifestRecordType, ChronicleBridge::kManifestRecordVersion,
-                                                *g_pendingSaveManifest);
+                                                bytes.data(), static_cast<std::uint32_t>(bytes.size()));
                     g_pendingSaveManifest.reset();
                 }
             }
