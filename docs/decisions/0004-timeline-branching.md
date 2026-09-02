@@ -56,6 +56,18 @@ it as one:
   anchored" and got wiped by the next rollback sweep. **Every write path —
   including future admin/dashboard/debug tools — must stamp both fields or
   be rejected**, not silently defaulted.
+
+  **Footnote (2026-09-01):** `Dwemer-Dynamics/HerikaServer` PR/issue #572
+  (and #560, cited elsewhere in report 09 for the concurrent-writer race)
+  both 404 today, per a live GitHub check during the sync-handshake spec's
+  review (`docs/design/chronicle-bridge-sync-handshake-review-kimi-2026-09-01.md`).
+  Report 09 flagged generally that issue numbers "can be
+  closed/renumbered/reorganized," but this specific pair is now
+  unverifiable rather than merely unspotchecked. The underlying design
+  rule (mandatory, non-nullable bitemporal fields; reachability-based GC)
+  doesn't depend on this one citation — SkyrimNet's #487 and the general
+  git-reflog precedent independently support it — but this citation itself
+  should be treated as anecdotal, not primary-sourced, until re-verified.
 - **Garbage collection is reachability-based, never timestamp-based, with
   a grace period and soft-delete first.** A branch is live if and only if
   some surviving `.ess`/co-save on disk references its
