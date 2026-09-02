@@ -376,23 +376,38 @@ namespace ChronicleBridge::SyncHandshake {
         // the write itself: WriteRecord is a leaf call into SKSE's
         // in-memory co-save stream, cannot re-enter plugin code, and no
         // other plugin lock is ever acquired under g_syncStateMutex, so
-        // this is safe. Nothing else happens under this lock acquisition on
-        // purpose -- no logging, no queue touches (the sync-wiring plan's
-        // own explicit constraint on this one dispatch).
+        // this is safe. Nothing but the WriteRecord call itself happens
+        // UNDER the lock, per the sync-wiring plan's constraint -- but that
+        // constraint is about what runs while the mutex is held, not about
+        // discarding the outcome. This feature's live-verification path is
+        // separately blocked, so a silently-dropped or silently-failed
+        // manifest write here would be undebuggable from anywhere but this
+        // log -- both failure branches (no stash at all, and WriteRecord
+        // itself returning false) are logged AFTER the lock is released.
         void OnGameSave(SKSE::SerializationInterface* intfc) {
-            std::lock_guard lock(g_syncStateMutex);
-            if (!g_pendingSaveManifest) {
-                // kSaveGame's messaging case never ran before this fired
-                // (or already consumed it) -- fail silent+safe rather than
-                // guessing at a manifest to write. No logging here by
-                // design (see this function's own comment); a human
-                // debugging a missing manifest should look at
-                // HandleSaveGameMessage's own ordering relative to this
-                // callback, not a log line written while holding this lock.
-                return;
+            bool hadStash = false;
+            bool wrote = false;
+            {
+                std::lock_guard lock(g_syncStateMutex);
+                if (g_pendingSaveManifest) {
+                    hadStash = true;
+                    wrote = intfc->WriteRecord(kSyncManifestRecordType, ChronicleBridge::kManifestRecordVersion,
+                                                *g_pendingSaveManifest);
+                    g_pendingSaveManifest.reset();
+                }
             }
-            intfc->WriteRecord(kSyncManifestRecordType, ChronicleBridge::kManifestRecordVersion, *g_pendingSaveManifest);
-            g_pendingSaveManifest.reset();
+            if (!hadStash) {
+                // kSaveGame's messaging case never ran before this fired
+                // (or already consumed it) -- a human debugging a missing
+                // manifest should be able to see this in the log rather
+                // than infer it from silence.
+                SKSE::log::warn(
+                    "ChronicleBridge sync: SetSaveCallback fired with no stashed manifest -- kSaveGame's messaging "
+                    "case may not have run first; the sync manifest will NOT be written this save");
+            } else if (!wrote) {
+                SKSE::log::warn("ChronicleBridge sync: WriteRecord('TMNL') returned false -- the sync manifest was "
+                                 "NOT written this save");
+            }
         }
 
         // SetRevertCallback registrant -- fires between kPreLoadGame and
