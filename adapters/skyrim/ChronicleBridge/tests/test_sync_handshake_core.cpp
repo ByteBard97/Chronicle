@@ -12,6 +12,7 @@
 // bottom of this file's companion report for how to build and run this.
 
 #include "../src/SyncHandshakeCore.h"
+#include "../src/SyncHelloResponseParser.h"
 
 #include <cstdio>
 #include <cstring>
@@ -817,6 +818,116 @@ namespace {
         CHECK(sawSpill);
     }
 
+    // ------------------------------------------------------------------
+    // HELLO *response* parser tests (SyncHelloResponseParser.h/.cpp) --
+    // the one genuinely new hand-rolled component the glue layer needed
+    // that could still be factored to be SKSE-independent (the sync-wiring
+    // plan's own Verification section names this explicitly: "the HELLO
+    // response parser ... is the riskiest untestable-in-game piece of this
+    // lane, and nothing currently exercises it").
+    // ------------------------------------------------------------------
+
+    void Test_HelloResponseParser_WellFormed() {
+        const std::string body =
+            R"({"decision":"CONTINUE","actionable":true,"epoch_id":7,)"
+            R"("replay_from_seq":42,"confirm_required":false,"hello_seq":3})";
+        auto parsed = ParseSyncHelloResponseJson(body);
+        CHECK(parsed.has_value());
+        CHECK(parsed->decision == SyncDecision::kContinue);
+        CHECK(parsed->actionable == true);
+        CHECK(parsed->epochId == 7);
+        CHECK(parsed->replayFromSeq.has_value());
+        CHECK(*parsed->replayFromSeq == 42);
+        CHECK(parsed->confirmRequired == false);
+        CHECK(parsed->helloSeq == 3);
+    }
+
+    void Test_HelloResponseParser_ReplayFromSeqNull() {
+        const std::string body =
+            R"({"decision":"NEW_TIMELINE","actionable":true,"epoch_id":1,)"
+            R"("replay_from_seq":null,"confirm_required":false,"hello_seq":1})";
+        auto parsed = ParseSyncHelloResponseJson(body);
+        CHECK(parsed.has_value());
+        CHECK(parsed->decision == SyncDecision::kNewTimeline);
+        CHECK(!parsed->replayFromSeq.has_value());
+    }
+
+    void Test_HelloResponseParser_EachRecognizedDecision() {
+        struct Case {
+            const char* wire;
+            SyncDecision expected;
+        };
+        const Case cases[] = {
+            {"CONTINUE", SyncDecision::kContinue},   {"FORK", SyncDecision::kFork},
+            {"ADOPT", SyncDecision::kAdopt},         {"NEW_TIMELINE", SyncDecision::kNewTimeline},
+            {"LEGACY_IMPORT", SyncDecision::kLegacyImport}, {"DEGRADED", SyncDecision::kDegraded},
+        };
+        for (const auto& c : cases) {
+            const std::string body = std::string(R"({"decision":")") + c.wire +
+                                      R"(","actionable":false,"epoch_id":0,)"
+                                      R"("replay_from_seq":null,"confirm_required":false,"hello_seq":0})";
+            auto parsed = ParseSyncHelloResponseJson(body);
+            CHECK(parsed.has_value());
+            if (parsed) {
+                CHECK(parsed->decision == c.expected);
+            }
+        }
+    }
+
+    void Test_HelloResponseParser_UnrecognizedDecisionFails() {
+        const std::string body =
+            R"({"decision":"UNKNOWN","actionable":false,"epoch_id":0,)"
+            R"("replay_from_seq":null,"confirm_required":false,"hello_seq":0})";
+        auto parsed = ParseSyncHelloResponseJson(body);
+        CHECK(!parsed.has_value());  // must fail loudly, never silently accept.
+
+        const std::string bodyGarbage =
+            R"({"decision":"totally-not-a-decision","actionable":false,"epoch_id":0,)"
+            R"("replay_from_seq":null,"confirm_required":false,"hello_seq":0})";
+        CHECK(!ParseSyncHelloResponseJson(bodyGarbage).has_value());
+    }
+
+    void Test_HelloResponseParser_MissingFieldFails() {
+        // Missing hello_seq entirely.
+        const std::string missingHelloSeq =
+            R"({"decision":"CONTINUE","actionable":true,"epoch_id":7,)"
+            R"("replay_from_seq":null,"confirm_required":false})";
+        CHECK(!ParseSyncHelloResponseJson(missingHelloSeq).has_value());
+
+        // Missing decision entirely.
+        const std::string missingDecision =
+            R"({"actionable":true,"epoch_id":7,"replay_from_seq":null,)"
+            R"("confirm_required":false,"hello_seq":1})";
+        CHECK(!ParseSyncHelloResponseJson(missingDecision).has_value());
+
+        // Missing replay_from_seq entirely (not even a null literal) --
+        // must fail, not silently treat "absent" as "null".
+        const std::string missingReplayFromSeq =
+            R"({"decision":"CONTINUE","actionable":true,"epoch_id":7,)"
+            R"("confirm_required":false,"hello_seq":1})";
+        CHECK(!ParseSyncHelloResponseJson(missingReplayFromSeq).has_value());
+    }
+
+    void Test_HelloResponseParser_MalformedFieldFails() {
+        // actionable is a string, not a bool literal.
+        const std::string badActionable =
+            R"({"decision":"CONTINUE","actionable":"true","epoch_id":7,)"
+            R"("replay_from_seq":null,"confirm_required":false,"hello_seq":1})";
+        CHECK(!ParseSyncHelloResponseJson(badActionable).has_value());
+
+        // epoch_id is not numeric.
+        const std::string badEpochId =
+            R"({"decision":"CONTINUE","actionable":true,"epoch_id":"not-a-number",)"
+            R"("replay_from_seq":null,"confirm_required":false,"hello_seq":1})";
+        CHECK(!ParseSyncHelloResponseJson(badEpochId).has_value());
+
+        // replay_from_seq is neither null nor a number.
+        const std::string badReplayFromSeq =
+            R"({"decision":"CONTINUE","actionable":true,"epoch_id":7,)"
+            R"("replay_from_seq":"soon","confirm_required":false,"hello_seq":1})";
+        CHECK(!ParseSyncHelloResponseJson(badReplayFromSeq).has_value());
+    }
+
 }  // namespace
 
 int main() {
@@ -840,6 +951,12 @@ int main() {
     RUN(Test_NewGameForciblyResetsManifest);
     RUN(Test_MutationRejected409ThresholdRefiresHello);
     RUN(Test_RingOverflowSpillsOldest);
+    RUN(Test_HelloResponseParser_WellFormed);
+    RUN(Test_HelloResponseParser_ReplayFromSeqNull);
+    RUN(Test_HelloResponseParser_EachRecognizedDecision);
+    RUN(Test_HelloResponseParser_UnrecognizedDecisionFails);
+    RUN(Test_HelloResponseParser_MissingFieldFails);
+    RUN(Test_HelloResponseParser_MalformedFieldFails);
 
     std::fprintf(stderr, "\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
