@@ -35,6 +35,7 @@
 #include "HydrationPoller.h"
 #include "OutboundClient.h"
 #include "SpatialStreamer.h"
+#include "SyncHandshake.h"
 #include "VendorMarkupCache.h"
 #include "VendorPriceHook.h"
 
@@ -225,7 +226,43 @@ namespace {
             // an earlier, separately-reasoned-about exception for this one
             // hook.
             ChronicleBridge::InstallVendorPriceHook();
+        } else if (message->type == SKSE::MessagingInterface::kPreLoadGame) {
+            // Eighth slice (docs/design/chronicle-bridge-sync-handshake-out.md):
+            // the save/reload sync handshake. Cancels any in-flight DEGRADED
+            // backoff retry so it can't land mid-new-load (spec §4.2).
+            ChronicleBridge::SyncHandshake::HandlePreLoadGame();
+        } else if (message->type == SKSE::MessagingInterface::kPostLoadGame) {
+            // The sync-wiring plan's design decision 3 (corrects ADR-0005's
+            // "kPostLoadGame(success=true)" text -- the real
+            // SKSE::MessagingInterface::Message struct has no named success
+            // field): skse64's own engine source (Hooks_SaveLoad.cpp) still
+            // passes the load's bool result as `data` with `dataLen == 1`.
+            // Do NOT fire HELLO on a failed load -- that would HELLO a
+            // timeline against a world that never actually loaded, exactly
+            // the wrong-branch event the handshake exists to prevent.
+            if (message->dataLen == 1 && message->data != nullptr && *static_cast<bool*>(message->data)) {
+                ChronicleBridge::SyncHandshake::HandlePostLoadGame();
+            } else {
+                SKSE::log::warn(
+                    "ChronicleBridge: kPostLoadGame reported a failed load (or carried no success flag) -- sync "
+                    "HELLO will NOT fire for this load");
+            }
+        } else if (message->type == SKSE::MessagingInterface::kSaveGame) {
+            // Transition-and-stash ONLY -- decision 2: kSaveGame fires
+            // before the actual save begins (no open co-save stream yet),
+            // so WriteRecord cannot be called here. See SyncHandshake.cpp's
+            // header comment for the full split; the real write happens in
+            // the SetSaveCallback registrant, wired up below in
+            // SKSEPluginLoad via RegisterSerializationCallbacks.
+            ChronicleBridge::SyncHandshake::HandleSaveGameMessage();
+        } else if (message->type == SKSE::MessagingInterface::kNewGame) {
+            ChronicleBridge::SyncHandshake::HandleNewGame();
         }
+        // kDeleteGame is deliberately NOT forwarded here --
+        // SyncHandshakeCore.h's own header comment explains why: deleting a
+        // save file on disk has no bearing on the CURRENTLY LOADED
+        // session's sync state. Pure SKSE plumbing, not a sync-handshake
+        // transition.
     }
 
 }  // namespace
@@ -297,6 +334,18 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // never exercised against a live save" caveat this write path shares
     // with every other ChronicleBridge write.
     std::thread(ChronicleBridge::EvidencePollerThreadLoop, config).detach();
+    // Eighth slice (docs/design/chronicle-bridge-sync-handshake-out.md): the
+    // dedicated sync-sender thread -- every POST-response-driven sync
+    // transition (HELLO/mutation sends, the resulting responses, the
+    // DEGRADED backoff-retry wait, and spill-file I/O) runs here, never on
+    // the main thread. Same config as every other loop above.
+    std::thread(ChronicleBridge::SyncHandshake::SenderThreadLoop, config).detach();
+
+    // SerializationInterface registration (SetUniqueID/SetSaveCallback/
+    // SetLoadCallback/SetRevertCallback) -- independent of the messaging
+    // bus's kDataLoaded lifecycle rule the RE:: event sinks above follow,
+    // so this is registered here rather than deferred to OnSkseMessage.
+    ChronicleBridge::SyncHandshake::RegisterSerializationCallbacks();
 
     // Death-event sink registration is deferred to kDataLoaded (see
     // OnSkseMessage's own comment) -- RegisterListener must be called here,
