@@ -9,12 +9,14 @@
 // match it, not generated from it (OpenAPI-to-C++ codegen is immature/heavy
 // for a payload this small).
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "DeathEventSink.h"
 #include "SpatialStreamer.h"
+#include "SyncHandshakeCore.h"
 
 namespace ChronicleBridge {
 
@@ -58,6 +60,16 @@ namespace ChronicleBridge {
         // sharedSecret as every path above -- not a second config block.
         std::string evidencePath = "/whiterun/evidence";
         std::string evidenceAckPath = "/whiterun/evidence/ack";
+        // Eighth slice (docs/design/chronicle-bridge-sync-handshake-out.md
+        // §4.1): the save/reload sync handshake's two endpoints. Unlike
+        // every path above, these are POST-only (no GET/ack pair) -- HELLO's
+        // response body IS the ack (a decision, not a delivery
+        // confirmation), and mutation's response status code IS its own
+        // outcome signal (200/409/failure), so there is nothing left for a
+        // second ack call to report. Same host/port/sharedSecret as every
+        // path above -- not a second config block.
+        std::string syncHelloPath = "/whiterun/sync/hello";
+        std::string syncMutationPath = "/whiterun/sync/mutation";
         // Sent as the X-Chronicle-Bridge-Token header when set -- must match
         // the listener's --shared-secret exactly (adapters/skyrim/listener/
         // listener.py). Not real authentication (no TLS) -- a lightweight
@@ -291,5 +303,52 @@ namespace ChronicleBridge {
     // Fire-and-forget, same discipline as PostHydrationAck/PostAvoidanceAck.
     // Returns true if the listener responded 2xx.
     bool PostEvidenceAck(const OutboundConfig& config, const std::vector<EvidenceAckEntry>& acks);
+
+    // Eighth slice (docs/design/chronicle-bridge-sync-handshake-out.md §4.1,
+    // the sync-wiring plan's design decision 6): the first outbound call in
+    // this plugin whose response *body* the caller needs to branch on, not
+    // just its status. A bare std::optional<HelloResponse> can't carry
+    // enough information for SyncHandshake.cpp's three-way result mapping
+    // (decision 6) -- a transport failure/timeout, a received-but-erroneous
+    // HTTP status (401/403 misconfigured shared secret, 503
+    // listener-up-but-gated), and a 2xx-with-unparseable-or-unrecognized
+    // body are three DIFFERENT failure shapes that must be handled
+    // differently (401/403 must NOT schedule a retry backoff; every failure
+    // shape must log loudly, never silently default to some decision) --
+    // so this returns a small result struct instead. `response` stays the
+    // one field engaged on genuine success, matching the "not bool, the
+    // caller needs the body" framing the plan itself gives this function.
+    enum class SyncHelloTransportOutcome : std::uint8_t {
+        kOk,                // 2xx, body parsed and `decision` recognized -- response is engaged.
+        kTransportFailure,  // connection refused/timed out -- no HTTP response at all.
+        kHttpErrorStatus,   // a real HTTP response came back, but status was not 2xx -- httpStatus is engaged.
+        kUnparseableBody,   // 2xx status, but the body didn't parse or carried an unrecognized `decision` string.
+    };
+
+    struct SyncHelloResult {
+        SyncHelloTransportOutcome outcome = SyncHelloTransportOutcome::kTransportFailure;
+        std::optional<HelloResponse> response;  // engaged only when outcome == kOk
+        int httpStatus = 0;                     // engaged only when outcome == kHttpErrorStatus
+    };
+
+    // POSTs one HELLO (spec §4.1's request body: the manifest fields as
+    // JSON, `manifest_present`, `hello_seq`, `format_version`). Uses an
+    // EXPLICIT 3-second read timeout, not the 1-second convention every
+    // other Post*/Fetch* in this file inherits -- the spec (§4.5/§8b item 2,
+    // still an open tuning question) calls this out specifically since
+    // HELLO can involve a RESOLVE computation on the listener side. Never
+    // throws; every failure mode is reported through SyncHelloResult's
+    // outcome field, never a silent fallback to some default decision.
+    SyncHelloResult PostSyncHello(const OutboundConfig& config, const SendHello& hello);
+
+    // POSTs one mutation (spec §4.1's request body: epoch_id, save_uuid,
+    // generation, seq, gamets, wall_ts, event). Returns the RAW HTTP status
+    // code -- 200 (OnMutationAccepted), 409 (OnMutationRejected), and a
+    // failure (OnMutationSendFailed) all mean something different to
+    // SyncHandshakeCore, unlike every other fire-and-forget Post* in this
+    // file, which only ever needs a bool. Returns 0 (never a real HTTP
+    // status) on a transport failure -- connection refused or timeout, no
+    // response received at all.
+    int PostSyncMutation(const OutboundConfig& config, const SendMutation& mutation);
 
 }  // namespace ChronicleBridge

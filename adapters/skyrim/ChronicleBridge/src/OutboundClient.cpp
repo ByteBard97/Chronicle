@@ -7,6 +7,8 @@
 #include <format>
 #include <sstream>
 
+#include "SyncHelloResponseParser.h"
+
 namespace ChronicleBridge {
 
     namespace {
@@ -462,7 +464,139 @@ namespace ChronicleBridge {
             return body.str();
         }
 
+        // 16 raw bytes -> 32-char lowercase hex, no dashes -- spec §3's wire
+        // shape for save_uuid.
+        std::string HexEncodeSaveUuid(const std::uint8_t (&uuid)[16]) {
+            static const char* kHex = "0123456789abcdef";
+            std::string out;
+            out.reserve(32);
+            for (int i = 0; i < 16; ++i) {
+                out.push_back(kHex[(uuid[i] >> 4) & 0xF]);
+                out.push_back(kHex[uuid[i] & 0xF]);
+            }
+            return out;
+        }
+
+        // Matches listener.py's POST /whiterun/sync/hello request body shape
+        // exactly (design doc §4.1): the manifest fields as JSON (save_uuid
+        // as hex, everything else as the raw co-save wire value -- the
+        // 0-sentinel->None and ms->s conversions happen server-side, at the
+        // HTTP boundary, per §4.1/§3, never here), plus manifest_present,
+        // hello_seq, and format_version (SendHello's own comment: mandatory
+        // on the service side, not one of Manifest's seven struct fields).
+        std::string BuildSyncHelloRequestJson(const SendHello& hello) {
+            const auto& m = hello.manifest;
+            return std::format(
+                R"({{"manifest_present":{},"hello_seq":{},"format_version":{},"save_uuid":"{}","generation":{},)"
+                R"("parent_generation":{},"head_seq":{},"gamets":{},"wall_ts":{},"char_name_hash":{}}})",
+                hello.manifestPresent ? "true" : "false", hello.helloSeq, hello.formatVersion,
+                HexEncodeSaveUuid(m.save_uuid), m.generation, m.parent_generation, m.head_seq,
+                SanitizeFinite(m.gamets), m.wall_ts, m.char_name_hash);
+        }
+
+        // Matches listener.py's POST /whiterun/sync/mutation request body
+        // shape exactly (design doc §4.1): {"epoch_id", "save_uuid",
+        // "generation", "seq", "gamets", "wall_ts", "event"}. `eventPayload`
+        // is SyncHandshakeCore.h's own documented "opaque -- the actual
+        // event JSON shape is the glue layer's job" field -- embedded
+        // VERBATIM as the `event` value (it is itself already a complete
+        // JSON object's text, produced by whatever future caller builds a
+        // MutationEvent), not string-escaped a second time. This is a
+        // judgment call this file makes explicit since SyncHandshakeCore.h
+        // doesn't specify a shape: no current slice calls OnMutationReady
+        // yet (the sync-wiring plan's own scope cut), so this convention
+        // has no real producer to cross-check against today.
+        std::string BuildSyncMutationRequestJson(const SendMutation& mutation) {
+            const auto& m = mutation.manifest;
+            return std::format(
+                R"({{"epoch_id":{},"save_uuid":"{}","generation":{},"seq":{},"gamets":{},"wall_ts":{},"event":{}}})",
+                mutation.epochId, HexEncodeSaveUuid(m.save_uuid), m.generation, mutation.seq,
+                SanitizeFinite(mutation.gamets), mutation.wallTs, mutation.eventPayload);
+        }
+
     }  // namespace
+
+    SyncHelloResult PostSyncHello(const OutboundConfig& config, const SendHello& hello) {
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        // 3s, not the usual 1s every other Post*/Fetch* in this file
+        // inherits -- HELLO can involve a RESOLVE computation on the
+        // listener side (design doc §4.5/§8b item 2, still an open tuning
+        // question). Explicit, not silently inherited.
+        client.set_read_timeout(3, 0);
+
+        const auto body = BuildSyncHelloRequestJson(hello);
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Post(config.syncHelloPath, headers, body, "application/json");
+
+        SyncHelloResult out;
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} failed: {}", config.host, config.port,
+                             config.syncHelloPath, httplib::to_string(result.error()));
+            out.outcome = SyncHelloTransportOutcome::kTransportFailure;
+            return out;
+        }
+        if (result->status < 200 || result->status >= 300) {
+            // Deliberately NOT the 503-means-"no --live-run" convention the
+            // poll-based fetches above use -- sync's HELLO/mutation
+            // endpoints are never --live-run-gated in the first place
+            // (design doc §8b item 3), so a non-2xx here is always a real
+            // problem (bad shared secret, listener down, etc), always
+            // logged at warn.
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} returned status {}", config.host, config.port,
+                             config.syncHelloPath, result->status);
+            out.outcome = SyncHelloTransportOutcome::kHttpErrorStatus;
+            out.httpStatus = result->status;
+            return out;
+        }
+
+        auto parsed = ParseSyncHelloResponseJson(result->body);
+        if (!parsed) {
+            // A 2xx response the parser still refuses -- unparseable body or
+            // an unrecognized `decision` string. Design decision 6: this
+            // must fail loudly, never silently default to some accepted
+            // decision.
+            SKSE::log::warn(
+                "ChronicleBridge: POST to {}:{}{} returned 2xx but the body was unparseable or carried an "
+                "unrecognized decision -- treating as a failure, NOT silently accepting",
+                config.host, config.port, config.syncHelloPath);
+            out.outcome = SyncHelloTransportOutcome::kUnparseableBody;
+            return out;
+        }
+
+        out.outcome = SyncHelloTransportOutcome::kOk;
+        out.response = *parsed;
+        return out;
+    }
+
+    int PostSyncMutation(const OutboundConfig& config, const SendMutation& mutation) {
+        httplib::Client client(config.host, config.port);
+        client.set_connection_timeout(1);
+        client.set_write_timeout(1);
+        client.set_read_timeout(1);
+
+        const auto body = BuildSyncMutationRequestJson(mutation);
+        httplib::Headers headers;
+        if (config.sharedSecret) {
+            headers.emplace("X-Chronicle-Bridge-Token", *config.sharedSecret);
+        }
+        auto result = client.Post(config.syncMutationPath, headers, body, "application/json");
+
+        if (!result) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} failed: {}", config.host, config.port,
+                             config.syncMutationPath, httplib::to_string(result.error()));
+            return 0;  // sentinel: no real HTTP status at all -- see OutboundClient.h's comment on this return value.
+        }
+        if (result->status != 200 && result->status != 409) {
+            SKSE::log::warn("ChronicleBridge: POST to {}:{}{} returned status {}", config.host, config.port,
+                             config.syncMutationPath, result->status);
+        }
+        return result->status;
+    }
 
     std::vector<HydrationPair> FetchHydrationPairs(const OutboundConfig& config) {
         httplib::Client client(config.host, config.port);
