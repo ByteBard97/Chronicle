@@ -2,18 +2,18 @@
 
 Chronicle is an external social-simulation service for Skyrim SE/AE: a pure-Python
 simulation engine, a small SKSE C++ plugin that relays events in and state out, a
-Mutagen-based ESP patcher, and a Vue debug dashboard. Contributions are welcome —
-this file gets you from `git clone` to a running simulation in about five minutes,
+Mutagen-based ESP patcher, and a Vue debug dashboard. Contributions are welcome.
+This file gets you from `git clone` to a running simulation in about five minutes,
 then points you at work that's actually claimable.
 
 **Status honesty up front:** the headless sim is done and scenario-tested; the SKSE
 bridge compiles and deploys; in-game validation against a live game is the current
 milestone. See the [README's Project status](README.md#project-status-august-2026)
-section — it is always the source of truth for what works today.
+section, it's always the source of truth for what works today.
 
 ## 5-minute quickstart (no Skyrim install needed)
 
-Requires [uv](https://docs.astral.sh/uv/) — it installs the right Python (3.12+)
+Requires [uv](https://docs.astral.sh/uv/), which installs the right Python (3.12+)
 automatically.
 
 ```bash
@@ -30,7 +30,7 @@ Then the dashboard (requires Node 20+):
 ```bash
 cd dashboard
 npm ci
-npm run dev    # opens on mock run data — no Skyrim, no sim needed
+npm run dev    # opens on mock run data, no Skyrim or sim needed
 ```
 
 You should now be looking at the Whiterun rumor cascade in the debug UI. From
@@ -48,8 +48,8 @@ uv run python scenarios/run_jarl_death_demo.py   # the north-star scenario, head
 `chronicle/` is the pure-Python simulation engine. **It never imports anything
 Skyrim-specific.** The only place allowed to know Skyrim exists is
 `adapters/skyrim/`. If a PR puts a game concept into the engine core, it will be
-bounced regardless of how well it works — that separation is what makes the whole
-simulation testable and replayable without launching the game. See
+bounced regardless of how well it works. That separation is what makes the whole
+simulation testable and replayable without launching the game, see
 `docs/architecture.md`.
 
 ## Repo layout
@@ -67,7 +67,7 @@ simulation testable and replayable without launching the game. See
 ## Building the game-side pieces
 
 These need Windows and a Skyrim SE/AE install. The Python engine, scenarios, and
-dashboard do not — most contributions never touch this side.
+dashboard don't, and most contributions never touch this side.
 
 **ChronicleBridge (C++):** see `adapters/skyrim/ChronicleBridge/README.md`.
 Short version: Visual Studio 2022, vcpkg, then
@@ -81,21 +81,21 @@ Creation Kit.
 ## How to pick up work
 
 - **Issues labeled `good first issue`** are scoped to be completable without
-  deep project context — they include acceptance criteria and the exact files
+  deep project context. They include acceptance criteria and the exact files
   to touch.
 - **Issues labeled `help wanted`** are the hard, interesting problems (co-save
   sync, runtime package injection, in-game verification). If one of these is why
-  you're here, comment on the issue and say so — design discussion happens there
-  before code.
+  you're here, comment on the issue and say so first, design discussion happens
+  there before code.
 - `docs/decisions/open-questions.md` is the project's working memory of every
   unresolved design tension. If you want to change a decision, the ADR that made
-  it is the thing to argue with — cite it in the issue.
+  it is the thing to argue with, cite it in the issue.
 
 ## PR expectations
 
 - `make test` and `make lint` pass. CI runs both plus the dashboard build/tests.
 - New sim behavior comes with a scenario test in `scenarios/` with asserted
-  outcomes, not just unit tests — the scenario ladder (`docs/scenario-ladder.md`)
+  outcomes, not just unit tests. The scenario ladder (`docs/scenario-ladder.md`)
   is the regression contract.
 - Determinism is a hard requirement: all randomness goes through
   `chronicle/rng.py`'s keyed rolls (ADR-0009). No `random`, no time-dependent
@@ -108,4 +108,4 @@ Creation Kit.
 ## Where to talk
 
 Open a GitHub issue for anything concrete. For broader design discussion, start
-a GitHub Discussion or find us in [Discord server / community link — TBD].
+a GitHub Discussion, or find us in [Discord server / community link, TBD].

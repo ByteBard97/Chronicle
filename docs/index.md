@@ -1,25 +1,25 @@
 # Chronicle
 
-**A world that remembers.** Chronicle is an external social-simulation
-service for Skyrim SE/AE: it gives every named NPC beliefs with
-provenance and strength, lets rumors spread and mutate as they pass from
-person to person, tracks grudges and obligations from what actually
-happened, and feeds all of it back into the game as behavior the player
-can perceive and shape.
+Chronicle is an external social-simulation service for Skyrim SE/AE.
+Every named NPC gets beliefs with provenance and strength attached.
+Rumors spread and mutate as they pass from person to person. Grudges and
+obligations build up from what actually happened, not from a quest flag,
+and all of it feeds back into the game as behavior you can actually see.
 
-The north star: if the player assassinates the Jarl of Whiterun, that
-should cascade -- a succession contest driven by the court's real
-relationships, an economic ripple through dependent merchants, a rumor
-that mutates as it travels to Riften, guard patrols that shift as a
-*consequence* of the simulation, not a scripted quest branch.
+Here's the scenario I keep testing against: you assassinate the Jarl of
+Whiterun. In vanilla Skyrim that's a quest trigger. In Chronicle it's a
+succession contest shaped by the court's real relationships, an economic
+hit to merchants who depended on him, a rumor that's already mutated by
+the time it reaches Riften, and guard patrols that shift because of what
+the simulation computed, not because a script branch fired.
 
 [:material-github: View on GitHub](https://github.com/ByteBard97/Chronicle){ .md-button .md-button--primary }
 [Read the architecture](architecture.md){ .md-button }
 
 ## Try it yourself
 
-The headless simulation runs on any machine with no Skyrim install --
-clone it, run three commands, watch 358 scenario tests pass in under
+The headless simulation runs on any machine with no Skyrim install.
+Clone it, run three commands, and watch 358 scenario tests pass in under
 four seconds:
 
 ```sh
@@ -34,8 +34,8 @@ uv sync && make test
 
 *The map view of `dashboard/`, showing rumor-stage glyphs (unheard, heard,
 repeated, dormant, forgotten) and NPC markers over a real Whiterun layout,
-against the `north-star-01` scenario run. Not a mockup -- a screenshot of
-the actual debug UI running against real simulation output.*
+against the `north-star-01` scenario run. Not a mockup, it's a screenshot
+of the actual debug UI running against real simulation output.*
 
 ## How it works
 
@@ -45,5 +45,6 @@ the actual debug UI running against real simulation output.*
 
 {% include-markdown "../README.md" start="## Project status (August 2026)" end="## Development" %}
 
-*(This section is transcluded directly from the repository's own README
--- one source of truth, always current with the codebase.)*
+*(This section is pulled straight from the repository's own README, so
+it stays current with the codebase without me having to remember to
+update two places.)*
