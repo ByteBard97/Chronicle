@@ -18,7 +18,7 @@ sources:
     (Records/Major Records/PlacedObject.xml + .cs, Records/Common
     Subrecords/Placement.xml) — read directly for schema ground-truth,
     not taken from documentation prose
-  - docs/design/kimi-architecture-delta-audit.md (this report's premise)
+  - docs/design/architecture-delta-audit.md (this report's premise)
   - docs/research/28-vendor-price-hook-address-library-spike.md and
     docs/research/30-crime-witness-prior-art-spike.md (the process
     template this pass follows: read real shipped source, not just

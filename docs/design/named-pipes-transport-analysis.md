@@ -2,7 +2,7 @@
 date: 2026-08-27
 status: draft
 topic: "Real cost/benefit analysis of swapping ChronicleBridge<->listener transport from HTTP to named pipes"
-supersedes-in-part: "docs/design/kimi-architecture-delta-audit.md's Named Pipes IPC row (that pass classified the idea abstractly; this one prices it)"
+supersedes-in-part: "docs/design/architecture-delta-audit.md's Named Pipes IPC row (that pass classified the idea abstractly; this one prices it)"
 ---
 
 # Named pipes vs. HTTP for the ChronicleBridge <-> listener transport
@@ -229,7 +229,7 @@ The only two commits referencing this transport are a research pass
 confirming the SSH-tunnel workaround for a *different* tool's loopback
 binding (DevBench, not ChronicleBridge/listener) and the prior
 "architecture delta audit" that raised named pipes as a hypothetical.
-`kimi-architecture-delta-audit.md`'s own words on this exact point:
+`architecture-delta-audit.md`'s own words on this exact point:
 *"no concrete problem with HTTP has been identified yet (latency budget
 was 0001's own named risk, and nothing since has shown it's binding)"* —
 that finding holds up under this deeper pass; nothing new surfaced it.

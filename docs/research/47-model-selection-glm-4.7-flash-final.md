@@ -16,7 +16,7 @@ independent failure modes, not one). One figure (`44-throughput-vs-requirement.p
 referenced but not delivered alongside the file —
 
 **CORRECTION (2026-09-02), downgrading the primary pick's status — read before acting on this
-report.** A corpus-audit pass (`notes/kimi-research-corpus-audit-findings-2026-09-01.md`, item 1)
+report.** A corpus-audit pass (`notes/research-corpus-audit-findings-2026-09-01.md`, item 1)
 found this report's roleplay-capability evidence for GLM-4.7-Flash — a single HuggingFace forum
 comment ("good in roleplay and creative writing," §3.1) — does not survive contact with the
 actual EQ-Bench Creative Writing v3 leaderboard, the same instrument report 34 uses for its own

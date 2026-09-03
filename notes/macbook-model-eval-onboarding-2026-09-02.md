@@ -27,7 +27,7 @@ whose attention mechanism doesn't break KV-cache prefix reuse on llama.cpp/MLX (
 `docs/research/38-llamacpp-mlx-kv-cache-prefix-reuse.md` for why that matters at all). Its
 roleplay/voice-quality evidence at the time was thin: one HuggingFace forum comment.
 
-A later corpus-audit pass (`notes/kimi-research-corpus-audit-findings-2026-09-01.md`, item 1)
+A later corpus-audit pass (`notes/research-corpus-audit-findings-2026-09-01.md`, item 1)
 checked that claim against the actual EQ-Bench Creative Writing v3 leaderboard and found it
 **negative** — independently re-verified against eqbench.com's raw data on 2026-09-02:
 
@@ -198,6 +198,6 @@ nothing.
 
 This file was written 2026-09-02, in a separate session on a different machine, based on the
 state of `docs/research/47-model-selection-glm-4.7-flash-final.md` and
-`notes/kimi-research-corpus-audit-findings-2026-09-01.md` at that time. If either has moved on
+`notes/research-corpus-audit-findings-2026-09-01.md` at that time. If either has moved on
 since, trust the current files over this summary. If a tool, model name, or file path mentioned
 here doesn't exist anymore, say so in your findings rather than silently working around it.

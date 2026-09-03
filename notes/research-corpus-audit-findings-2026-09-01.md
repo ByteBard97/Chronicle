@@ -1,6 +1,6 @@
 # Research-corpus audit — findings (Kimi, 2026-09-01)
 
-**Task:** `notes/kimi-research-corpus-audit-2026-09-01.md` — internal-consistency audit of
+**Task:** `notes/research-corpus-audit-review-prompt-2026-09-01.md` — internal-consistency audit of
 `docs/research/34`–`48` against ADR-0011. Method: full re-read of reports 34, 35, 39, 43, 47
 (primary texts, not summaries), plus live web verification against primary sources fetched
 today (EQ-Bench Creative Writing v3 leaderboard data pulled from eqbench.com's own JS data

@@ -60,7 +60,7 @@ it as one:
   **Footnote (2026-09-01):** `Dwemer-Dynamics/HerikaServer` PR/issue #572
   (and #560, cited elsewhere in report 09 for the concurrent-writer race)
   both 404 today, per a live GitHub check during the sync-handshake spec's
-  review (`docs/design/chronicle-bridge-sync-handshake-review-kimi-2026-09-01.md`).
+  review (`docs/design/chronicle-bridge-sync-handshake-external-review-2026-09-01.md`).
   Report 09 flagged generally that issue numbers "can be
   closed/renumbered/reorganized," but this specific pair is now
   unverifiable rather than merely unspotchecked. The underlying design

@@ -68,7 +68,7 @@ computed sim state over the established poll/ack HTTP protocol, no
 game-side work in this pass. Produced from `docs/research/
 31-diegetic-evidence-object-placement-spike.md` (read in full before
 this doc — its F5 finding is the reason this slice is scoped the way it
-is below) and `docs/design/kimi-architecture-delta-audit.md`'s origin
+is below) and `docs/design/architecture-delta-audit.md`'s origin
 idea, corrected against the real code: the field is `chronicle/
 claims.py`'s `Evidence.strength`, not `evidentiary_strength` (the
 audit's paraphrase), and it lives on a per-belief record, not a per-NPC

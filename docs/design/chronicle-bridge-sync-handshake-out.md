@@ -551,7 +551,7 @@ Two review passes: an internal advisor review (fixed the `SetUniqueID` collision
 `head_seq` write-ordering race, and missing `Revert` handler — all three still stand, unchanged
 in this revision) and an external Kimi review with live GitHub re-verification, which found the
 "nothing exists in code yet" framing was false for the service half and six blocking issues
-(A1–A6 in Kimi's written review, `docs/design/chronicle-bridge-sync-handshake-review-kimi-2026-09-01.md`).
+(A1–A6 in Kimi's written review, `docs/design/chronicle-bridge-sync-handshake-external-review-2026-09-01.md`).
 This version: calls `chronicle.sync.resolve()` instead of re-implementing it (§4.1); corrects the
 HTTP client model from async-callback to synchronous-blocking (§2); scopes FORK/ADOPT/LEGACY_IMPORT
 as decided-but-not-actionable pending fork-on-disk support, a gap this author found independently

@@ -1,6 +1,6 @@
 # Review — plugin.cpp sync-wiring plan (Kimi, 2026-09-02)
 
-**Subject:** `notes/kimi-review-plugin-cpp-sync-wiring-plan-2026-09-02.md` (the "plan" below).
+**Subject:** `notes/plugin-cpp-sync-wiring-plan-external-review-prompt-2026-09-02.md` (the "plan" below).
 **Method:** plan read against `SyncHandshakeCore.h` (full read), spec v2 §4–§5, the existing
 plugin.cpp/OutboundClient conventions as previously verified, and **fresh primary-source
 verification against the skse64 engine source** (`ianpatt/skse64@master`,

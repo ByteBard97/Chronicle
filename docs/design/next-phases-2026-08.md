@@ -150,7 +150,7 @@ verified runbook now waiting.
 ## 0m. Landed: diegetic evidence, Python-only cut (`20c478b`) — seventh ChronicleBridge slice
 
 A Kimi-conversation architecture-delta proposal was audited
-(`docs/design/kimi-architecture-delta-audit.md`) against existing
+(`docs/design/architecture-delta-audit.md`) against existing
 ADRs; most of it was already-decided or too expensive (Named Pipes IPC
 would rewrite the whole HTTP-based seam for no demonstrated problem),
 but "Diegetic Evidence" — belief/evidence state showing up as physical
