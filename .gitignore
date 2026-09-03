@@ -59,3 +59,7 @@ tools/chronicle-patcher/out/
 # g++/clang++ build artifact (see adapters/skyrim/ChronicleBridge/tests/
 # Makefile), same posture as the .NET/.dll build outputs above.
 adapters/skyrim/ChronicleBridge/tests/test_sync_handshake_core
+
+# Internal multi-session working docs -- kept locally, not published.
+/AGENTS.md
+/GOALS.md

@@ -7,34 +7,34 @@
 ![python](https://img.shields.io/badge/python-3.12%2B-blue)
 [![docs site](https://img.shields.io/badge/docs-bytebard97.github.io%2FChronicle-8892c9)](https://bytebard97.github.io/Chronicle/)
 
-**A world that remembers.** Chronicle is an external social-simulation
-service for Skyrim SE/AE: it gives every named NPC beliefs with
-provenance and strength, lets rumors spread and mutate as they pass from
-person to person, tracks grudges and obligations from what actually
-happened, and feeds all of it back into the game as behavior the player
-can perceive and shape.
+Chronicle is an external social-simulation service for Skyrim SE/AE.
+Every named NPC gets beliefs with provenance and strength attached.
+Rumors spread and mutate as they pass from person to person. Grudges and
+obligations build up from what actually happened, not from a quest flag,
+and all of it feeds back into the game as behavior you can actually see.
 
-The north star: if the player assassinates the Jarl of Whiterun, that
-should cascade — a succession contest driven by the court's real
-relationships, an economic ripple through dependent merchants, a rumor
-that mutates as it travels to Riften, guard patrols that shift as a
-*consequence* of the simulation, not a scripted quest branch.
+Here's the scenario I keep testing against: you assassinate the Jarl of
+Whiterun. In vanilla Skyrim that's a quest trigger. In Chronicle it's a
+succession contest shaped by the court's real relationships, an economic
+hit to merchants who depended on him, a rumor that's already mutated by
+the time it reaches Riften, and guard patrols that shift because of what
+the simulation computed, not because a script branch fired.
 
 ## How it works
 
 *(The diagrams below also live on the
 [GitHub Pages site](https://bytebard97.github.io/Chronicle/diagrams.html),
-rendered without GitHub's Mermaid-in-README quirks — same content, cleaner
+rendered without GitHub's Mermaid-in-README quirks: same content, cleaner
 rendering.)*
 
-Chronicle is two things talking to each other over plain HTTP: a small
-C++ plugin living inside the Skyrim process, and a Python simulation
-service running natively on the host. The plugin never simulates
-anything — it only reads/writes game state and relays events. All the
-actual social reasoning (who believes what, how a rumor mutates, when a
-grudge cools) happens outside the game entirely, which is what makes it
-possible to test, replay, and inspect the whole simulation without ever
-launching Skyrim.
+Chronicle is really two programs talking over plain HTTP: a small C++
+plugin living inside the Skyrim process, and a Python simulation service
+running natively on the host. The plugin doesn't simulate anything, it
+just reads and writes game state and relays events. Every bit of actual
+social reasoning (who believes what, how a rumor mutates, when a grudge
+cools) happens outside the game entirely. That's the part that let me
+test and replay the whole simulation for months before ever pointing it
+at a running copy of Skyrim.
 
 ```mermaid
 %%{init: {'flowchart': {'subGraphTitleMargin': {'top': 18, 'bottom': 12}}}}%%
@@ -72,13 +72,13 @@ cannot reach inside it. Verified by reading Material's own bundled JS
 (`attachShadow({mode:"closed"})`) rather than guessing after the fact.*
 
 These mechanisms are all built, compiled, and now confirmed writing
-correctly against a real, running game — see Project status below for
+correctly against a real, running game. See Project status below for
 exactly what's verified and what's still open.
 
 <img src="docs/assets/swatch-ingame.svg" width="14" height="14"> the mod: Skyrim engine + the ChronicleBridge SKSE plugin (C++) &nbsp;&nbsp; <img src="docs/assets/swatch-host.svg" width="14" height="14"> the service: native Python, outside the game &nbsp;&nbsp; <img src="docs/assets/swatch-debug.svg" width="14" height="14"> the dashboard: Vue debugging UI, reads the service's logs
 
-Everything under `chronicle/` never imports anything Skyrim-specific —
-it would run the exact same way against a different game entirely. The
+Everything under `chronicle/` never imports anything Skyrim-specific. It
+would run the exact same way against a different game entirely. The
 only place allowed to know Skyrim exists is `adapters/skyrim/`.
 
 ### How a rumor spreads and mutates
@@ -143,77 +143,72 @@ stateDiagram-v2
     Cooled --> [*]
 ```
 
-`Avoiding` is what a live game session would show as visible behavior —
-two NPCs breaking off their usual routine to keep apart — driven purely
-by decayed grudge severity, no scripting involved.
+`Avoiding` is what a live game session would actually show: two NPCs
+breaking off their usual routine to keep apart, driven purely by decayed
+grudge severity, and none of it is scripted.
 
 ## Read next
 
 | | |
 |---|---|
-| [`docs/vision.md`](docs/vision.md) | What this is and why, anchored on the north-star scenario. |
+| [`docs/vision-v2.2.md`](docs/vision-v2.2.md) | What this is and why, anchored on the north-star scenario. |
 | [`docs/architecture.md`](docs/architecture.md) | The event-sourced core, the three-tier belief architecture, the Substrate Abstraction Layer, deployment target. |
-| [`docs/decisions/`](docs/decisions/) | Numbered ADRs and `open-questions.md` — the project's working memory for every design tension research surfaced. |
+| [`docs/decisions/`](docs/decisions/) | Numbered ADRs and `open-questions.md`: the project's working memory for every design tension research surfaced. |
 | [`docs/research/00-index.md`](docs/research/00-index.md) | Every research report behind this design, with tagged findings and merged build-on/risk lists. |
 
 ## Project status (August 2026)
 
-**Chronicle is a headless social-simulation engine with a live Skyrim
-bridge deployed, and every write path is now confirmed working against
-a real, running game.**
+Short version: the headless engine works, the Skyrim bridge compiles and
+deploys, and every write path has now been checked against a real,
+running game. Here's where each piece actually stands.
 
-- **v0.1 headless sim: done.** `docs/v0.1-spec.md`'s full ~20-rule
-  budget is implemented and scenario-proven: the claim/variant/belief
-  store with the rumor stage machine (`chronicle/claims.py`), the
-  social-state store — relationships, grudges, obligations,
-  observer-local reputation (`chronicle/social.py`) — and
-  schedule-driven encounter sampling (`chronicle/schedule.py`,
-  `chronicle/propagate.py`). No Skyrim installation required to build,
-  run, or test any of it. Schedules/relationships are still hand-seeded
-  for the v0.1 Whiterun cast (`chronicle/fixtures/`) rather than derived
-  from a full math-tier simulation.
-- **ChronicleBridge builds and deploys: done.** 7 SKSE slices (C++,
-  CommonLibSSE-NG) — live position streaming, death events, hydration,
-  avoidance, vendor-markup (barter-menu price hook), a crime-witness
-  cascade, and diegetic evidence — compile clean as a whole tree. The
-  DLL and a real 171-pair patched ESP deploy cleanly into a real
-  MO2/Proton install and load correctly.
-- **In-game validation: confirmed for game state, at the data level.**
-  A pytest harness drives every slice against a live, running game over
-  DevBench (`adapters/skyrim/livetest/`), and **14 of its 16 checks now
-  pass**: a real death event lands in the run log with the correct
-  identity, a Chronicle grudge becomes a real vanilla relationship rank,
-  an avoidance pair's AI-package flag actually flips, a vendor's markup
-  multiplier actually caches from a real barter-directed grudge, and an
-  evidence object actually spawns and survives a cell reload. One bug
-  is open and blocking exactly 2 of the 16 checks: the save/load
-  persistence tests, because reloading a save via the test harness
-  currently silently no-ops (investigated at length — not yet
-  root-caused; see `docs/design/simple-modlist-milestone.md`).
-- **Not yet confirmed: literal player-visible behavior.** The
-  above verifies that ChronicleBridge's writes land correctly in game
-  *state* — it does not yet verify what a player watching the screen
-  would see change as a result (e.g., two NPCs actually walking apart
-  in real time, not just the underlying flag being set). That's the
-  honest gap left before M5.
-- **Named-cast coverage: 19 of 28.** `IdentityMap.cpp`'s `kNamedCast`
-  resolves 19 of Whiterun's 28 live-captured NPCs to a Chronicle
-  identity (grown from 1); the rest stream as generic fallbacks the
-  landed rules can't act on.
+The v0.1 headless sim is done. `docs/v0.1-spec.md`'s ~20-rule budget is
+implemented and scenario-tested: the claim/variant/belief store with the
+rumor stage machine (`chronicle/claims.py`), the social-state store for
+relationships, grudges, obligations and observer-local reputation
+(`chronicle/social.py`), and schedule-driven encounter sampling
+(`chronicle/schedule.py`, `chronicle/propagate.py`). None of it needs a
+Skyrim install to build, run, or test. Schedules and relationships for
+the v0.1 Whiterun cast are still hand-seeded (`chronicle/fixtures/`)
+rather than derived from a full simulation.
 
-**What this means:** you can clone and run the simulation + dashboard
-today with no Skyrim install, and every ChronicleBridge write path is
-now proven to correctly mutate game state in a live save. Whether that
-state change is something a player would actually notice on screen is
-the next thing to verify.
+ChronicleBridge builds and deploys. Its 7 SKSE slices (C++,
+CommonLibSSE-NG) cover live position streaming, death events, hydration,
+avoidance, vendor markup via a barter-menu price hook, a crime-witness
+cascade, and diegetic evidence, and the whole tree compiles clean. The
+DLL plus a real 171-pair patched ESP install into a real MO2/Proton setup
+and load correctly.
+
+In-game validation is confirmed at the data level. A pytest harness
+drives every slice against a live, running game over DevBench
+(`adapters/skyrim/livetest/`), and 14 of its 16 checks pass: a real death
+event lands in the run log under the right identity, a Chronicle grudge
+turns into an actual vanilla relationship rank, an avoidance pair's
+AI-package flag really flips, a vendor's markup multiplier caches
+correctly off a barter-directed grudge, and an evidence object spawns
+and survives a cell reload. The 2 failing checks share one bug: reloading
+a save through the test harness currently silently does nothing, I've
+dug into it a while and still haven't root-caused it (see
+`docs/design/simple-modlist-milestone.md` for the gory details).
+
+What's not confirmed yet is whether any of this is visible to a player.
+Everything above proves ChronicleBridge's writes land correctly in game
+state, not that you'd notice a change on screen, e.g. two NPCs actually
+walking apart in real time rather than a flag flipping somewhere. Closing
+that gap is M5.
+
+Named-cast coverage sits at 19 of 28: `IdentityMap.cpp`'s `kNamedCast`
+resolves 19 of Whiterun's 28 live-captured NPCs to a Chronicle identity
+(up from 1 at the start of this), and the rest stream as generic
+fallbacks the current rules can't act on yet.
 
 | Milestone | What it means | Status |
 |---|---|---|
 | M0: Headless proof | Belief cascade (Jarl dies → rumors spread → grudges form), scenario-tested, no game required | Done |
 | M1: Bridge compiles | All 7 ChronicleBridge slices build clean against CommonLibSSE-NG | Done |
 | M2: Bridge deploys | DLL + patched ESP in a real MO2 install, listener wired, ready to launch | Done |
-| M3: In-game validation | Every slice confirmed live via an automated test harness | Substantially done — 14/16 checks pass; save/load persistence is the one open bug |
-| M4: Named-cast coverage | Resolve the remaining 9 of 28 Whiterun NPCs to Chronicle identities | Mostly done (19/28, 9 remaining — see `docs/design/next-phases-2026-08.md` §0c) |
+| M3: In-game validation | Every slice confirmed live via an automated test harness | Substantially done (14/16 checks pass; save/load persistence is the one open bug) |
+| M4: Named-cast coverage | Resolve the remaining 9 of 28 Whiterun NPCs to Chronicle identities | Mostly done (19/28, 9 remaining, see `docs/design/next-phases-2026-08.md` §0c) |
 | M5: Visible "out" direction | A player watching the screen actually perceives the sim's effect, not just the underlying state change | Next |
 | M6: Player-shareable | Downloadable artifact, install instructions, save-safety guarantee | Blocked on M5 |
 
@@ -223,36 +218,43 @@ See `adapters/skyrim/README.md` for per-slice status and
 ## Future directions
 
 The headless engine and bridge are the foundation, not the goal. Where this is
-going, in dependency order — each of these is a designed, claimable problem,
+going, in dependency order. Each of these is a designed, claimable problem,
 not a vibe (see `docs/decisions/` and the open issues):
 
-- **A voice for the simulation.** The vision's tier 3 is a local LLM rendering
-  NPC belief state as dialogue — the model never *decides* anything, it
-  verbalizes what the deterministic engine already computed, and player
-  statements are ingested back as evidence. The sim stays reproducible; the
-  LLM is a replaceable component behind a seam, targeted at consumer hardware
-  on your LAN (a 27B-class open-weights model on ~64GB unified memory), not a
-  cloud API.
-- **Player persona (ADR-0011, proposed).** Author your character's personality
-  at character creation the way you author their face — trait profile,
-  mannerisms, voice. Dialogue becomes intent-driven: pick *what* you're trying
-  to do (negotiate, deceive, intimidate), and the engine generates the line in
-  *your* character's voice, grounded in what this NPC actually believes about
-  you. The committed line enters the rumor engine as a claim — a boast you
-  make in Whiterun can reach Riften, mutated. What you say has consequences
-  because what you say becomes evidence.
-- **Dynamic speech.** Committed dialogue rendered as audio by a small local
-  voice model, with per-NPC original synthetic voices. Hard line: **no cloning
-  of Skyrim's voice actors** — or anyone's voice — without documented consent.
-  Every voice Chronicle ships is original or properly licensed.
-- **The hard open problems** (the ones we'd love collaborators for): co-save
-  sync across save/reload (ADR-0005's C++ half), runtime package injection to
-  replace NPC-record overrides, and in-game validation of the write paths.
-  Each is an open issue with acceptance criteria.
+Tier 3 of the vision gives the simulation a voice: a local LLM renders
+NPC belief state as dialogue. It never *decides* anything on its own,
+it just says out loud what the deterministic engine already computed,
+and whatever the player says back gets ingested as evidence. The sim
+itself stays fully reproducible; the LLM sits behind a seam as a
+replaceable component, sized for consumer hardware on your own LAN (I'm
+targeting a 27B-class open-weights model on about 64GB of unified
+memory), not a cloud API.
+
+Player persona (ADR-0011, still just a proposal) would let you author
+your character's personality at creation the way you already author
+their face: trait profile, mannerisms, voice. Dialogue turns
+intent-driven, so you pick what you're trying to do (negotiate, deceive,
+intimidate) and the engine writes the actual line in your character's
+voice, grounded in whatever this particular NPC believes about you.
+Committed lines feed straight into the rumor engine as claims, so a
+boast you make in Whiterun can end up in Riften, mutated along the way.
+What you say has consequences because what you say becomes evidence.
+
+Down the line, committed dialogue gets rendered as audio through a
+small local voice model, with an original synthetic voice per NPC. One
+hard line I'm not moving on: no cloning Skyrim's voice actors, or
+anyone's voice, without documented consent. Every voice Chronicle ships
+will be original or properly licensed.
+
+If you want to get involved, the open problems worth collaborating on
+are co-save sync across save/reload (ADR-0005's C++ half), runtime
+package injection to replace NPC-record overrides, and in-game
+validation of the write paths. Each one has its own issue with
+acceptance criteria.
 
 ## Development
 
-Requires [uv](https://docs.astral.sh/uv/) — it installs the right Python
+Requires [uv](https://docs.astral.sh/uv/), which installs the right Python
 (3.12+) automatically.
 
 ```sh
@@ -262,10 +264,10 @@ make lint    # uv run ruff check .
 make sim     # uv run python -m chronicle -- inspect/trace/feed/inject subcommands (chronicle/cli.py)
 ```
 
-**Layout**: `chronicle/` is the pure-Python simulation engine — it never
+**Layout**: `chronicle/` is the pure-Python simulation engine. It never
 imports anything Skyrim-specific. `adapters/skyrim/` is the only place
 allowed to know Skyrim exists. `dashboard/` is the debug/observability web
-UI (first-class, not an afterthought — see `docs/vision.md`).
+UI (first-class, not an afterthought, see `docs/vision-v2.2.md`).
 `scenarios/` holds headless regression scenarios with asserted outcomes.
 `notes/` is working memory: `inbox/` for unprocessed material, `daily/`
 for session notes, `ideas.md` for unsorted ideas and action items.
