@@ -34,8 +34,8 @@ uv sync && make test
 
 *The map view of `dashboard/`, showing rumor-stage glyphs (unheard, heard,
 repeated, dormant, forgotten) and NPC markers over a real Whiterun layout,
-against the `north-star-01` scenario run. Not a mockup, it's a screenshot
-of the actual debug UI running against real simulation output.*
+against the `north-star-01` scenario run. This is the real debug UI
+running against actual simulation output, not a mockup.*
 
 ## How it works
 
