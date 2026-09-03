@@ -135,6 +135,21 @@ namespace ChronicleBridge {
     // gate this function is one piece of.
     bool ManifestFromBytes(const std::array<std::uint8_t, kManifestWireSize>& bytes, Manifest* out);
 
+    // kPostLoadGame's payload decoder. Confirmed against skse64 upstream
+    // (Hooks_SaveLoad.cpp, LoadGame_Hook): `bool result = ...; Dispatch_
+    // Message(..., kMessage_PostLoadGame, (void*)result, 1, NULL);` -- the
+    // bool is cast directly to a pointer-sized value, never passed as
+    // `&result`. So `data` is the value itself, packed into the slot
+    // (dataLen == 1 meaning "1 meaningful byte of the slot itself"), and
+    // must never be dereferenced. An earlier version of plugin.cpp's
+    // caller did exactly that (`*static_cast<bool*>(data)`) and crashed on
+    // every real successful load (confirmed live, 2026-09-03, EXCEPTION_
+    // ACCESS_VIOLATION reading address 0x1). Pulled out as its own pure,
+    // SKSE-free function so this exact class of regression has real test
+    // coverage instead of only a comment. `dataLen != 1` (an SKSE build
+    // that changes this convention) returns false rather than guessing.
+    bool DecodePostLoadSuccessFlag(void* data, std::uint32_t dataLen);
+
     // ------------------------------------------------------------------
     // §4: the six-way resolve() decision, as the shim sees it.
     // ------------------------------------------------------------------

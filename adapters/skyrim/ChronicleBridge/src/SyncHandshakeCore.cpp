@@ -95,6 +95,16 @@ namespace ChronicleBridge {
         return true;
     }
 
+    bool DecodePostLoadSuccessFlag(void* data, std::uint32_t dataLen) {
+        if (dataLen != 1) {
+            return false;
+        }
+        // `data` holds the value itself, packed into the pointer-sized
+        // slot -- never an address to read from. Masking to the low byte
+        // matches dataLen's own claim of "1 meaningful byte."
+        return (reinterpret_cast<std::uintptr_t>(data) & 0xFF) != 0;
+    }
+
     namespace {
 
         // Spec §3's full Load-time gate: "reject the record unless

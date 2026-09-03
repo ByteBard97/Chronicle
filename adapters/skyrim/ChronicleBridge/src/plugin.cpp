@@ -23,6 +23,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -240,7 +241,14 @@ namespace {
             // Do NOT fire HELLO on a failed load -- that would HELLO a
             // timeline against a world that never actually loaded, exactly
             // the wrong-branch event the handshake exists to prevent.
-            if (message->dataLen == 1 && message->data != nullptr && *static_cast<bool*>(message->data)) {
+            //
+            // `data` is NOT a pointer to a bool -- see
+            // SyncHandshakeCore::DecodePostLoadSuccessFlag's own comment.
+            // An earlier version of this line dereferenced `data` directly
+            // and crashed on every real successful load (confirmed live,
+            // 2026-09-03). Decoding is pulled into that pure, unit-tested
+            // function rather than repeated inline here.
+            if (ChronicleBridge::DecodePostLoadSuccessFlag(message->data, message->dataLen)) {
                 ChronicleBridge::SyncHandshake::HandlePostLoadGame();
             } else {
                 SKSE::log::warn(

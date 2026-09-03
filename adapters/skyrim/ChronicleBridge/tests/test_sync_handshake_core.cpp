@@ -578,6 +578,28 @@ namespace {
         }
     }
 
+    // Regression coverage for the 2026-09-03 live crash: kPostLoadGame's
+    // `data` is the packed value itself, never a pointer to dereference.
+    // `data`'s numeric value can only ever legitimately be 0 or 1 (skse64's
+    // own bool-as-pointer-slot convention), but this checks a few more
+    // bit patterns anyway precisely because the whole point of this bug was
+    // "someone's plausible-looking assumption about the encoding was
+    // wrong" -- don't repeat that by only testing the one shape expected.
+    void Test_DecodePostLoadSuccessFlag() {
+        CHECK(DecodePostLoadSuccessFlag(reinterpret_cast<void*>(std::uintptr_t{1}), 1) == true);
+        CHECK(DecodePostLoadSuccessFlag(reinterpret_cast<void*>(std::uintptr_t{0}), 1) == false);
+        CHECK(DecodePostLoadSuccessFlag(nullptr, 1) == false);
+        // Never treat a pointer-sized nonzero value's low byte alone as
+        // proof of "true" beyond what dataLen==1 actually promises, but
+        // also never crash trying to read through it as an address.
+        CHECK(DecodePostLoadSuccessFlag(reinterpret_cast<void*>(std::uintptr_t{0x100}), 1) == false);
+        CHECK(DecodePostLoadSuccessFlag(reinterpret_cast<void*>(std::uintptr_t{0x101}), 1) == true);
+        // Wrong dataLen: an SKSE build that changed this convention must
+        // not be silently treated as success.
+        CHECK(DecodePostLoadSuccessFlag(reinterpret_cast<void*>(std::uintptr_t{1}), 0) == false);
+        CHECK(DecodePostLoadSuccessFlag(reinterpret_cast<void*>(std::uintptr_t{1}), 4) == false);
+    }
+
     // Mechanical single-writer discipline: every transition EXCEPT
     // OnHelloResponse (epochId) and OnMutationAccepted (head_seq) must
     // leave both fields untouched. OnLoadCallback and OnNewGame are
@@ -945,6 +967,7 @@ int main() {
     RUN(Test_SaveDuringDegradedWritesLastAckedSeq);
     RUN(Test_ReplayFromSeqProducesNoSendMutation);
     RUN(Test_LoadValidationTable);
+    RUN(Test_DecodePostLoadSuccessFlag);
     RUN(Test_SingleWriterDisciplineMechanical);
     RUN(Test_LoadCallbackIsHydrationNotAdvance);
     RUN(Test_FormatVersionReachesSendHello);

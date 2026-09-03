@@ -70,13 +70,18 @@ namespace ChronicleBridge::SyncHandshake {
     // SKSE::MessagingInterface::kPostLoadGame -- but ONLY when the caller
     // has already confirmed the load succeeded. The real
     // SKSE::MessagingInterface::Message struct has no named success field,
-    // but skse64's engine source (Hooks_SaveLoad.cpp) passes the load's
-    // bool result as `data` with `dataLen == 1` anyway -- checking
-    // `message->dataLen == 1 && *static_cast<bool*>(message->data)` is
-    // plugin.cpp's job (the sync-wiring plan's design decision 3), before
-    // ever calling this function. Calling this on a failed load would fire
-    // a HELLO against a world that failed to load -- exactly the
-    // wrong-branch event the handshake exists to prevent. Main thread.
+    // but skse64's engine source (Hooks_SaveLoad.cpp, LoadGame_Hook) passes
+    // the load's bool result as `data` with `dataLen == 1` anyway, cast
+    // directly to a pointer-sized value (`(void*)result`, never `&result`)
+    // -- confirmed by reading that call site, not assumed. plugin.cpp's
+    // job (the sync-wiring plan's design decision 3) is to read that packed
+    // byte via DecodePostLoadSuccessFlag (SyncHandshakeCore.h), never to
+    // dereference `data` -- an earlier version of that check did
+    // `*static_cast<bool*>(message->data)` and crashed on every real
+    // successful load (confirmed live, 2026-09-03). Calling this on a
+    // failed load would fire a HELLO against a world that failed to load --
+    // exactly the wrong-branch event the handshake exists to prevent. Main
+    // thread.
     void HandlePostLoadGame();
 
     // Forwarded from plugin.cpp's OnSkseMessage on
