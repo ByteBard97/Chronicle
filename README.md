@@ -12,6 +12,7 @@ Every named NPC gets beliefs with provenance and strength attached.
 Rumors spread and mutate as they pass from person to person. Grudges and
 obligations build up from what actually happened, not from a quest flag,
 and all of it feeds back into the game as behavior you can actually see.
+Full docs live on the [GitHub Pages site](https://bytebard97.github.io/Chronicle/).
 
 Here's the scenario I keep testing against: you assassinate the Jarl of
 Whiterun. In vanilla Skyrim that's a quest trigger. In Chronicle it's a
