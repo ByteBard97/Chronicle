@@ -21,12 +21,19 @@ hit to merchants who depended on him, a rumor that's already mutated by
 the time it reaches Riften, and guard patrols that shift because of what
 the simulation computed, not because a script branch fired.
 
-## How it works
+**Where this is going next:** the headline is shifting from "NPCs
+remember what you did to them" to **the world has its own agenda, and
+you can watch it move** — the civil war and dragon attacks as living,
+multi-phase conflicts, delivered through Bethesda's own Radiant Story
+engine and cast with real named NPCs whose grievances the player
+actually shaped. Everything above (belief, rumor, grudge) doesn't go
+away, it becomes the epistemology underneath that headline instead of
+the headline itself. See [`docs/vision-v3.0.md`](docs/vision-v3.0.md)
+for the full pitch, and [Where this is going](#where-this-is-going)
+below for the three-phase build order — including where an LLM enters
+at all, which is later than you'd think.
 
-*(The diagrams below also live on the
-[GitHub Pages site](https://bytebard97.github.io/Chronicle/diagrams.html),
-rendered without GitHub's Mermaid-in-README quirks: same content, cleaner
-rendering.)*
+## How it works
 
 Chronicle is really two programs talking over plain HTTP: a small C++
 plugin living inside the Skyrim process, and a Python simulation service
@@ -35,124 +42,27 @@ just reads and writes game state and relays events. Every bit of actual
 social reasoning (who believes what, how a rumor mutates, when a grudge
 cools) happens outside the game entirely. That's the part that let me
 test and replay the whole simulation for months before ever pointing it
-at a running copy of Skyrim.
-
-```mermaid
-%%{init: {'flowchart': {'subGraphTitleMargin': {'top': 18, 'bottom': 12}}}}%%
-flowchart TB
-    ENGINE["<span style='color:#4a3f1a'>Skyrim Engine (base game)</span>"] <--> BRIDGE["<span style='color:#4a3f1a'>ChronicleBridge -- SKSE C++ plugin</span>"]
-    BRIDGE =="HTTP: events in / state out"==> LISTENER
-    BRIDGE --> POS
-
-    subgraph PYTHON["Outside Skyrim"]
-        LISTENER["<span style='color:#22254a'>listener.py (HTTP)</span>"] --> CORE["<span style='color:#22254a'>chronicle/ engine</span>"] --> LOG["<span style='color:#22254a'>Frame log (JSONL)</span>"]
-    end
-    LOG --> DASH["<span style='color:#3a2245'>dashboard (Vue) -- debug UI</span>"]
-
-    subgraph MECH["Game-side mechanisms"]
-        direction TB
-        POS["<span style='color:#4a3f1a'>Position Streamer -- live NPC coords</span>"] ~~~ HYD["<span style='color:#4a3f1a'>Hydration Poller -- writes grudge as rank</span>"] ~~~ AVOID["<span style='color:#4a3f1a'>Avoidance Poller -- flips AI-package flag</span>"] ~~~ VEND["<span style='color:#4a3f1a'>Vendor Price Hook -- marks up barter price</span>"] ~~~ EVID["<span style='color:#4a3f1a'>Evidence Poller -- spawns object from a belief</span>"]
-    end
-    MECH -- "writes back into game state" --> ENGINE
-
-    classDef ingame fill:#fdf6d8,stroke:#c9b458,color:#4a3f1a;
-    classDef host fill:#e6e9f7,stroke:#8892c9,color:#22254a;
-    classDef debug fill:#f3e6f7,stroke:#a888c9,color:#3a2245;
-    class ENGINE,BRIDGE,POS,HYD,AVOID,VEND,EVID ingame
-    class LISTENER,CORE,LOG host
-    class DASH debug
-    style PYTHON stroke-dasharray: 6 4,fill:none,stroke:#8892c9
-    style MECH stroke-dasharray: 6 4,fill:none,stroke:#c9b458
-```
-
-*Node label colors are set inline in the diagram source (not via
-`classDef`'s own `color:`, which modern Mermaid doesn't reliably apply to
-HTML-rendered labels) because Material renders each diagram inside a
-closed shadow root -- page-level CSS, `!important` or not, structurally
-cannot reach inside it. Verified by reading Material's own bundled JS
-(`attachShadow({mode:"closed"})`) rather than guessing after the fact.*
+at a running copy of Skyrim. Everything under `chronicle/` never
+imports anything Skyrim-specific -- it would run the exact same way
+against a different game entirely. The only place allowed to know
+Skyrim exists is `adapters/skyrim/`.
 
 These mechanisms are all built, compiled, and now confirmed writing
 correctly against a real, running game. See Project status below for
 exactly what's verified and what's still open.
 
-<img src="docs/assets/swatch-ingame.svg" width="14" height="14"> the mod: Skyrim engine + the ChronicleBridge SKSE plugin (C++) &nbsp;&nbsp; <img src="docs/assets/swatch-host.svg" width="14" height="14"> the service: native Python, outside the game &nbsp;&nbsp; <img src="docs/assets/swatch-debug.svg" width="14" height="14"> the dashboard: Vue debugging UI, reads the service's logs
-
-Everything under `chronicle/` never imports anything Skyrim-specific. It
-would run the exact same way against a different game entirely. The
-only place allowed to know Skyrim exists is `adapters/skyrim/`.
-
-### How a rumor spreads and mutates
-
-Gossip travels only through sampled encounters (shared location +
-schedule overlap), never a broadcast. Each retelling can mutate one
-detail and always loses some confidence:
-
-```mermaid
-sequenceDiagram
-    participant World as Game event
-    participant A as NPC A (witness)
-    participant B as NPC B
-    participant C as NPC C
-    World->>A: crime witnessed / NPC death
-    Note right of A: forms a Claim + Belief (confidence + strength)
-    Note over A,B: encounter sampled: shared location, probability roll
-    A->>B: tells the claim (tell-probability gate)
-    Note right of B: hears it -- may mutate one slot
-    Note over B,C: later encounter, different location
-    B->>C: retells it -- confidence decays another hop
-    Note right of C: forms its own belief: weaker, possibly mutated
-```
-
-### How a rumor ages: heard, repeated, dormant, forgotten
-
-`Dormant` means ~45 game-days with no retelling; `Forgotten` fires
-independently, whenever the underlying belief's gist strength decays
-past its floor, whichever stage it happens to be in:
-
-```mermaid
-stateDiagram-v2
-    [*] --> Heard: first exposure
-    Heard --> Repeated: retells it
-    Repeated --> Repeated: retold again
-    Heard --> Dormant: goes quiet
-    Repeated --> Dormant: goes quiet
-    Dormant --> Repeated: retold again
-    Heard --> Forgotten: gist decays out
-    Repeated --> Forgotten: gist decays out
-    Dormant --> Forgotten: gist decays out
-    Forgotten --> [*]
-```
-
-### How a grudge turns into visible avoidance
-
-Grudges decay continuously rather than clearing instantly, so a fresh
-harm and a genuinely-forgiven one behave differently even at the same
-raw severity. `Avoiding` fires once decayed severity crosses a
-threshold; `Cooled` fires once it decays below a separate, lower
-forgiveness floor:
-
-```mermaid
-stateDiagram-v2
-    [*] --> NoGrudge
-    NoGrudge --> Grudge: harm occurs
-    Grudge --> Avoiding: crosses threshold
-    Avoiding --> Grudge: drops back down
-    Grudge --> Cooled: fully forgiven
-    Avoiding --> Cooled: fully forgiven
-    Cooled --> Grudge: new harm
-    Cooled --> [*]
-```
-
-`Avoiding` is what a live game session would actually show: two NPCs
-breaking off their usual routine to keep apart, driven purely by decayed
-grudge severity, and none of it is scripted.
+The full architecture diagram, and the state machines for how a rumor
+spreads and mutates, how a rumor ages (heard, repeated, dormant,
+forgotten), and how a grudge turns into visible avoidance, all live on
+the [docs site's diagram page](https://bytebard97.github.io/Chronicle/diagrams.html) --
+kept off this page so the front door stays readable.
 
 ## Read next
 
 | | |
 |---|---|
-| [`docs/vision-v2.2.md`](docs/vision-v2.2.md) | What this is and why, anchored on the north-star scenario. |
+| [`docs/vision-v3.0.md`](docs/vision-v3.0.md) | The current pitch: the world has its own agenda. What changed from v2.2 and why, the three-phase build order, the two north-star tests. |
+| [`docs/vision-v2.2.md`](docs/vision-v2.2.md) | Superseded, kept for history: the original belief/rumor/grudge-first pitch. Still accurate about the machinery, just no longer the headline. |
 | [`docs/architecture.md`](docs/architecture.md) | The event-sourced core, the three-tier belief architecture, the Substrate Abstraction Layer, deployment target. |
 | [`docs/decisions/`](docs/decisions/) | Numbered ADRs and `open-questions.md`: the project's working memory for every design tension research surfaced. |
 | [`docs/research/00-index.md`](docs/research/00-index.md) | Every research report behind this design, with tagged findings and merged build-on/risk lists. |
@@ -216,42 +126,111 @@ fallbacks the current rules can't act on yet.
 See `adapters/skyrim/README.md` for per-slice status and
 `docs/design/next-phases-2026-08.md` for the current plan.
 
-## Future directions
+## Where this is going
 
-The headless engine and bridge are the foundation, not the goal. Where this is
-going, in dependency order. Each of these is a designed, claimable problem,
-not a vibe (see `docs/decisions/` and the open issues):
+The headless engine and bridge are the foundation, not the goal. The
+plan is three phases, and the dividing lines are deliberate — most
+importantly, **no LLM appears until Phase 2, and no LLM is ever
+allowed to decide simulation outcomes, only to render or voice ones the
+deterministic engine already computed.** Each phase is a designed,
+claimable problem, not a vibe (see `docs/vision-v3.0.md`,
+`docs/decisions/`, and the open issues).
 
-Tier 3 of the vision gives the simulation a voice: a local LLM renders
-NPC belief state as dialogue. It never *decides* anything on its own,
-it just says out loud what the deterministic engine already computed,
-and whatever the player says back gets ingested as evidence. The sim
-itself stays fully reproducible; the LLM sits behind a seam as a
-replaceable component, sized for consumer hardware on your own LAN (I'm
-targeting a 27B-class open-weights model on about 64GB of unified
-memory), not a cloud API.
+### Phase 1 — the world, with no LLM anywhere
 
-Player persona (ADR-0011, still just a proposal) would let you author
-your character's personality at creation the way you already author
-their face: trait profile, mannerisms, voice. Dialogue turns
-intent-driven, so you pick what you're trying to do (negotiate, deceive,
-intimidate) and the engine writes the actual line in your character's
-voice, grounded in whatever this particular NPC believes about you.
-Committed lines feed straight into the rumor engine as claims, so a
-boast you make in Whiterun can end up in Riften, mutated along the way.
-What you say has consequences because what you say becomes evidence.
+This is the current headline (`docs/vision-v3.0.md`): the civil war and
+dragon crisis become **multi-phase conflicts with real casualties and
+consequences**, delivered through Bethesda's own Radiant Story engine
+rather than a competing quest system, and cast with real named NPCs
+whose grievances and loyalties the player actually shaped. Everything
+already shipped — belief, rumor, grudge, obligation, roles and
+succession (the "How it works" section above) — becomes the
+epistemology underneath that headline: the data the world-event layer
+draws on to decide who gets cast, what a rumor says by the time it
+reaches the third county, and why a given NPC broke down instead of
+shrugged.
 
-Down the line, committed dialogue gets rendered as audio through a
-small local voice model, with an original synthetic voice per NPC. One
-hard line I'm not moving on: no cloning Skyrim's voice actors, or
-anyone's voice, without documented consent. Every voice Chronicle ships
-will be original or properly licensed.
+Still to build in this phase, all of it deterministic and headless-
+testable: storylet role-casting on Radiant Story, named relationship
+states with a founding memory a player can ask about ("Crystallization"
+— why the market turns to look at you), a production-rule reaction
+layer mapping event + belief + sentiment to a bark/expression/approach/
+exit tier, per-observer Dread (the same rumor lands as fear in one NPC
+and respect in another), Secrets/Hooks leverage (the player's one
+outward-acting verb), an off-screen pacing director, and a
+conversational-ladder gate that makes NPCs take warming up. Design work
+for the shared foundation these lean on is filed at
+[`docs/design/social-mechanics-v3-foundation.md`](docs/design/social-mechanics-v3-foundation.md).
+A player could run the entire Phase 1 pitch with zero language models
+installed.
+
+### Phase 2 — the simulation gets a voice, kept deliberately narrow
+
+Two things, and only two things:
+
+- **NPC dialogue rendering.** A local LLM speaks an NPC's already-
+  computed belief state out loud. It never decides anything — the
+  deterministic engine upstream already did — it just renders. Sized
+  for consumer hardware on your own LAN (targeting a 27B-class
+  open-weights model on about 64GB of unified memory), not a cloud API.
+- **Player persona and intent-driven dialogue** ([ADR-0011](docs/decisions/0011-player-persona-and-voice.md)).
+  You author your character's personality once, the way you already
+  author their face: a trait profile (Big Five plus a few D&D-fluent
+  stats), mannerisms, a voice. That compiles into a "voice card" the
+  model never sees raw trait numbers from. In conversation you pick an
+  **intent** (negotiate, deceive, intimidate, charm...) and the engine
+  generates 3-5 candidate lines in your character's actual voice, in
+  one call, so you confirm the real words instead of a paraphrase (the
+  Fallout-4 dialogue-wheel failure this is designed to avoid).
+  Committed lines feed straight into the rumor engine as claims — a
+  boast you make in Whiterun can end up in Riften, mutated along the
+  way, deception scaled by your charisma stat and the listener's
+  existing disposition toward you. What you say has consequences
+  because what you say becomes evidence.
+
+Deliberately **not** in Phase 2: an LLM authoring or deciding any story
+content. That's Phase 3, and it waits until this phase's NPC voice and
+player dialogue are proven against a world that's already fully
+reactive without them — a stable foundation to stand a much harder
+problem on, rather than building both at once against a moving target.
+
+Down the line inside this phase, committed dialogue also gets rendered
+as audio through a small local voice model, one original synthetic
+voice per NPC. One hard line I'm not moving on: no cloning Skyrim's
+voice actors, or anyone's voice, without documented consent. Every
+voice Chronicle ships will be original or properly licensed.
+
+### Phase 3+ — the LLM storyteller, and the harness that makes it safe
+
+An LLM-authored director layered on top of Phase 1's world-event
+machinery — generating storylet content and scene framing beyond
+template interpolation, not just casting real NPCs into pre-authored
+shapes. The harder engineering problem, and the bulk of the work here,
+is the harness underneath it: a **hierarchy of GM agents operating at
+different timescales** — a slow campaign-architect tier holding a
+loose, evolving premise, a mid tier advancing hold-by-hold state, a
+fast per-scene renderer — kept synchronized without the prose-
+replanning drift that sinks naive versions of this idea. See
+`docs/research/49-56` (HAMLET, StoryVerse, Dramatron, Story2Game) for
+the comparative-systems research this design will draw on.
+
+This is genuinely open-ended rather than one clean milestone — likely
+Phase 3 through 5 or 6 by the time it's actually built, not a single
+phase. Candidate shape, not a committed plan: an early phase getting
+one timescale working end to end (probably the mid, hold-advancing
+tier, since Phase 1 already gives it real state to advance), then
+adding the slow campaign-architect tier once that's proven, then the
+fast per-scene renderer, then a phase purely on keeping the tiers
+synchronized without drift — each one only gets scoped for real once
+the phase before it ships and shows what the next one actually needs.
+
+### Getting involved
 
 If you want to get involved, the open problems worth collaborating on
 are co-save sync across save/reload (ADR-0005's C++ half), runtime
-package injection to replace NPC-record overrides, and in-game
-validation of the write paths. Each one has its own issue with
-acceptance criteria.
+package injection to replace NPC-record overrides, in-game validation
+of the write paths, and Phase 1's new world-event-layer design work.
+Each one has its own issue with acceptance criteria.
 
 ## Development
 
@@ -268,7 +247,7 @@ make sim     # uv run python -m chronicle -- inspect/trace/feed/inject subcomman
 **Layout**: `chronicle/` is the pure-Python simulation engine. It never
 imports anything Skyrim-specific. `adapters/skyrim/` is the only place
 allowed to know Skyrim exists. `dashboard/` is the debug/observability web
-UI (first-class, not an afterthought, see `docs/vision-v2.2.md`).
+UI (first-class, not an afterthought, see `docs/vision-v3.0.md` §4).
 `scenarios/` holds headless regression scenarios with asserted outcomes.
 `notes/` is working memory: `inbox/` for unprocessed material, `daily/`
 for session notes, `ideas.md` for unsorted ideas and action items.

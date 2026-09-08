@@ -2,13 +2,35 @@
 
 #include <chrono>
 #include <future>
+#include <set>
 #include <thread>
+#include <utility>
 
 #include "IdentityMap.h"
 
 namespace ChronicleBridge {
 
     namespace {
+
+        // Process-lifetime dedupe against the listener's own documented
+        // restart behavior (adapters/skyrim/listener/listener.py's
+        // _EvidenceEntryState docstring: its "applied" status is in-memory
+        // only and does NOT survive a listener restart -- an already-spawned
+        // entry reverts to "not-yet-offered" and gets re-offered as if new).
+        // Without this, a routine Python-side listener restart -- the game
+        // process itself keeps running the whole time -- would make
+        // ApplyEvidenceEntry spawn a second, permanent duplicate of every
+        // evidence object already in the world. See
+        // docs/design/mod-conflict-mitigation-plan.md §4 for the full
+        // finding. Keyed on (holderId, beliefId), the same dedupe key the
+        // wire protocol itself already uses (OutboundClient.h's
+        // EvidenceAckEntry comment). Deliberately process-lifetime only, not
+        // persisted across a full game restart -- a `forcePersist=true`
+        // object surviving a save/reload means the listener's own database
+        // (not this cache) is the actual source of truth across saves; this
+        // cache only needs to survive a listener restart *within* a running
+        // game session, which it does.
+        std::set<std::pair<std::string, std::string>> g_alreadySpawnedEvidence;
 
         // Same cadence rationale as HydrationPoller.cpp/AvoidancePoller.cpp's
         // kPollInterval: evidence reveals are occasional discrete state (a
@@ -105,8 +127,37 @@ namespace ChronicleBridge {
         // full "compiles only, never exercised against a live save"
         // caveat -- treat this as experimental.
         EvidenceApplyOutcome ApplyEvidenceEntry(const EvidenceEntry& entry) {
+            // Dedupe first, before resolving anything -- if this exact
+            // belief already produced a spawn earlier in this process's
+            // life, report it applied again without touching the world a
+            // second time. See g_alreadySpawnedEvidence's own comment for
+            // why this is necessary, not just defensive.
+            const auto dedupeKey = std::make_pair(entry.holderId, entry.beliefId);
+            if (g_alreadySpawnedEvidence.contains(dedupeKey)) {
+                SKSE::log::debug(
+                    "ChronicleBridge evidence: '{}''s belief '{}' was already spawned earlier this session -- "
+                    "re-offer from a listener restart, reporting applied without spawning again",
+                    entry.holderId, entry.beliefId);
+                return EvidenceApplyOutcome::kApplied;
+            }
+
             RE::Actor* believer = ResolveLiveActor(entry.holderId);
             if (!believer) return EvidenceApplyOutcome::kRetry;
+
+            // A dead believer's own reference can still resolve via
+            // LookupForm (the base record persists even once the actor is a
+            // corpse), but PlaceObjectAtMe on a dead/disabled reference is
+            // exactly the "several of the 19 can die" edge case flagged in
+            // docs/design/mod-conflict-mitigation-plan.md §4 -- fail safe
+            // (retry forever, the same as any other unresolved-actor case)
+            // rather than spawn evidence on/near a corpse or risk an
+            // undefined placement.
+            if (believer->IsDead()) {
+                SKSE::log::debug(
+                    "ChronicleBridge evidence: holder '{}' is dead -- skipping this poll, retrying later",
+                    entry.holderId);
+                return EvidenceApplyOutcome::kRetry;
+            }
 
             auto* dataHandler = RE::TESDataHandler::GetSingleton();
             if (!dataHandler) return EvidenceApplyOutcome::kRetry;
@@ -121,24 +172,31 @@ namespace ChronicleBridge {
                 return EvidenceApplyOutcome::kRetry;
             }
 
-            // a_forcePersist = true: unlike report 31's F3 prior-art
+            // a_forcePersist = true, KEPT deliberately as of this pass, not
+            // reflexively flipped to false: unlike report 31's F3 prior-art
             // examples (Styyx1/SurpriseSpawner, HarperZ9/skyrimbridge), both
             // of which spawn short-lived combat/visual props that are
             // expected to despawn or get cleaned up, this slice's whole
             // point is a physical object that stays in the world for the
             // player to find later -- an evidence object the engine's
             // ordinary reference-cleanup pass silently deleted before the
-            // player ever saw it would defeat the entire feature. Named
-            // explicitly per this project's own discipline: this is a
-            // deliberate choice, not report 31's literal recommendation 1
-            // snippet copied verbatim (which passed `true` too, but without
-            // explaining why) -- and it is a real, accepted tradeoff, not a
-            // free one: a forced-persistent reference is never garbage
-            // collected, so every successful spawn is a small permanent
-            // addition to the save file for the lifetime of that save,
-            // compounding with §3's own "no retraction, ever" limitation.
-            // Not verified against a real save's long-run size/behavior in
-            // this pass.
+            // player ever saw it would defeat the entire feature. Per
+            // docs/design/mod-conflict-mitigation-plan.md §4 (cross-checked
+            // against the CK wiki's own PlaceAtMe documentation): a
+            // NON-persistent PlaceAtMe reference is ALSO not auto-cleaned by
+            // an ordinary cell reset, so dropping forcePersist here would
+            // not, by itself, fix anything -- the actual fix for unbounded
+            // save growth is an explicit retraction/expiry signal (call
+            // Disable()+MarkForDelete() when a belief's evidence is
+            // superseded or collected), which does not exist yet on either
+            // side of the wire protocol (design doc §3's "no retraction,
+            // ever" is a stated limitation, not an oversight this function
+            // alone can fix). g_alreadySpawnedEvidence above closes the one
+            // concrete accumulation bug found so far (duplicate spawns from
+            // a listener restart); genuine unbounded growth across a very
+            // long playthrough is a real, separate, larger design task
+            // (protocol-level retraction) tracked in the mitigation plan,
+            // not silently solved by this pass.
             auto spawned = believer->PlaceObjectAtMe(evidenceObject, true);
             if (!spawned) {
                 SKSE::log::warn(
@@ -148,6 +206,7 @@ namespace ChronicleBridge {
                 return EvidenceApplyOutcome::kRetry;
             }
 
+            g_alreadySpawnedEvidence.insert(dedupeKey);
             SKSE::log::info(
                 "ChronicleBridge evidence: spawned evidence object at '{}''s position for belief '{}' "
                 "(claim '{}') (UNVERIFIED against a live save -- compiled only, see EvidencePoller.h)",

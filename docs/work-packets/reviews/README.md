@@ -53,6 +53,15 @@ with chronicle-17 directly before doing anything, to avoid the exact
 kind of ambiguity this doc's earlier governance note was written to
 close.
 
+**Coordinator reassignment (owner-settled 2026-08-25, ~17:15).** The
+owner has appointed this Kimi session lineage as the planning/coordinator
+("planning agent and boss agent"), superseding the 2026-08-24 ~04:00
+reassignment to the Claude session. Same governance model applies
+unchanged: plan, write lane packets, review deliveries against acceptance
+criteria, run the battery independently, rule on findings, update this
+board — not a bulk code-editing role. All other sessions remain lane
+workers per the rules above.
+
 The overseer agent (planner/reviewer) evaluates lane deliverables against
 their packet's acceptance criteria before anything is committed. One
 subdirectory per review round: `reviews/<date>-<lane>/` containing the

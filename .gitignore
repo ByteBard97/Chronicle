@@ -63,3 +63,5 @@ adapters/skyrim/ChronicleBridge/tests/test_sync_handshake_core
 # Internal multi-session working docs -- kept locally, not published.
 /AGENTS.md
 /GOALS.md
+/tools/esp-dump
+.mcp.json

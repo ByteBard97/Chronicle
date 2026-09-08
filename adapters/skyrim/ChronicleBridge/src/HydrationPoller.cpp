@@ -82,7 +82,12 @@ namespace ChronicleBridge {
         // no save is loaded yet. Still handled as a plain skip, not an
         // error, since a null is always a legitimate "can't act on this
         // pair right now" outcome either way.
-        RE::TESNPC* ResolveLiveNpc(const std::string& chronicleNpcId) {
+        // Returns the live RE::Actor* itself, not just its TESNPC* base
+        // record -- ApplyHydrationPair's follower/spouse exclusion check
+        // needs Actor::IsPlayerTeammate(), which only exists on the live
+        // reference, not the base form. ResolveLiveNpc (below) is a thin
+        // wrapper for the two call sites that only ever needed the TESNPC*.
+        RE::Actor* ResolveLiveActor(const std::string& chronicleNpcId) {
             auto ref = ResolveChronicleNpcId(chronicleNpcId);
             if (!ref) {
                 SKSE::log::debug("ChronicleBridge hydration: '{}' has no reverse named-cast entry -- skipping",
@@ -102,7 +107,12 @@ namespace ChronicleBridge {
                 return nullptr;
             }
 
-            return actor->GetActorBase();
+            return actor;
+        }
+
+        RE::TESNPC* ResolveLiveNpc(const std::string& chronicleNpcId) {
+            auto* actor = ResolveLiveActor(chronicleNpcId);
+            return actor ? actor->GetActorBase() : nullptr;
         }
 
         // Applies one hydration pair to the live game. MUST run on the main
@@ -124,10 +134,13 @@ namespace ChronicleBridge {
         // comment for the exact mapping (this function's three branches
         // below are that mapping's source of truth).
         HydrationApplyOutcome ApplyHydrationPair(const HydrationPair& pair) {
-            RE::TESNPC* npc1 = ResolveLiveNpc(pair.holderId);
-            if (!npc1) return HydrationApplyOutcome::kRetry;
-            RE::TESNPC* npc2 = ResolveLiveNpc(pair.targetId);
-            if (!npc2) return HydrationApplyOutcome::kRetry;
+            RE::Actor* actor1 = ResolveLiveActor(pair.holderId);
+            if (!actor1) return HydrationApplyOutcome::kRetry;
+            RE::Actor* actor2 = ResolveLiveActor(pair.targetId);
+            if (!actor2) return HydrationApplyOutcome::kRetry;
+            RE::TESNPC* npc1 = actor1->GetActorBase();
+            RE::TESNPC* npc2 = actor2->GetActorBase();
+            if (!npc1 || !npc2) return HydrationApplyOutcome::kRetry;
 
             // Ruled scope (design doc §3c): only ever set .level on an
             // EXISTING BGSRelationship. GetRelationship() returning null
@@ -148,7 +161,59 @@ namespace ChronicleBridge {
                 return HydrationApplyOutcome::kNoRelationship;
             }
 
+            // Spouse/follower exclusion (docs/design/mod-conflict-mitigation-plan.md
+            // §3): a grudge write that demotes a player's own follower or
+            // spouse can desync follower-framework/marriage state that
+            // depends on a minimum rank (NFF/AFT force rank >=1 or ==4 at
+            // recruit/marry time and never re-check it afterward -- an
+            // external write dropping it produces package stalls, combat
+            // refusal, or a "broken spouse" with no engine-side correction).
+            // Two independent, narrow checks rather than one broad
+            // "involves the player" rule, since Chronicle's own grudge model
+            // is not player-exclusive (NPC<->NPC pairs are the common case)
+            // and this guard should never fire for those:
+            //   1. IsPlayerTeammate() on either side -- a real, direct
+            //      RE::Actor method (verified against CommonLibSSE-NG's
+            //      Actor.h), true for an active player follower regardless
+            //      of which recruitment framework put them there.
+            //   2. The relationship is ALREADY at kLover -- protects an
+            //      existing spouse (vanilla marriage's own rank-4 write)
+            //      without needing a specific marriage-faction FormID,
+            //      which was not independently verified in this pass and is
+            //      exactly the kind of unverified-FormID assumption this
+            //      project's own research already got burned by once
+            //      (see the mitigation plan's SkyPatcher correction).
+            // A NEW HydrationApplyOutcome::kExcluded value does not exist
+            // yet (OutboundClient.h's enum is unchanged by this pass) --
+            // reusing kRetry is deliberate: a follower/spouse pair is not a
+            // permanent structural fact the way "no relationship record
+            // exists" is (kNoRelationship), the player could dismiss the
+            // follower or the marriage could end, so this pair should be
+            // reconsidered on a later poll rather than permanently skipped.
+            const bool eitherIsFollower = actor1->IsPlayerTeammate() || actor2->IsPlayerTeammate();
+            const bool alreadyLover = relationship->level == RE::BGSRelationship::RELATIONSHIP_LEVEL::kLover;
+            if (eitherIsFollower || alreadyLover) {
+                SKSE::log::debug(
+                    "ChronicleBridge hydration: skipping ({}, {}) this poll -- {} (spouse/follower exclusion, "
+                    "docs/design/mod-conflict-mitigation-plan.md §3)",
+                    pair.holderId, pair.targetId, eitherIsFollower ? "active follower" : "existing Lover rank");
+                return HydrationApplyOutcome::kRetry;
+            }
+
             const auto level = LevelForRank(pair.relationshipRank);
+            // Debounce (mitigation plan §3, Stage 3): a no-op write still
+            // calls AddChange below if not guarded here, marking the form
+            // dirty for save serialization and (per the still-open question
+            // of whether this write path fires the same Story Manager event
+            // Actor.SetRelationshipRank's own internal implementation does)
+            // possibly generating needless churn for any other system
+            // watching this pair. Skip entirely when nothing would change.
+            if (relationship->level == level) {
+                SKSE::log::debug(
+                    "ChronicleBridge hydration: ({}, {}) already at rank {} -- no-op, skipping write",
+                    pair.holderId, pair.targetId, pair.relationshipRank);
+                return HydrationApplyOutcome::kApplied;
+            }
             relationship->level = level;
             // BGSRelationship::ChangeFlags::kRelationshipData (the real
             // header's own struct, RE/B/BGSRelationship.h) exists

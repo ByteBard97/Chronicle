@@ -13,8 +13,19 @@ hit to merchants who depended on him, a rumor that's already mutated by
 the time it reaches Riften, and guard patrols that shift because of what
 the simulation computed, not because a script branch fired.
 
+**Where this is going next:** the headline is shifting from "NPCs
+remember what you did to them" to **the world has its own agenda, and
+you can watch it move** — the civil war and dragon attacks as living,
+multi-phase conflicts, delivered through Bethesda's own Radiant Story
+engine and cast with real named NPCs whose grievances the player
+actually shaped. Belief, rumor, and grudge don't go away — they become
+the epistemology underneath that headline. See [the current vision](vision-v3.0.md)
+for the full pitch, or jump straight to [Where this is going](#where-this-is-going)
+below for the three-phase build order.
+
 [:material-github: View on GitHub](https://github.com/ByteBard97/Chronicle){ .md-button .md-button--primary }
 [Read the architecture](architecture.md){ .md-button }
+[Read the vision](vision-v3.0.md){ .md-button }
 
 ## Try it yourself
 
@@ -43,8 +54,12 @@ running against actual simulation output, not a mockup.*
 
 ## Project status
 
-{% include-markdown "../README.md" start="## Project status (August 2026)" end="## Development" %}
+{% include-markdown "../README.md" start="## Project status (August 2026)" end="## Where this is going" %}
 
 *(This section is pulled straight from the repository's own README, so
 it stays current with the codebase without me having to remember to
 update two places.)*
+
+## Where this is going
+
+{% include-markdown "../README.md" start="## Where this is going" end="## Development" %}

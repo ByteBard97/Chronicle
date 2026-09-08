@@ -64,6 +64,7 @@ Each packet is self-contained: hand it to an agent verbatim.
 | 57 | [lane-57-provenance-popover.md](lane-57-provenance-popover.md) | lane 53 (M7 gate finding) | small-medium (code) |
 | 58 | [lane-58-outcome-filter-label-mismatch.md](lane-58-outcome-filter-label-mismatch.md) | lane 53 (M7 gate finding) | small (code) |
 | 59 | [lane-59-m7-gate-rerun.md](lane-59-m7-gate-rerun.md) | lanes 54-58 (all landed) | small-medium (QA, no code) |
+| 61 | [lane-61-social-mechanics-v3-foundation-design-prep.md](lane-61-social-mechanics-v3-foundation-design-prep.md) | none (new track, off the frozen ladder — see `docs/vision-v3.0.md` §6) | large (design doc, no code) |
 
 **Current wave:** 30 → 31 (Track B, M4 views); 32 → 33 (Track A, hygiene then Tier-4a design).
 

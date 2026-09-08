@@ -1,5 +1,5 @@
 site_name: Chronicle
-site_description: A world that remembers -- reactive social simulation for Skyrim SE/AE.
+site_description: A world with its own agenda -- reactive social simulation for Skyrim SE/AE.
 site_url: https://bytebard97.github.io/Chronicle/
 repo_url: https://github.com/ByteBard97/Chronicle
 repo_name: ByteBard97/Chronicle
@@ -12,9 +12,11 @@ strict: true
 # repo): work-packets/ is internal multi-agent lane-coordination process log
 # (commit hashes, coordinator rulings), not documentation; loop-playbook.md
 # is the same category for autonomous-loop sessions. README.md is the
-# pre-site file index, superseded by nav below. vision.md/vision-v2.1.md
-# are explicitly superseded historical drafts (see vision-v2.2.md) -- kept
-# in the repo for history, not worth publishing/indexing as current.
+# pre-site file index, superseded by nav below. vision.md/vision-v2.1.md are
+# explicitly superseded historical drafts -- kept in the repo for history,
+# not worth publishing/indexing as current. vision-v2.2.md is still linked
+# from the nav below (as superseded-but-kept) rather than excluded, since
+# it's the machinery-level detail vision-v3.0.md's pivot still stands on.
 exclude_docs: |
   work-packets/
   loop-playbook.md
@@ -26,7 +28,8 @@ nav:
   - Home: index.md
   - Architecture:
       - Overview: architecture.md
-      - Vision & north star: vision-v2.2.md
+      - Vision & north star: vision-v3.0.md
+      - Vision (superseded, v2.2): vision-v2.2.md
       - Scenario ladder: scenario-ladder.md
       - v0.1 spec: v0.1-spec.md
   - Skyrim bridge:
