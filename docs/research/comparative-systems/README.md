@@ -36,6 +36,15 @@ provenance header at the top of each for what's distinctive about it.
 | [spatial-sim-shadows-of-doubt-nemesis-kenshi.md](spatial-sim-shadows-of-doubt-nemesis-kenshi.md) | Genre neighbors that simulate NPCs walking around a real-time 3D/voxel world (closer to Skyrim's own shape than CK's menu-driven model): Shadows of Doubt's witness/memory-decay pipeline and provenance-graph detective gameplay, Monolith's Nemesis System, and Kenshi's faction/legal/sight-based-crime systems. **Its Nemesis patent number is wrong — corrected by the next row.** |
 | [spatial-sim-legal-boundaries-and-witness-propagation.md](spatial-sim-legal-boundaries-and-witness-propagation.md) | Second independent pass on the same three games. Corrects the above file's patent citation (the real Nemesis family is US 10,926,179 B2 + continuations, with a precise claim-by-claim breakdown of what's covered vs. free to use) and frames each game's witness/grudge-propagation unit distinctly: SoD's per-citizen precomputed batch simulation, Kenshi's faction-as-memory-unit (not per-NPC), and Nemesis's true per-NPC memory. |
 
+## Kenshi
+
+Focused deep-dives on Kenshi's collective/world-scale systems, going
+deeper than the Kenshi sections of the spatial-sim passes above.
+
+| File | Covers |
+|------|--------|
+| [kenshi-world-states-factions-and-legal-systems.md](kenshi-world-states-factions-and-legal-systems.md) | The collective layer only: world-state trigger semantics (kill/imprison equivalence, release-rollback), the full town-override vocabulary and priority rules with shipped examples (Blister Hill, Rebirth, Stack, Okran's Shield, the UC slave-supply ripple), faction-relations thresholds (−30/+50) and their behavior bundles, the crime/bounty expiry math and legal-system delegation table, player-reception evidence for which systems produce the felt dynamism, and a ranked transferability assessment for a per-hold-legal first-person RPG. Corrects the earlier pass's −10 hostile threshold to −30. |
+
 ## AI directors / drama management
 
 | File | Covers |

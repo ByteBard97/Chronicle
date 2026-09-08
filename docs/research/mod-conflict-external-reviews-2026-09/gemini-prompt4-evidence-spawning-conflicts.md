@@ -1,0 +1,134 @@
+# **Dynamic Reference Spawning and Environmental Compatibility in Skyrim Special Edition**
+
+The runtime placement of persistent physical objects into the active worldspace through native SKSE plugins introduces severe architectural and spatial liabilities in Skyrim Special Edition. Invoking PlaceObjectAtMe(..., forcePersist=true) intersects with two fragile subsystems of the Creation Engine: spatial coordinate resolution within dynamic 3D scenes altered by world overhauls, and the low-level database serialization responsible for savegame persistence and reference handle allocation. Evaluating these mechanics against nineteen specific Whiterun residents demonstrates significant failure modes across extended playthroughs.
+
+## **Spatial Displacement and Collision Hazards Under City Overhauls**
+
+Executing object placement queries directly against an actor's live runtime coordinates assumes that the target occupies predictable geometry and conforms to vanilla schedule bounds. Popular environmental and artificial intelligence modifications invalidate these assumptions by fundamentally re-routing NPC routines and populating worldspaces with dense static and dynamic assets.
+
+### **Actor Schedule and Location Divergence**
+
+Settlement and behavioral overhauls alter the physical distribution of Whiterun's population, pulling actors far beyond their vanilla sandbox perimeters. Under *Immersive Citizens – AI Overhaul* (ICAIO), the daily routines of the nineteen targeted citizens diverge sharply from their vanilla baselines1. Anoriath routinely departs the city gates multiple mornings per week to hunt game across the exterior plains of Whiterun hold, periodically looting animal carcasses before returning1. Adrianne Avenicci vacates the Warmaiden’s forge during midday hours to travel through the Cloud District and dine inside Dragonsreach with her father2. Heimskr no longer shouts continuously at the Shrine of Talos; his public preaching is compressed into a narrow window of approximately three afternoon hours, while the remainder of his schedule directs him to sweep the shrine steps, sit quietly in prayer, or isolate inside his residential interior2. Nazeem divides his presence between the Drunken Huntsman, Dragonsreach, and the exterior fields of Chillfurrow Farm outside the city fortification walls1. Market vendors, including Carlotta Valentia and Fralia Gray-Mane, regularly vacate their stalls during business hours to visit taverns or browse adjacent retail interiors, producing concentrated gatherings in enclosed shop spaces2.  
+These behavioral deviations present acute complications for localized evidence generation. If the social simulation schedules an evidence spawn based on the assumption that an NPC occupies their town residence or market stall, but the actor is hunting in exterior wilderness cells or traversing city gates, physical objects spawn in distant wilderness terrain, along public highways, or inside locked private interiors inaccessible to the player without breaking trespassing laws1.  
+Further disruption occurs when mods such as *Populated Cities Towns Villages* inject high volumes of generic actors into Whiterun's primary thoroughfares. The resulting congestion saturates the local navigation mesh (navmesh), causing named citizens to collide with crowds and divert off their designated pathing lines into secondary collision boundaries, structural corners, and narrow alleys6. In parallel, non-standard game starts executed through *Alternate Start – Live Another Life* (ASLAL) alter world-state progression, delaying quest initialization stages and desynchronizing civil war progression flags. This locks Whiterun citizens into early-stage schedule loops or shifts cell-loading hierarchies prior to standard script initialization.
+
+### **Structural Mesh Collisions and Havok Physics Ejection**
+
+Architectural overhauls, exemplified by *JK's Whiterun*, alter the structural footprint of the city by superimposing dense physical clutter over vanilla pathways7. The mod introduces market awnings, wooden palisades, hanging lanterns, barrels, elevated walkways, and supplementary foliage across the Plains, Wind, and Cloud districts7.  
+When a dynamic object is spawned at an actor’s position, the engine evaluates placement relative to the NPC’s root coordinate vector. If an actor occupies an idle marker introduced or shifted by a settlement overhaul—such as leaning against an added timber guardrail or sitting on an added bench—the actor's root origin frequently clips directly into the collision boundary of adjacent static clutter7.  
+The Creation Engine resolves simultaneous rigid-body interpenetrations through the Havok physics engine by applying high-velocity penetration-recovery impulses. When a physical evidence object possessing Havok collision is placed within the collision volume of an existing static mesh, the engine registers severe collision overlap7. This calculation generates an explosive physics impulse, propelling the evidence object across the cell at extreme velocities into unreachable rooftops, or driving the object downward through the terrain collision hull7. Objects forced downward fall continuously through the non-colliding under-geometry of the world grid until culled by the engine's lower z-axis boundary plane. Conversely, if the spawned object lacks active dynamic collision or has its physics frozen, it remains permanently embedded inside the added architecture, occluded from view and inaccessible to player interaction.
+
+| Settlement / AI Overhaul | Structural and Behavioral Interventions | Resulting Spawning and Physics Failure Modes |
+| :---- | :---- | :---- |
+| **JK's Whiterun** | Densifies exterior spaces with extensive timber architecture, barrels, market clutter, and overhead structures7. | Severe Havok collision penetration; high-velocity physical ejection onto roofs; clipping into sub-terrain voids; embedded visual occlusion7. |
+| **Immersive Citizens – AI Overhaul** | Routes Anoriath to wilderness hunts1; sends Adrianne to Dragonsreach2; restricts Heimskr's preaching hours2; relocates Nazeem to Chillfurrow Farm1. | Objects spawn in remote wilderness cells, exterior agricultural fields, or private locked interiors rather than public market hubs. |
+| **Populated Cities Towns Villages** | Injects high concentrations of generic civilian actors into urban thoroughfares. | Saturated navmeshes divert target NPCs off canonical pathing routes into walls and alleyway geometry6. |
+| **Alternate Start – Live Another Life** | Decouples character initialization from Helgen; alters early-game quest flags and cell loading cycles. | Simulation desynchronization where background evidence generation assumes loaded city states while actors remain frozen in early routines. |
+
+## **Dynamic Reference Architecture and Engine Limits**
+
+Dynamic object spawning with persistent flags interacts with the internal mechanics of FormID allocation, savegame serialization, and active reference handle limits within the 64-bit Creation Engine.
+
+### **FormID Allocation Mechanics**
+
+The Creation Engine organizes game assets through 32-bit hexadecimal FormIDs. The most significant two hex digits define the provenance of the record:
+
+* Master files (.esm) and standard plugin packages (.esp) occupy indices 0x00 through 0xFD (0 to 253\)10.  
+* Light master plugins (.esl) are consolidated into index 0xFE (254), which addresses up to 4,096 distinct light files by utilizing three sub-hex digits spanning records 0x000 through 0xFFF10.  
+* Index 0xFF (255) is strictly reserved for dynamic engine allocations generated during live gameplay and serialized into savegame states10.
+
+Any reference generated at runtime via Papyrus or SKSE—such as dropped inventory items, reanimated ash piles, or objects instantiated via PlaceObjectAtMe—is automatically assigned an immutable dynamic FormID beginning with 0xFF10. These dynamic FormIDs are non-deterministic, exist entirely within the active playthrough's save state, and cannot be referenced by external static plugins10.
+
+### **Persistence Promotion and Savegame ChangeForms**
+
+When a runtime object is created with forcePersist \= false, the engine treats it as a temporary reference. Temporary references exist in dynamic memory only while their parent cell remains active in the working set; when the cell unloads, these entities become eligible for deletion during standard cell reset intervals, which cycle every 10 or 30 in-game days11.  
+Passing forcePersist \= true alters this lifecycle. The engine promotes the newly generated 0xFF reference into the global persistent cell table14. Persistent references are permanently loaded into heap memory upon engine startup, bypassing the standard cell-unloading pipeline14. Furthermore, every spatial transformation, coordinate update, and dynamic property of the persistent reference is committed to the .ess save file as a distinct ChangeForm record14. Because persistent records are immune to the standard 30-day cell reset cycle, they cannot be purged by the engine's automated garbage collection mechanisms, remaining in the save database indefinitely11.
+
+### **The Reference Handle Cap (![][image1])**
+
+The Creation Engine indexes loaded and active references through internal reference handles. The engine architecture enforces a hard mathematical ceiling of ![][image1] active reference handles, corresponding to precisely ![][image2] references10.  
+Every persistent reference loaded into memory continuously occupies an active handle14. In modern, heavily modded configurations, master files and base plugins routinely consume between ![][image3] and ![][image4] reference handles before gameplay commences16. Unchecked generation of dynamic persistent 0xFF references erodes the remaining handle headroom14. If cumulative loaded references breach the ![][image2] threshold during gameplay or upon loading a save, the engine experiences catastrophic failure, manifesting as immediate crashes to desktop (CTD) or unrecoverable infinite loading screens10. While utilities like SSE Engine Fixes adjust file handle and memory parameters, the underlying 32-bit reference indexing ceiling cannot be arbitrarily bypassed10.
+
+## **Save Bloat Pathology and Diagnostic Tooling**
+
+Savegame bloat is characterized by the structural inflation of the .ess relational database, which degrades runtime stability, increases I/O overhead, and exhausts memory pools12.
+
+### **Performance and Stability Degradation**
+
+The continuous instantiation of unmanaged persistent references introduces systemic engine degradation:
+
+* **I/O Latency and Save Freezing:** During save operations, the engine must sequentially serialize every active ChangeForm record to disk12. As dynamic persistent references accumulate, save operations transition from near-instantaneous writes to prolonged pauses lasting over a minute, causing severe micro-stuttering and freezing during automated background saves11.  
+* **Cosave Desynchronization:** Large base save writes strain SKSE co-save (.skse) synchronization pipelines, resulting in corrupted co-save tables and desynchronization between native plugin data arrays and main game state17.  
+* **Heap Fragmentation and Memory Leaks:** Accumulating thousands of persistent dynamic objects forces the Creation Engine to continuously parse bloated arrays during cell transitions, resulting in Papyrus virtual machine queuing bottlenecks, physics array saturation, and eventual memory exhaustion12.
+
+### **Diagnostic Observations: FallrimTools and ReSaver**
+
+The Skyrim diagnostic community, particularly developers and users of *FallrimTools (ReSaver)*, has documented the progression of save bloat caused by dynamic reference accumulation14. Within ReSaver, bloated save files present massive concentrations of persistent ChangeForm entries classified under REFR14.  
+Dynamic references remain embedded in the save even if the originating plugin is uninstalled, leaving behind unattached instances, broken script linkages, and orphaned pointers15. When the engine parses an orphaned ChangeForm referencing an asset that no longer exists, it can encounter null-pointer dereferences in native memory, terminating the execution thread15. Modding documentation and community repair threads trace game-ending crashes at the 50- to 100-hour mark to historical mods that generated unmanaged persistent dynamic records—such as uncleaned ash piles, loose arrows, or persistent dynamic markers11.
+
+| Spawning Implementation | Persistence State | FormID Prefix | Engine Reset Lifecycle | Stability Risk Profile |
+| :---- | :---- | :---- | :---- | :---- |
+| **PlaceObjectAtMe(..., forcePersist=true)** | Persistent Reference | 0xFFxxxxxx | Bypasses 10/30-day cell resets; permanently serialized as ChangeForm; continuously holds active reference handle11. | **Critical:** Causes progressive save bloat and reference handle exhaustion toward the ![][image1] limit10. |
+| **PlaceObjectAtMe(..., forcePersist=false)** | Temporary Reference | 0xFFxxxxxx | Purged during standard cell resets upon parent cell unloading; releases handle11. | **Moderate:** Avoids long-term save bloat, but susceptible to Havok collision displacement and physics ejection. |
+| **Pre-Placed Disabled Records** | Pre-Authored Static | 0x00-0xFE | Managed via master plugin; state toggled by Enable()/Disable(); zero dynamic FormID generation10. | **Negligible:** Completely eliminates save bloat, handle leaks, and Havok world clipping. |
+
+## **Architectural Alternatives for Evidence Systems**
+
+Because dynamically instantiating persistent objects at live NPC coordinates exposes the game to geometry clipping and savegame corruption, alternative architectural patterns must be employed to maintain long-term stability.
+
+### **Pattern 1: Pre-Placed Disabled References**
+
+The most stable pattern relies on pre-authoring static evidence objects directly into Whiterun's interior and exterior cells via a light master plugin (.esl) or standard patch10. Evidence markers are positioned by hand on desks, dressers, shelving units, or stable floor terrain, ensuring that their bounding boxes avoid interference with the geometry of mods like *JK's Whiterun*7.  
+These pre-placed objects receive deterministic FormIDs under the mod’s light master header (0xFE range) and are flagged as Initially Disabled10. When the external simulation service dictates that an evidence piece should manifest, ChronicleBridge executes a native call to Enable() the specific pre-placed reference, subsequently invoking Disable() when the clue is investigated or expires. This pattern generates zero dynamic 0xFF FormIDs, consumes no dynamic reference handles from the runtime pool, and leaves no residual ChangeForm bloat in the .ess file10.
+
+### **Pattern 2: Inventory and Container Redirection**
+
+Evidence can be routed directly into inventories rather than dropped into the open 3D worldspace. When an evidence event fires, the SKSE plugin identifies the target NPC's inventory or an owned container in their residence (such as Carlotta's strongbox or Amren's chest) and executes native item addition (AddItem).  
+This approach completely bypasses the Havok physics engine, eliminating clipping and terrain drop-through. It operates identically whether the NPC is inside Whiterun, walking exterior roads, or sleeping in an interior cell, providing full compatibility across all settlement overhauls without spatial checks.
+
+### **Pattern 3: Temporary Instantiation with Explicit MarkForDelete Disposal**
+
+If dynamic spawning into the 3D worldspace is required by design, the mod must not utilize forcePersist \= true14. Spawning must be performed with forcePersist \= false, creating a temporary reference14.  
+The native plugin must retain the runtime FormID of the temporary reference in memory. Once the evidence object has been collected, disturbed, or aged out by the social simulation, the plugin must explicitly invoke MarkForDelete() on the reference pointer21. In the Creation Engine, MarkForDelete() flags the 0xFF dynamic reference for complete extraction from the memory heap and instructs the engine to purge the associated ChangeForm record from the .ess file during the subsequent cell transition21. This explicit cleanup cycle terminates the persistence chain, preventing handle exhaustion and long-term save bloat14.
+
+## **Architectural Conclusions**
+
+Deploying PlaceObjectAtMe(..., forcePersist=true) at runtime coordinates for the nineteen Whiterun citizens creates acute technical risks:
+
+* **Spatial and Physics Vulnerabilities:** Schedule-altering mods like *Immersive Citizens* pull NPCs into wilderness cells, public taverns, and private interiors, resulting in misplaced evidence1. Concurrently, structural overhauls like *JK's Whiterun* introduce high-density collision geometry that triggers severe Havok physics ejections or forces spawned evidence beneath the navigable world mesh7.  
+* **Engine and Save Serialization Failures:** Allocating persistent dynamic references under the 0xFF FormID prefix creates permanent ChangeForm records that bypass 30-day engine cell cleanup routines10. This directly causes savegame bloat, extended I/O freeze times, SKSE cosave desynchronization, and reference handle consumption toward the ![][image1] architectural limit (![][image2] handles), terminating in unrecoverable save corruption10.
+
+Dynamic forcePersist world spawning should be eliminated from ChronicleBridge. The simulation should adopt pre-placed disabled references toggled via Enable() and Disable(), redirect evidence into actor and container inventories, or employ temporary non-persistent references strictly regulated by explicit MarkForDelete() disposal lifecycles21.
+
+#### **Works cited**
+
+> 1. Immersive Citizens – AI Overhaul, [http://ai4egames.com/skyrim/ic/](http://ai4egames.com/skyrim/ic/)  
+> 2. Is "Immersive Citizens \- AI Overhaul" worth it ? : r/skyrimmods \- Reddit, [https://www.reddit.com/r/skyrimmods/comments/5usyfm/is\_immersive\_citizens\_ai\_overhaul\_worth\_it/](https://www.reddit.com/r/skyrimmods/comments/5usyfm/is_immersive_citizens_ai_overhaul_worth_it/)  
+> 3. Heimskr is not talking, and also is the secret mastermind ... \- Reddit, [https://www.reddit.com/r/skyrimmods/comments/5t5ltj/heimskr\_is\_not\_talking\_and\_also\_is\_the\_secret/](https://www.reddit.com/r/skyrimmods/comments/5t5ltj/heimskr_is_not_talking_and_also_is_the_secret/)  
+> 4. Heimskr is broken. This mod fixes it. : r/skyrimmods \- Reddit, [https://www.reddit.com/r/skyrimmods/comments/9fu5nd/heimskr\_is\_broken\_this\_mod\_fixes\_it/](https://www.reddit.com/r/skyrimmods/comments/9fu5nd/heimskr_is_broken_this_mod_fixes_it/)  
+> 5. Immersive Citizens \- AI Overhaul by Shurah \- AFK Mods, [https://www.afkmods.com/index.php?/topic/4215-immersive-citizens-ai-overhaul-by-shurah/](https://www.afkmods.com/index.php?/topic/4215-immersive-citizens-ai-overhaul-by-shurah/)  
+> 6. Immersive Citizens – AI Overhaul SE PS4, [http://ai4egames.com/skyrim/ic-ps4/](http://ai4egames.com/skyrim/ic-ps4/)  
+> 7. Skyrim 2023\. An illogical Load Order by Zen\_Shot. FINAL DRAFT, [https://www.reddit.com/r/SkyrimModsXbox/comments/1024mum/skyrim\_2023\_an\_illogical\_load\_order\_by\_zen\_shot/](https://www.reddit.com/r/SkyrimModsXbox/comments/1024mum/skyrim_2023_an_illogical_load_order_by_zen_shot/)  
+> 8. Between JK's Skyrim, Cities of the North, Solitude Expanded, and, [https://www.reddit.com/r/skyrimmods/comments/11au5bm/between\_jks\_skyrim\_cities\_of\_the\_north\_solitude/](https://www.reddit.com/r/skyrimmods/comments/11au5bm/between_jks_skyrim_cities_of_the_north_solitude/)  
+> 9. Skyrim LE Ultimate Modding Guide \- Graphics, [https://www.sinitargaming.com/skyrim\_graphics.html](https://www.sinitargaming.com/skyrim_graphics.html)  
+> 10. I have 1,400 ESL mods. People say ESL files don't have a limit, is, [https://www.reddit.com/r/skyrimmods/comments/1glv12w/i\_have\_1400\_esl\_mods\_people\_say\_esl\_files\_dont/](https://www.reddit.com/r/skyrimmods/comments/1glv12w/i_have_1400_esl_mods_people_say_esl_files_dont/)  
+> 11. I fixed my bloated save\!\! \- The Elder Scrolls V: Skyrim \- GameFAQs, [https://gamefaqs.gamespot.com/boards/615805-the-elder-scrolls-v-skyrim/63546645](https://gamefaqs.gamespot.com/boards/615805-the-elder-scrolls-v-skyrim/63546645)  
+> 12. Skyrim and the "save-bloat" issue | \[H\]ard|Forum, [https://hardforum.com/threads/skyrim-and-the-save-bloat-issue.1727709/](https://hardforum.com/threads/skyrim-and-the-save-bloat-issue.1727709/)  
+> 13. Save Bloating :: The Elder Scrolls V: Skyrim Special Edition General, [https://steamcommunity.com/app/489830/discussions/0/4329727702240825008/](https://steamcommunity.com/app/489830/discussions/0/4329727702240825008/)  
+> 14. PSA: The reference handle cap, or diagnosing one of the causes of, [https://www.reddit.com/r/skyrimmods/comments/ag4wm7/psa\_the\_reference\_handle\_cap\_or\_diagnosing\_one\_of/](https://www.reddit.com/r/skyrimmods/comments/ag4wm7/psa_the_reference_handle_cap_or_diagnosing_one_of/)  
+> 15. Game freezes for a while after saving or waiting : r/skyrimmods, [https://www.reddit.com/r/skyrimmods/comments/ooql81/game\_freezes\_for\_a\_while\_after\_saving\_or\_waiting/](https://www.reddit.com/r/skyrimmods/comments/ooql81/game_freezes_for_a_while_after_saving_or_waiting/)  
+> 16. Skyrim's Modding Limit : r/skyrimmods \- Reddit, [https://www.reddit.com/r/skyrimmods/comments/em3k4l/skyrims\_modding\_limit/](https://www.reddit.com/r/skyrimmods/comments/em3k4l/skyrims_modding_limit/)  
+> 17. Save Bloat, I.E Taking a very Long time to Load Fix : r/skyrimmods, [https://www.reddit.com/r/skyrimmods/comments/qbvgo2/save\_bloat\_ie\_taking\_a\_very\_long\_time\_to\_load\_fix/](https://www.reddit.com/r/skyrimmods/comments/qbvgo2/save_bloat_ie_taking_a_very_long_time_to_load_fix/)  
+> 18. How to de-bloat my savefile? What's a solution to save bloat? \- Reddit, [https://www.reddit.com/r/skyrimmods/comments/15yiuzi/how\_to\_debloat\_my\_savefile\_whats\_a\_solution\_to/](https://www.reddit.com/r/skyrimmods/comments/15yiuzi/how_to_debloat_my_savefile_whats_a_solution_to/)  
+> 19. Tips on minimizing "save bloat" :: The Elder Scrolls V, [https://steamcommunity.com/app/489830/discussions/0/3196991412360930805/?l=bulgarian](https://steamcommunity.com/app/489830/discussions/0/3196991412360930805/?l=bulgarian)  
+> 20. "Permanent damage to your game" I keep hearing this.... \- Reddit, [https://www.reddit.com/r/skyrimmods/comments/p9zuk9/permanent\_damage\_to\_your\_game\_i\_keep\_hearing\_this/](https://www.reddit.com/r/skyrimmods/comments/p9zuk9/permanent_damage_to_your_game_i_keep_hearing_this/)  
+> 21. Curiosity question; Changing where Sylgja sleeps \- UESP Forums, [https://forums.uesp.net/viewtopic.php?t=38865](https://forums.uesp.net/viewtopic.php?t=38865)  
+> 22. Question about MarkforDelete command prompt \- UESP Forums, [http://forums.uesp.net/viewtopic.php?t=33203](http://forums.uesp.net/viewtopic.php?t=33203)
+
+[image1]: <data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAZCAYAAAAv3j5gAAABDElEQVR4XmNgIA1UAPF/KEYHTxkg4lzoEqSCU0AsDWVPBeKbSHLIFoPYTEh8kgG6T0BsAyCuRxPfCsTvkfg4gQm6ABRoATEfEh9kOCsQn4OyYWAmGh8DgCS9gdgDiL9D+S4oKhBgNxCbQdkwtTAwAY2PAragCzBgBhUMWAHxZyT+FQZUdVPQ+CgAm6EwMR4kMRBbEcoGBaUKENcwoOrdAMR/kfgoAJtF16Bimkhix5HYoLiAAWS9IN9mIfEJAnTLYXxkDAPcQHwRiBcCsTWSOFEA3TCaAJAFi9EFqQ1eMdDBJ7wMROZqSsAkIL6OJiaHxqcK+ADEDkjYnwFSkFIVoCdbbEl4FIyCUTBSAAC5yU1FsBBlKwAAAABJRU5ErkJggg==>
+
+[image2]: <data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFMAAAAZCAYAAABNcRIKAAADEklEQVR4Xu2XS6hOURTHl1BeybPkMfBOJoQ8i6Q8RgYmSKFEIXmMpBgwMpGBZKSMUMoISTIhRZRMhIkJKY8UIbH+9t6+9f2tvb9z7r0edc+v/t1v/ffae5+z7jn77C3S0NDQS5nJRgX6qxawWeC6aiibEfjD2OzAJDaUPhQfUw0nrxN9VWPZLIFCHFTdUX2PqsoACflTY4wideq/WELOBPKHqD6pxsT4uOpxq7lIum4r9LdwO8tySvVFtTDG70xbkdGqh6pN4g9cwstHPJs8S+rDxeRxALz1bDpwYS61N/+Ec6zw1CbORC9xjuLKpMGrgtwD5O2Pvkfy8bdKMZ+pXrLp4PVlHrChzFKtIA9jHTLxSNVVE1emK8VcSx5ib4x+qq3xd66YNx1vGXke3nzMZjbk9364Jnh112yXOsVcJSGXPzyI4a82HhZyO65XzN3Rh/C0P1INbsvIgz574l8Ia28nvPtM/bF+X1GdjzG+KbWpU8yNEnLnkj8n+luM91E1zsReMcELaV1D1esAyLVvyA3VKxMz+NI/Z1P8ufdRXBkeqMQGCbnzyZ8XfXzQwBRpLyTwijleWl9Ne1O7fmXUA32fsBnJ3WOac5TjXyCvI3WKuVRC7hLy09YH7cAbj4uJJ4XzdkaP/ark+k4T3wdfxW/LjVWkTid8UJBr10awMvpot+tgTuC2+W15L8FP+1iP6eLvA3P3ck18H9wXvy03VpG6nZB7lLwj0c+xSEK7fTIRvzGxpTQWSE/TCPJz95LzwUDx2+DdY7MTpYlwIvhMHnKxF7Q8VZ0mz4JlgYuJ9cibN+0YLIjtdWBPeNbEIC0b3jGzdI8AbXbpSm9g5aNomoBlSd5yx98Wf7+VUPQcPL6dY2+Md6gmq05I2B4x3A/g1T0pYYN9WEL7jLaMFl5/y3YJ7TjF4TiJ35fbMnoITOQd73CW/SCtonaVdRJeJ5zxeS224DqYixK2Q68lfGRyoPBYo0sMklDEb6qJ1NZjlP6jf5P/5Tq6xV02/gFr5P+4jm7RpcP+H+AWGw0NDQ0NDb2WH8ddDAL1KMBkAAAAAElFTkSuQmCC>
+
+[image3]: <data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEMAAAAZCAYAAABq35PiAAACs0lEQVR4Xu2XTahNURTHl+/PMqFIUsSAEEU+ilKIkokSMSBSJgbUo0yQmDCQkNErIzFgwIQiZcKQAZGkKKXe4/UMlNj/9lrnLP+79z7HjJxfrVrrt9ddd99z7/m4Ih0dHX/AFBYFJmqUGBliJcuWjJF2r10msbcE1qezLLE1xM9CGHO1tgP3NsSherkCPRs0v6h1G8ZL7J2n9QOtme8hhjQfIbGHD15q1o16Oc9V6T0AFiddH+qxrjY3wdWf1Hk+hDhILoW9J7slCee5mXCoFyYcz+qBBwH8BH+4+o6k+/gDIL/tarBKfRPoOUKuT73xNcSwqw3fc5Rqg/ea5D4LiS8aR3VqEHvk510NpqmfQ55BzzZy29UbyJ+62oDfq/lnrRneaytyByc1yPtJmuObYeBPs3Rskdizgvwa9XYNQo5fKQP/yOVNe20F7gKpF+QGeT9L88P1cgX8NZaO3RJ7lpLHwYHfozXyW/VyBfxLlzfttRVo/sJS8oO8n6k5n/cA/jJLxy6JPcvJ4y4Bv1Nr5HxNAvAvXN6011ag+QpLyQ/y3m5zx+rlCvjjLB3rJPasJr9WPU4XgPxuvVwBf8/lTXttBZrXs5T8IPbIz7ga2LUEHzjHaIk9m8jbtWSU1sgf18sV8Cc0x12wzV6L4FxHs7+LGP2SHsRvgPyhq8Fm9U2g5xS5s+oNPOjxLDxlerePaoP3WuSN5JvtFGDgdlDNff1Sn89Gqg819uDBh7/k6tnS+7rUh0eNPbPzs4qkNuixn/vGEDM0xwMV8y3EBc1fSXpm7r3gDmg+KPHRm/Ff2mLNsR/GZk2WOGv/78tlFoV4wpKYGuJ6iOcSz+cc50IMSPmiuYCFggs4/nvYQUkxP8S7EM/Ie/D/BLNeS3nWX8F7Fv8reEDDL6cj8JFFR0dHR8c/yi/kVe/nym1VAAAAAABJRU5ErkJggg==>
+
+[image4]: <data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEMAAAAZCAYAAABq35PiAAAC3klEQVR4Xu2XTahNURTHl898lRTlkRQx8Bnl9VCYICYmJPIGRErJAKGMvETKRxJl9EoGYsCADBQZMmRAJKlHoogYkNj/9lrnrPu/e59zGZHzq11r/fY6++yz7zn7nCvS0NDwB6wIbQhLYpS2KgaH1sOyQ4ZJZ8culFhbBfonsqzjZ2hvNB6rOZ9ounr0gxeh7Sq7C1CzUuOzmnfCCIm1MzS/oznzLbTPGg+SWMOLlxrrStmdZ7e0nxR5yg1PuJEuf6vOMxDaTnIpcuecn3CeqwmHfHbC8VhtoOg7uTPqjRuUG3wBiK+7HCxWXwdq9pI7oN74FNoXlxu+Zh/lBs81CQrekTus3sgNxB7xSZeDCeqnkWdQs47cevUG4gcuN+C3avxec4bnmgQFH8mdVj9X89xA3o/WGL8MA9/H0rFWYk03+aXqbQ9CjLuUgb/n4rq5ZkkVPVJnq52qAd5P0XhP2V0Af5GlY4vEmgXksTjwvZojvlZ2F8A/cXHdXCtB0XiX47GB26B5biDvJ2vMzz2AP8/SsVlizSLyeEvAb9IcMe9JAP6xi+vmWglWFYUnJL66Dmk+RvtzA3lvr7mDZXcBPMbMsVxizRLyy9TjcQGIb5bdBfC3XFw3198Ct7Q/MDcQe8RHXQ5sL8EF5xgqsWY1edtL7EMQ8f2yuwAemz74oTnDc00yTsrNx+AD+yk3uA7xXZeDNerrQM0RcsfUG/jQ47HwcejdNsoNnmsS+9Kb5Bxy/4zbI8DAbaSc6/qlfJ6NVB3y5+Rw8edcPlXaj0tdPHLMmZ0fKwk2ztsSN69VEg+a01IRsdsdNV0a44OK+RraKY2fSvtEQWoxANwOjfG6x/7FYMHs2HkaYz6MjYV9D2Ntb+3Os1/iSS5L6+c1g4W7JPHVi+c5x/HQPkj1pjmLhXJB4n8PW5QUM0N7GdpD8h78P8FYz6R6rL+CVyz+V/CBhjunIfCaRUNDQ0PDP8ovmFX6sMbdT2kAAAAASUVORK5CYII=>

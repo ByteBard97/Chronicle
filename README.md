@@ -23,15 +23,15 @@ the simulation computed, not because a script branch fired.
 
 **Where this is going next:** the headline is shifting from "NPCs
 remember what you did to them" to **the world has its own agenda, and
-you can watch it move** — the civil war and dragon attacks as living,
-multi-phase conflicts, delivered through Bethesda's own Radiant Story
-engine and cast with real named NPCs whose grievances the player
-actually shaped. Everything above (belief, rumor, grudge) doesn't go
-away, it becomes the epistemology underneath that headline instead of
+you can watch it move.** The civil war and dragon attacks turn into
+living, multi-phase conflicts, delivered through Bethesda's own Radiant
+Story engine, cast with real named NPCs whose grievances the player
+actually shaped. Everything above (belief, rumor, grudge) isn't going
+away. It becomes the epistemology underneath that headline instead of
 the headline itself. See [`docs/vision-v3.0.md`](docs/vision-v3.0.md)
 for the full pitch, and [Where this is going](#where-this-is-going)
-below for the three-phase build order — including where an LLM enters
-at all, which is later than you'd think.
+below for the three-phase build order, including where an LLM enters
+at all. That's later than you'd think.
 
 ## How it works
 
@@ -129,22 +129,22 @@ See `adapters/skyrim/README.md` for per-slice status and
 ## Where this is going
 
 The headless engine and bridge are the foundation, not the goal. The
-plan is three phases, and the dividing lines are deliberate — most
-importantly, **no LLM appears until Phase 2, and no LLM is ever
+plan is three phases, and I drew the dividing lines on purpose. Most
+importantly: **no LLM appears until Phase 2, and no LLM is ever
 allowed to decide simulation outcomes, only to render or voice ones the
 deterministic engine already computed.** Each phase is a designed,
 claimable problem, not a vibe (see `docs/vision-v3.0.md`,
 `docs/decisions/`, and the open issues).
 
-### Phase 1 — the world, with no LLM anywhere
+### Phase 1: the world, with no LLM anywhere
 
 This is the current headline (`docs/vision-v3.0.md`): the civil war and
 dragon crisis become **multi-phase conflicts with real casualties and
 consequences**, delivered through Bethesda's own Radiant Story engine
 rather than a competing quest system, and cast with real named NPCs
 whose grievances and loyalties the player actually shaped. Everything
-already shipped — belief, rumor, grudge, obligation, roles and
-succession (the "How it works" section above) — becomes the
+already shipped (belief, rumor, grudge, obligation, roles and
+succession, the "How it works" section above) becomes the
 epistemology underneath that headline: the data the world-event layer
 draws on to decide who gets cast, what a rumor says by the time it
 reaches the third county, and why a given NPC broke down instead of
@@ -152,8 +152,8 @@ shrugged.
 
 Still to build in this phase, all of it deterministic and headless-
 testable: storylet role-casting on Radiant Story, named relationship
-states with a founding memory a player can ask about ("Crystallization"
-— why the market turns to look at you), a production-rule reaction
+states with a founding memory a player can ask about ("Crystallization,"
+basically why the market turns to look at you), a production-rule reaction
 layer mapping event + belief + sentiment to a bark/expression/approach/
 exit tier, per-observer Dread (the same rumor lands as fear in one NPC
 and respect in another), Secrets/Hooks leverage (the player's one
@@ -164,35 +164,37 @@ for the shared foundation these lean on is filed at
 A player could run the entire Phase 1 pitch with zero language models
 installed.
 
-### Phase 2 — the simulation gets a voice, kept deliberately narrow
+### Phase 2: the simulation gets a voice, and I'm keeping it narrow on purpose
 
-Two things, and only two things:
+Two things, and only two things.
 
-- **NPC dialogue rendering.** A local LLM speaks an NPC's already-
-  computed belief state out loud. It never decides anything — the
-  deterministic engine upstream already did — it just renders. Sized
-  for consumer hardware on your own LAN (targeting a 27B-class
-  open-weights model on about 64GB of unified memory), not a cloud API.
-- **Player persona and intent-driven dialogue** ([ADR-0011](docs/decisions/0011-player-persona-and-voice.md)).
-  You author your character's personality once, the way you already
-  author their face: a trait profile (Big Five plus a few D&D-fluent
-  stats), mannerisms, a voice. That compiles into a "voice card" the
-  model never sees raw trait numbers from. In conversation you pick an
-  **intent** (negotiate, deceive, intimidate, charm...) and the engine
-  generates 3-5 candidate lines in your character's actual voice, in
-  one call, so you confirm the real words instead of a paraphrase (the
-  Fallout-4 dialogue-wheel failure this is designed to avoid).
-  Committed lines feed straight into the rumor engine as claims — a
-  boast you make in Whiterun can end up in Riften, mutated along the
-  way, deception scaled by your charisma stat and the listener's
-  existing disposition toward you. What you say has consequences
-  because what you say becomes evidence.
+First, NPC dialogue rendering: a local LLM speaks an NPC's already
+computed belief state out loud. It never decides anything, since the
+deterministic engine upstream already did that; it just renders.
+Sized for consumer hardware on your own LAN (targeting a 27B-class
+open-weights model on about 64GB of unified memory), not a cloud API.
 
-Deliberately **not** in Phase 2: an LLM authoring or deciding any story
+Second, player persona and intent-driven dialogue
+([ADR-0011](docs/decisions/0011-player-persona-and-voice.md)). You
+author your character's personality once, the way you already author
+their face: a trait profile (Big Five plus a few D&D-fluent stats),
+mannerisms, a voice. That compiles into a "voice card" the model never
+sees raw trait numbers from. In conversation you pick an intent
+(negotiate, deceive, intimidate, charm, and so on) and the engine
+generates 3-5 candidate lines in your character's actual voice, in one
+call, so you confirm the real words instead of a paraphrase. That's
+the Fallout 4 dialogue-wheel failure this is meant to avoid. Committed
+lines feed straight into the rumor engine as claims. A boast you make
+in Whiterun can end up in Riften, mutated along the way, with
+deception scaled by your charisma stat and the listener's existing
+disposition toward you. What you say has consequences because what
+you say becomes evidence.
+
+Left out of Phase 2 entirely: an LLM authoring or deciding any story
 content. That's Phase 3, and it waits until this phase's NPC voice and
 player dialogue are proven against a world that's already fully
-reactive without them — a stable foundation to stand a much harder
-problem on, rather than building both at once against a moving target.
+reactive without them. That gives the much harder GM problem a stable
+foundation instead of a moving target.
 
 Down the line inside this phase, committed dialogue also gets rendered
 as audio through a small local voice model, one original synthetic
@@ -200,29 +202,30 @@ voice per NPC. One hard line I'm not moving on: no cloning Skyrim's
 voice actors, or anyone's voice, without documented consent. Every
 voice Chronicle ships will be original or properly licensed.
 
-### Phase 3+ — the LLM storyteller, and the harness that makes it safe
+### Phase 3+: the LLM storyteller, and the harness that makes it safe
 
 An LLM-authored director layered on top of Phase 1's world-event
-machinery — generating storylet content and scene framing beyond
+machinery. It generates storylet content and scene framing beyond
 template interpolation, not just casting real NPCs into pre-authored
 shapes. The harder engineering problem, and the bulk of the work here,
 is the harness underneath it: a **hierarchy of GM agents operating at
-different timescales** — a slow campaign-architect tier holding a
-loose, evolving premise, a mid tier advancing hold-by-hold state, a
-fast per-scene renderer — kept synchronized without the prose-
-replanning drift that sinks naive versions of this idea. See
+different timescales.** A slow campaign-architect tier holds a loose,
+evolving premise. A mid tier advances hold-by-hold state. A fast
+per-scene renderer handles the moment-to-moment. Keeping all three
+synchronized, without the prose-replanning drift that sinks naive
+versions of this idea, is most of the actual challenge. See
 `docs/research/49-56` (HAMLET, StoryVerse, Dramatron, Story2Game) for
 the comparative-systems research this design will draw on.
 
-This is genuinely open-ended rather than one clean milestone — likely
-Phase 3 through 5 or 6 by the time it's actually built, not a single
-phase. Candidate shape, not a committed plan: an early phase getting
-one timescale working end to end (probably the mid, hold-advancing
-tier, since Phase 1 already gives it real state to advance), then
-adding the slow campaign-architect tier once that's proven, then the
-fast per-scene renderer, then a phase purely on keeping the tiers
-synchronized without drift — each one only gets scoped for real once
-the phase before it ships and shows what the next one actually needs.
+This is genuinely open-ended, not one clean milestone. I'd guess it
+runs Phase 3 through 5 or 6 by the time it's actually built. Candidate
+shape, not a committed plan: an early phase getting one timescale
+working end to end (probably the mid, hold-advancing tier, since
+Phase 1 already gives it real state to advance), then adding the slow
+campaign-architect tier once that's proven, then the fast per-scene
+renderer, then a phase purely on keeping the tiers synchronized
+without drift. Each one only gets scoped for real once the phase
+before it ships and shows what the next one actually needs.
 
 ### Getting involved
 

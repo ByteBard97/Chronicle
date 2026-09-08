@@ -15,10 +15,10 @@ the simulation computed, not because a script branch fired.
 
 **Where this is going next:** the headline is shifting from "NPCs
 remember what you did to them" to **the world has its own agenda, and
-you can watch it move** — the civil war and dragon attacks as living,
-multi-phase conflicts, delivered through Bethesda's own Radiant Story
-engine and cast with real named NPCs whose grievances the player
-actually shaped. Belief, rumor, and grudge don't go away — they become
+you can watch it move.** The civil war and dragon attacks turn into
+living, multi-phase conflicts, delivered through Bethesda's own Radiant
+Story engine, cast with real named NPCs whose grievances the player
+actually shaped. Belief, rumor, and grudge aren't going away. They become
 the epistemology underneath that headline. See [the current vision](vision-v3.0.md)
 for the full pitch, or jump straight to [Where this is going](#where-this-is-going)
 below for the three-phase build order.

@@ -9,6 +9,10 @@ __pycache__/
 .claude/
 notes/skyrim-modlist-research/
 
+# Personal Skyrim playthrough planning, not a Chronicle deliverable (see the
+# file's own header) -- same category as the line above, just added later.
+notes/skyrim-ai-modlist-plan.md
+
 # Playwright MCP tool scratch (screenshots/snapshots from live-browser
 # verification sessions) -- local-only, recurs across every agent session
 # that uses the MCP browser tools for the live-verification convention.
@@ -65,3 +69,4 @@ adapters/skyrim/ChronicleBridge/tests/test_sync_handshake_core
 /GOALS.md
 /tools/esp-dump
 .mcp.json
+frontier-model-transcript.md
