@@ -70,3 +70,4 @@ adapters/skyrim/ChronicleBridge/tests/test_sync_handshake_core
 /tools/esp-dump
 .mcp.json
 frontier-model-transcript.md
+/handoffs

@@ -205,3 +205,39 @@ Rules for the renderer:
 - Determinism (ADR-0009): menu construction uses keyed rolls if it needs
   randomness at all; LLM/TTS nondeterminism stays outside the engine boundary
   and is evaluated by recorded-fixture replay, per existing practice.
+
+## 8. [2026-09-08 addendum] Dual-wheel tenor × intent — idea capture, not designed
+
+**Status: captured for Phase 2, deliberately not designed yet.** The owner
+raised this in conversation and asked for it to be written down before it
+gets lost, explicit that brainstorming and a prototype are Phase 2 work,
+not now.
+
+**The idea:** split ADR-0011 §3's single intent wheel into two independent
+wheels the player picks from per turn: **tenor** (the register/delivery —
+candidate axis: warm/cold, gentle/aggressive, sincere/sarcastic) crossed
+with **intent** (the existing taxonomy: greet, inquire, negotiate,
+persuade, deceive, intimidate, charm, mock, farewell). The same intent
+delivered on different tenors reads as a different move (a cold
+`persuade` and a warm `persuade` are different social acts) without
+growing the intent taxonomy combinatorially.
+
+**Why it slots in cleanly (not re-litigating, just noting the seam):**
+this document's own §2 amendment already turns each menu option into a
+grounded tuple, e.g. `(confront, rumor_id=X)`. Tenor is naturally one more
+argument on that tuple: `(persuade, rumor_id=X, tenor=cold)`. It doesn't
+add a pipeline stage — the render call already takes a grounded intent
+and renders one line; tenor is one more thing the voice card + render
+prompt condition on. It also gives the reaction layer's `temperament`
+field (design-doc §2 X3) something concrete to modulate: a bold NPC's
+reaction to a cold tenor differs from a timid NPC's, the same asymmetry
+pattern the ray-tracing doc's Belethor/Uthgerd example already
+established.
+
+**Explicitly not decided:** whether tenor is a small fixed set (like the
+intent taxonomy) or something continuous/compositional. That's real
+design work, deferred to Phase 2 brainstorming + a prototype, per the
+owner's own framing. Do not design the tenor vocabulary, its interaction
+with credibility/speech-check mechanics (ADR-0011 §4), or its UI
+presentation from this paragraph alone — this section exists so the idea
+survives a context clear, not to pre-empt that work.
